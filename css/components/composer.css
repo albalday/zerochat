@@ -1012,7 +1012,6 @@
   transition: background-color var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.header-profile-trigger .profile-icon .ui-icon,
 .header-profile-trigger .profile-chevron .ui-icon {
   width: 13px;
   height: 13px;
@@ -1025,7 +1024,6 @@
     font-size: 0.875rem;
   }
 
-  .header-profile-trigger .profile-icon .ui-icon,
   .header-profile-trigger .profile-chevron .ui-icon {
     width: 14px;
     height: 14px;
@@ -1055,17 +1053,6 @@
   color: var(--success-text);
 }
 
-.header-profile-trigger.server-mode .profile-icon {
-  color: var(--success);
-}
-
-.header-profile-trigger .profile-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--primary);
-  flex-shrink: 0;
-}
 
 .header-profile-name {
   flex: 1 1 auto;

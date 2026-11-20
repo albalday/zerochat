@@ -505,8 +505,6 @@
       if (!allowed) serverModeActive = false;
     }
     els.activeProfileTrigger.classList.toggle('server-mode', serverModeActive);
-    const icon = els.activeProfileTrigger.querySelector('.profile-icon use');
-    if (icon) icon.setAttribute('href', serverModeActive ? '#icon-zap' : '#icon-cpu');
     els.activeProfileName.textContent = displayName;
     els.activeProfileTrigger.title = serverModeActive
       ? t('profile_background_mode_active', { name: displayName })

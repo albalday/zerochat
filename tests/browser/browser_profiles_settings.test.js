@@ -496,7 +496,6 @@ test('Browser UI - el selector único incluye switch superior de ejecución en s
     await page.click('.profile-background-bar .switch');
     assert.equal(await page.evaluate(() => window.ChatUIProfiles.isServerMode()), true);
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
-    assert.equal(await page.locator('#active-profile-trigger .profile-icon use').getAttribute('href'), '#icon-zap');
     assert.equal((await page.textContent('#active-profile-name')).trim(), 'Claude');
 
     // Al abrir un nuevo chat se conserva el switch activo
