@@ -989,7 +989,8 @@
 .header-profile-menu {
   position: relative;
   width: clamp(8.5rem, 18vw, 13.75rem);
-  min-width: 8.5rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .header-profile-trigger {
