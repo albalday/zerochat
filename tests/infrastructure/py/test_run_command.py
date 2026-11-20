@@ -227,6 +227,22 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertEqual(check(server["job_id"])["status"], "running")
         check(server["job_id"], stop=True)
 
+    def test_jobs_log_long_poll_despierta_al_llegar_salida_nueva(self):
+        ctx = zerochat.project_context()
+        job = run("printf 'uno\\n'; sleep 0.15; printf 'dos\\n'", background=True)
+        first, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {"id": job["job_id"], "tail": 1024}, ctx)
+        self.assertIsNone(err)
+        started = time.monotonic()
+        second, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {
+            "id": job["job_id"],
+            "offset": first["next"],
+            "wait_ms": 5000,
+        }, ctx)
+        self.assertIsNone(err)
+        self.assertLess(time.monotonic() - started, 3)
+        self.assertIn("dos", second["text"])
+        check(job["job_id"], stop=True)
+
     def test_el_latido_publica_la_ultima_linea_de_cada_comando_en_marcha_recortada_en_el_borde(self):
         limit = zerochat.LAST_LINE_MAX_CHARS
         cases = [

@@ -460,18 +460,31 @@ test('Browser UI - la tarjeta de run_command sigue al comando, muestra su log al
       window.__job = job;
       const line = n => `linea ${n}\n`;
       for (let i = 1; i <= 6; i++) job.log += line(i);
-      window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+      const waitWithSignal = (ms, signal) => new Promise((resolve, reject) => {
+        if (signal?.aborted) return reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+        const timer = setTimeout(resolve, ms);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+        }, { once: true });
+      });
+      window.ChatMCP.manager.requestExternalControl = async (method, params, options) => {
         window.__jobCalls.push({ method, params });
         const matches = params.id === job.id || params.key === job.key;
         if (!matches) throw new Error('Comando no encontrado');
         if (method === 'zerochat/jobs/stop') { job.status = 'stopped'; job.exit_code = -15; job.stop_reason = 'user'; }
-        if (job.status === 'running') job.log += line(job.log.split('\n').length);
-        job.output_bytes = job.log.length;
-        const details = { id: job.id, key: job.key, status: job.status, exit_code: job.exit_code, started_at: job.started_at, elapsed_s: job.elapsed_s, output_bytes: job.output_bytes, tail: job.log.slice(-200) };
         if (method === 'zerochat/jobs/log') {
+          if (params.wait_ms && params.offset >= job.log.length && job.status === 'running') {
+            await waitWithSignal(1000, options?.signal);
+            if (job.status === 'running') job.log += line(job.log.split('\n').length);
+            job.output_bytes = job.log.length;
+          }
+          const details = { id: job.id, key: job.key, status: job.status, exit_code: job.exit_code, started_at: job.started_at, elapsed_s: job.elapsed_s, output_bytes: job.output_bytes, tail: job.log.slice(-200) };
           const start = Number.isInteger(params.tail) ? Math.max(0, job.log.length - params.tail) : params.offset;
           return { text: job.log.slice(start, start + params.limit), offset: start, next: Math.min(job.log.length, start + params.limit), total: job.log.length, done: job.status !== 'running', details };
         }
+        job.output_bytes = job.log.length;
+        const details = { id: job.id, key: job.key, status: job.status, exit_code: job.exit_code, started_at: job.started_at, elapsed_s: job.elapsed_s, output_bytes: job.output_bytes, tail: job.log.slice(-200) };
         return method === 'zerochat/jobs/stop' ? { ...details, jobs: [] } : details;
       };
       const container = document.createElement('div');
@@ -616,13 +629,24 @@ test('Browser UI - la tarjeta de check_command muestra la salida nueva mientras 
       // Servidor simulado: el comando 7 lleva escritas dos líneas y escribe una más en cada consulta del log.
       const job = { id: 7, log: 'antes 1\nantes 2\n' };
       window.__waitCalls = [];
-      window.ChatMCP.manager.requestExternalControl = async (method, params) => {
+      const waitWithSignal = (ms, signal) => new Promise((resolve, reject) => {
+        if (signal?.aborted) return reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+        const timer = setTimeout(resolve, ms);
+        signal?.addEventListener('abort', () => {
+          clearTimeout(timer);
+          reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+        }, { once: true });
+      });
+      window.ChatMCP.manager.requestExternalControl = async (method, params, options) => {
         window.__waitCalls.push({ method, params });
         if (method === 'zerochat/jobs/end_wait') return { ended: true };
         if (method === 'zerochat/jobs/log') {
           if (Number.isInteger(params.tail)) {
             const start = Math.max(0, job.log.length - params.tail);
             return { text: job.log.slice(start), offset: start, next: job.log.length, total: job.log.length, done: false };
+          }
+          if (params.wait_ms && params.offset >= job.log.length) {
+            await waitWithSignal(1000, options?.signal);
           }
           job.log += `nueva ${job.log.split('\n').length - 2}\n`;
           return { text: job.log.slice(params.offset), offset: params.offset, next: job.log.length, total: job.log.length, done: false };

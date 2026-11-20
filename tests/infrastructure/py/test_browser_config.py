@@ -201,31 +201,39 @@ class BrowserEnginesTest(unittest.TestCase):
     def engine(self, engine_id):
         return next(item for item in self.engines.list()["engines"] if item["id"] == engine_id)
 
-    def settled(self, engine_id):
-        for _ in range(250):
-            item = self.engine(engine_id)
+    def settled(self, engine_id, since_rev=None):
+        deadline = time.monotonic() + 5.0
+        rev = since_rev
+        while time.monotonic() < deadline:
+            data = self.engines.list(since_rev=rev, wait_ms=500, engines_only=rev is not None)
+            item = next(item for item in data["engines"] if item["id"] == engine_id)
             if item.get("status") != "installing":
                 return item
-            time.sleep(0.02)
+            rev = data["rev"]
         self.fail("la instalación no terminó")
 
     def test_los_motores_se_listan_instalan_con_progreso_y_quitan_en_su_cache(self):
         self.assertEqual([(item["id"], item["title"], item["installed"]) for item in self.engines.list()["engines"]], [
             ("chromium", "Chrome for Testing 1", False), ("firefox", "Firefox 2", False), ("webkit", "WebKit 3", False)])
 
-        self.engines.install("chromium")
-        for _ in range(250):
-            progress = self.engine("chromium")
+        started = self.engines.install("chromium")
+        rev = started["rev"]
+        progress = next(item for item in started["engines"] if item["id"] == "chromium")
+        for _ in range(10):
             if progress.get("percent"):
                 break
-            time.sleep(0.02)
+            update = self.engines.list(since_rev=rev, wait_ms=1000, engines_only=True)
+            self.assertNotIn("systemBrowsers", update)
+            self.assertNotIn("extensions", update)
+            rev = update["rev"]
+            progress = next(item for item in update["engines"] if item["id"] == "chromium")
         self.assertEqual(progress, {"id": "chromium", "title": "Chrome for Testing 1", "installed": False,
                                     "status": "installing", "download": "Chrome for Testing 1", "percent": 30})
         for engine_id in ("chromium", "opera"):
             with self.subTest(engine=engine_id), self.assertRaises(ValueError, msg="instalación repetida o motor desconocido"):
                 self.engines.install(engine_id)
         (self.cache / "go").write_text("")
-        self.assertEqual(self.settled("chromium"), {"id": "chromium", "title": "Chrome for Testing 1", "installed": True})
+        self.assertEqual(self.settled("chromium", since_rev=rev), {"id": "chromium", "title": "Chrome for Testing 1", "installed": True})
         self.engines.install("webkit")
         failed = self.settled("webkit")
         self.assertEqual((failed["status"], failed["installed"]), ("error", False))
@@ -246,7 +254,8 @@ class BrowserEnginesTest(unittest.TestCase):
         self.assertEqual(zerochat.load_browser_config()["engine"], "firefox", "sin otro instalado se conserva")
 
         self.cli.unlink()
-        self.assertEqual(self.engines.list(), {
+        listing = self.engines.list()
+        self.assertEqual({k: v for k, v in listing.items() if k != "rev"}, {
             "systemBrowsers": zerochat.system_browsers(),
             "extensions": zerochat.user_browser_extensions(),
             "engines": [],

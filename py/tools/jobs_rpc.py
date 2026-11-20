@@ -8,6 +8,9 @@ from tools.job_waits import WAITS
 from tools.jobs import JOBS, JOB_LOG_PAGE_BYTES, job_details
 
 
+MAX_LOG_WAIT_MS = 30000
+
+
 def _report(params: dict, project: str) -> RpcOutcome:
     ids = params.get("ids")
     if not isinstance(ids, list) or len(ids) > 100 or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
@@ -19,6 +22,7 @@ def _log(params: dict, job) -> RpcOutcome:
     tail = params.get("tail")
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
+    wait_ms = params.get("wait_ms", 0)
     if tail is not None:
         if isinstance(tail, bool) or not isinstance(tail, int) or tail < 0:
             return rpc_error(INVALID_PARAMS, "tail debe ser un entero no negativo.")
@@ -29,6 +33,10 @@ def _log(params: dict, job) -> RpcOutcome:
         start = offset
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
         return rpc_error(INVALID_PARAMS, "limit debe ser un entero positivo.")
+    if isinstance(wait_ms, bool) or not isinstance(wait_ms, int) or wait_ms < 0:
+        return rpc_error(INVALID_PARAMS, "wait_ms debe ser un entero no negativo.")
+    if wait_ms > 0 and tail is None and not job.done.is_set() and start >= job.total:
+        job.wait_change(start, min(wait_ms, MAX_LOG_WAIT_MS) / 1000.0)
     text, next_offset = job.read_range(start, min(limit, JOB_LOG_PAGE_BYTES))
     return rpc_result({
         "text": text,

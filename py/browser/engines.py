@@ -143,8 +143,12 @@ def user_browser_extensions() -> dict[str, bool]:
 class BrowserEngines:
     """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
 
+    MAX_WAIT_MS = 30000
+
     def __init__(self):
         self._lock = threading.Lock()
+        self._changed = threading.Condition(self._lock)
+        self._rev = 0
         self._jobs: dict[str, dict] = {}
         self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
 
@@ -167,20 +171,29 @@ class BrowserEngines:
         self._locations_cache = (key, locations)
         return locations
 
-    def list(self) -> dict:
-        """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
+    def _notify_locked(self):
+        self._rev += 1
+        self._changed.notify_all()
+
+    def list(self, *, since_rev: int | None = None, wait_ms: int = 0, engines_only: bool = False) -> dict:
+        """Navegadores del sistema y motores de Playwright; con since_rev/wait_ms espera cambios sin re-escanear navegadores del sistema."""
+        if since_rev is not None and wait_ms > 0:
+            with self._changed:
+                self._changed.wait_for(
+                    lambda: self._rev != since_rev or not any(j.get("status") == "installing" for j in self._jobs.values()),
+                    min(wait_ms, self.MAX_WAIT_MS) / 1000.0,
+                )
         cli = playwright_service_cli()
-        result = {
-            "systemBrowsers": system_browsers(),
-            "extensions": user_browser_extensions(),
-            "engines": [],
-            "config": load_browser_config(),
-        }
+        with self._lock:
+            rev = self._rev
+            jobs = {engine: dict(job) for engine, job in self._jobs.items()}
+        result: dict = {"rev": rev, "engines": [], "config": load_browser_config()}
+        if not engines_only:
+            result["systemBrowsers"] = system_browsers()
+            result["extensions"] = user_browser_extensions()
         if not cli.is_file():
             return result
         locations = self._locations(cli)
-        with self._lock:
-            jobs = {engine: dict(job) for engine, job in self._jobs.items()}
         for engine, entries in ENGINE_CACHE_ENTRIES.items():
             title = locations.get(entries[0], (engine,))[0]
             installed = all(name in locations and (locations[name][1] / "INSTALLATION_COMPLETE").is_file() for name in entries)
@@ -201,6 +214,7 @@ class BrowserEngines:
         with self._lock:
             cli = self._check_engine(engine)
             self._jobs[engine] = {"status": "installing", "percent": 0}
+            self._notify_locked()
         threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
         return self.list()
 
@@ -219,8 +233,10 @@ class BrowserEngines:
                     with self._lock:
                         if download:
                             self._jobs[engine].update(download=download.group(1), percent=0)
+                            self._notify_locked()
                         elif percent:
                             self._jobs[engine]["percent"] = min(100, int(percent.group(1)))
+                            self._notify_locked()
                 code = proc.wait()
             finally:
                 timer.cancel()
@@ -228,10 +244,12 @@ class BrowserEngines:
                 raise RuntimeError("\n".join(lines[-5:]) or f"código {code}")
             with self._lock:
                 self._jobs.pop(engine, None)
+                self._notify_locked()
             log_event(f"[zerochat] Motor {engine} de Playwright instalado")
         except (OSError, RuntimeError, subprocess.SubprocessError) as err:
             with self._lock:
                 self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
+                self._notify_locked()
             log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
 
     def remove(self, engine) -> dict:
@@ -245,6 +263,7 @@ class BrowserEngines:
                 if name in locations:
                     shutil.rmtree(locations[name][1], ignore_errors=True)
             self._jobs.pop(engine, None)
+            self._notify_locked()
         result = self.list()
         # La configuración no se queda con un motor quitado si hay otro instalado.
         config = result["config"]

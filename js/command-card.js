@@ -18,9 +18,10 @@
 
   const { resolveDep, escapeHtml, openTextInNewTab } = Utils;
 
-  // Solo una tarjeta desplegada pide su log, y con este intervalo.
-  const LOG_POLL_MS = 2000;
-  const FIRST_LOG_POLL_MS = 700;
+  // Solo una tarjeta desplegada sigue su log mediante long-poll (wait_ms).
+  const LOG_WAIT_MS = 25000;
+  const LOG_REQUEST_TIMEOUT_MS = LOG_WAIT_MS + 5000;
+  const LOG_RETRY_DELAY_MS = 500;
   // La tarjeta enseña el final del log, como una terminal pequeña; el log entero se abre aparte.
   const CARD_LOG_LINES = 40;
   // Al desplegarla basta con el final del log para llenar esas líneas.
@@ -304,7 +305,7 @@
 
   function untrack(controller) {
     tracked.delete(controller);
-    controller.stopLogPolling();
+    controller.stopLogStream();
     if (!tracked.size && clockTimer !== null) {
       clearInterval(clockTimer);
       clockTimer = null;
@@ -316,16 +317,18 @@
       this.card = card;
       this.state = initialState();
       this.logTimer = null;
+      this.logAbort = null;
+      this.logVisibilityCleanup = null;
+      this.logStreaming = false;
       this.log = { loaded: false, next: 0, loading: false, text: '', earlier: false };
       controllers.set(card, this);
       // El log se pide al desplegar la tarjeta, la despliegue quien la despliegue.
       new MutationObserver(() => {
         if (!this.isExpanded()) {
-          this.stopLogPolling();
+          this.stopLogStream();
           return;
         }
-        if (!this.log.loaded) this.loadLog();
-        this.scheduleLog();
+        this.startLogStream();
       }).observe(card.querySelector('.tool-execution-card'), { attributes: true, attributeFilter: ['class'] });
     }
 
@@ -382,7 +385,7 @@
       }
       if (this.state.status === 'running') {
         track(this);
-        this.scheduleLog();
+        this.startLogStream();
         // El aviso de fin de turno y el latido lo cuentan sin esperar al siguiente latido.
         getMcp().refreshCommandJobs();
       } else {
@@ -393,35 +396,83 @@
       this.render();
     }
 
-    scheduleLog() {
-      if (this.logTimer === null && !this.isFinal() && this.isExpanded()) {
-        this.logTimer = setTimeout(() => this.pollLog(), LOG_POLL_MS);
-      }
+    startLogStream() {
+      if (this.logStreaming || this.isFinal() || !this.isExpanded()) return;
+      this.logStreaming = true;
+      this.followLog();
     }
 
-    stopLogPolling() {
+    stopLogStream() {
+      this.logStreaming = false;
       if (this.logTimer !== null) clearTimeout(this.logTimer);
       this.logTimer = null;
+      this.logAbort?.abort();
+      this.logAbort = null;
+      this.log.loading = false;
+      this.logVisibilityCleanup?.();
+      this.logVisibilityCleanup = null;
     }
 
-    async pollLog() {
-      this.logTimer = null;
+    waitUntilVisible() {
+      if (!document.hidden) return Promise.resolve();
+      return new Promise(resolve => {
+        const onVisible = () => {
+          if (!document.hidden) {
+            cleanup();
+            resolve();
+          }
+        };
+        const cleanup = () => {
+          document.removeEventListener('visibilitychange', onVisible);
+          this.logVisibilityCleanup = null;
+        };
+        this.logVisibilityCleanup = () => {
+          cleanup();
+          resolve();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+      });
+    }
+
+    scheduleLogRetry(delayMs = LOG_RETRY_DELAY_MS) {
+      if (!this.logStreaming || this.logTimer !== null) return;
+      this.logTimer = setTimeout(() => {
+        this.logTimer = null;
+        this.followLog();
+      }, delayMs);
+    }
+
+    async followLog() {
+      if (!this.logStreaming) return;
       if (!this.card.isConnected) {
         untrack(this);
         return;
       }
-      if (!document.hidden) {
-        const done = await this.loadLog();
-        if (done && this.state.toolReturned) {
-          untrack(this);
-          this.finish();
-          return;
-        }
-        // La clave de la invocación llega después de crear la tarjeta: el botón de detener
-        // aparece cuando el servidor ya conoce el comando.
-        if (this.state.confirmed) this.render();
+      if (!this.isExpanded() || this.isFinal()) {
+        this.stopLogStream();
+        return;
       }
-      this.scheduleLog();
+      if (document.hidden) {
+        await this.waitUntilVisible();
+        if (!this.logStreaming) return;
+      }
+      const started = Date.now();
+      const abortController = new AbortController();
+      this.logAbort = abortController;
+      const result = await this.loadLog({ waitMs: this.log.loaded ? LOG_WAIT_MS : 0, signal: abortController.signal });
+      if (this.logAbort === abortController) this.logAbort = null;
+      if (!this.logStreaming) return;
+      if (result.done && this.state.toolReturned) {
+        untrack(this);
+        this.finish();
+        return;
+      }
+      if (this.state.confirmed) this.render();
+      if (result.ok && (!this.log.loaded || result.changed || Date.now() - started >= 50)) {
+        this.followLog();
+      } else {
+        this.scheduleLogRetry();
+      }
     }
 
     /** Pregunta una vez al servidor cómo está el comando. */
@@ -499,18 +550,18 @@
      * La primera vez carga el final del log; después, solo lo nuevo. Devuelve si el comando ya
      * ha terminado, según el servidor.
      */
-    async loadLog() {
-      if (this.log.loading) return false;
+    async loadLog({ waitMs = 0, signal = null } = {}) {
+      if (this.log.loading) return { ok: false, done: false, changed: false };
       if (this.state.status === 'error') {
         this.showText(this.state.output);
-        return true;
+        return { ok: true, done: true, changed: false };
       }
       const ref = this.ref();
       const mcp = getMcp();
       const logEl = this.card.querySelector('.command-card-log');
       if (!ref) {
         this.showFallback();
-        return false;
+        return { ok: false, done: false, changed: false };
       }
       this.log.loading = true;
       const initial = !this.log.loaded;
@@ -518,29 +569,32 @@
         const atBottom = logEl.hidden || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
         const query = initial
           ? { ...ref, tail: FIRST_LOG_BYTES, limit: LOG_PAGE_BYTES }
-          : { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES };
-        const page = await mcp.requestExternalControl('zerochat/jobs/log', query);
+          : { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES, ...(waitMs > 0 ? { wait_ms: waitMs } : {}) };
+        const options = { ...(signal ? { signal } : {}), ...(waitMs > 0 ? { timeoutMs: waitMs + 5000 } : {}) };
+        const page = await mcp.requestExternalControl('zerochat/jobs/log', query, options);
         if (page?.details) this.applyDetails(page.details);
         if (initial) {
           this.log.text = '';
           this.log.earlier = Number(page?.offset) > 0;
         }
         this.state.confirmed = true;
+        const prevNext = this.log.next;
         this.log.next = Number(page?.next) || this.log.next;
         this.log.loaded = true;
-        const kept = appendLog(this.log.text, String(page?.text || ''));
+        const text = String(page?.text || '');
+        const kept = appendLog(this.log.text, text);
         this.log.text = kept.text;
         this.log.earlier = this.log.earlier || kept.trimmed;
         this.showText(this.log.text, this.log.earlier);
         this.render();
         if (atBottom) logEl.scrollTop = logEl.scrollHeight;
-        return page?.done === true;
+        return { ok: true, done: page?.done === true, changed: text.length > 0 || this.log.next !== prevNext };
       } catch (_) {
         // Antes de registrarse el comando se reintentará; si ya no existe, queda la salida guardada.
         if (initial) this.showFallback();
-        return false;
+        return { ok: false, done: false, changed: false };
       } finally {
-        this.log.loading = false;
+        if (!signal || !signal.aborted) this.log.loading = false;
       }
     }
   }
@@ -552,8 +606,9 @@
         const controller = new CommandCardController(card);
         controller.render();
         track(controller);
-        // La primera consulta llega antes para que el reloj y el log arranquen enseguida.
-        controller.logTimer = setTimeout(() => controller.pollLog(), FIRST_LOG_POLL_MS);
+        // Pequeño margen inicial para que el servidor haya registrado el comando antes del primer tail.
+        controller.logStreaming = true;
+        controller.scheduleLogRetry(LOG_RETRY_DELAY_MS);
         return card;
       },
       updateLiveCard: (card, args, result) => {
@@ -653,6 +708,7 @@
       this.state = { request: waitRequest(args), startedAt: Date.now(), elapsed: 0, returned: false, result: null };
       this.clockTimer = null;
       this.logTimer = null;
+      this.logAbort = null;
       this.logNext = null;
       this.logText = '';
       this.logEarlier = false;
@@ -673,7 +729,12 @@
         if (!this.card.isConnected) this.stopTimers();
         else this.render();
       }, 1000);
-      if (this.state.request.jobId !== null) this.logTimer = setTimeout(() => this.pollLog(), FIRST_LOG_POLL_MS);
+      if (this.state.request.jobId !== null) {
+        this.logTimer = setTimeout(() => {
+          this.logTimer = null;
+          this.followLog();
+        }, LOG_RETRY_DELAY_MS);
+      }
     }
 
     stopTimers() {
@@ -681,6 +742,8 @@
       if (this.logTimer !== null) clearTimeout(this.logTimer);
       this.clockTimer = null;
       this.logTimer = null;
+      this.logAbort?.abort();
+      this.logAbort = null;
     }
 
     renderBadge() {
@@ -700,30 +763,48 @@
       logEl.hidden = !shown;
     }
 
-    /** La salida nueva del comando que se espera: desde donde iba al empezar la espera. */
-    async pollLog() {
-      this.logTimer = null;
+    /** La salida nueva del comando que se espera: desde donde iba al empezar la espera (long-poll). */
+    async followLog() {
       if (this.state.returned || !this.card.isConnected) return;
       const mcp = getMcp();
       const ref = { id: this.state.request.jobId };
+      let ok = false;
+      let changed = false;
+      const started = Date.now();
       if (!document.hidden) {
+        const abortController = new AbortController();
+        this.logAbort = abortController;
         try {
           const query = this.logNext === null
             ? { ...ref, tail: 0, limit: LOG_PAGE_BYTES }
-            : { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES };
-          const page = await mcp.requestExternalControl('zerochat/jobs/log', query);
+            : { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES, wait_ms: LOG_WAIT_MS };
+          const options = { signal: abortController.signal, ...(this.logNext !== null ? { timeoutMs: LOG_REQUEST_TIMEOUT_MS } : {}) };
+          const page = await mcp.requestExternalControl('zerochat/jobs/log', query, options);
+          ok = true;
           this.logNext = Number(page?.next) ?? this.logNext;
           if (page?.text) {
+            changed = true;
             const kept = appendLog(this.logText, String(page.text));
             this.logText = kept.text;
             this.logEarlier = this.logEarlier || kept.trimmed;
             if (!this.state.returned) this.showText(this.logText, this.logEarlier);
           }
+          if (page?.done === true) return;
         } catch (_) {
-          // El comando ya no existe: queda lo que devuelva la herramienta.
+          // El comando ya no existe o se canceló la espera.
+        } finally {
+          if (this.logAbort === abortController) this.logAbort = null;
         }
       }
-      if (!this.state.returned) this.logTimer = setTimeout(() => this.pollLog(), LOG_POLL_MS);
+      if (this.state.returned || !this.card.isConnected) return;
+      if (ok && (changed || Date.now() - started >= 50)) {
+        this.followLog();
+      } else {
+        this.logTimer = setTimeout(() => {
+          this.logTimer = null;
+          this.followLog();
+        }, LOG_RETRY_DELAY_MS);
+      }
     }
 
     /** Corta la espera: la herramienta vuelve enseguida con lo que haya. */

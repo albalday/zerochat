@@ -223,7 +223,7 @@
         headers: await this.buildRequestHeaders(this.url, body, options),
         body,
         signal: options.signal
-      }, options.signal ? 0 : options.timeoutMs || this.timeoutMs);
+      }, options.timeoutMs ?? (options.signal ? 0 : this.timeoutMs));
       if (!res.ok) {
         const errorText = await res.text().catch(() => '');
         throw Object.assign(new Error(`MCP server responded with HTTP ${res.status}: ${errorText.slice(0, 200)}`), { status: res.status });
