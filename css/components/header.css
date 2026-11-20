@@ -17,24 +17,6 @@
   user-select: none;
 }
 
-@media (max-width: 640px) {
-  .app-header {
-    --header-height: 3rem;
-  }
-
-  .header-left,
-  .header-right {
-    gap: 0.2rem;
-  }
-
-  .header-center {
-    position: static;
-    transform: none;
-    flex: 1 1 auto;
-    max-width: none;
-  }
-}
-
 .header-left,
 .header-right {
   display: flex;
@@ -67,6 +49,24 @@
   justify-content: flex-end;
   min-width: 0;
   margin-left: auto;
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    --header-height: 3rem;
+  }
+
+  .header-left,
+  .header-right {
+    gap: 0.2rem;
+  }
+
+  .header-center {
+    position: static;
+    transform: none;
+    flex: 1 1 auto;
+    max-width: none;
+  }
 }
 
 /* Botón de alternancia de barra lateral (Sidebar Toggle) */

@@ -264,6 +264,21 @@ test('Browser UI - confirmar cambio de proyecto al abrir chat, enlace de fichero
       icon: true
     });
 
+    await page.setViewportSize({ width: 375, height: 812 });
+    const mobileHeaderRects = await page.evaluate(() => {
+      const folder = document.getElementById('btn-open-project-files').getBoundingClientRect();
+      const profile = document.getElementById('active-profile-trigger').getBoundingClientRect();
+      return {
+        folderRight: folder.right,
+        folderWidth: folder.width,
+        profileLeft: profile.left
+      };
+    });
+    assert.ok(mobileHeaderRects.folderWidth > 0, 'El icono de carpeta debe ser visible en móvil');
+    assert.ok(mobileHeaderRects.folderRight <= mobileHeaderRects.profileLeft,
+      `El icono de carpeta (${mobileHeaderRects.folderRight}) no debe quedar bajo el selector de perfil (${mobileHeaderRects.profileLeft})`);
+    await page.setViewportSize({ width: 1280, height: 720 });
+
     await page.selectOption('#sidebar-project-filter', 'all');
     assert.equal(await page.locator('.btn-project-new-chat, .btn-project-files').count(), 0, 'La línea de proyecto no tiene iconos de acción');
 
