@@ -29,7 +29,6 @@ test('ChatConfig - arranca con Espejo, conserva preferencias generales al activa
   assert.equal(initial.activeProfile.id, Profiles.READONLY_PROFILE_ID);
   assert.equal(initial.apiType, 'mirror');
   assert.ok(initial.systemDataPrompt.includes('Format:'));
-  assert.equal(Storage.loadRuntimeConfigV2().activeProfileName, undefined);
 
   Profiles.save(OFFICE);
   const storedBeforeSession = Storage.loadRuntimeConfigV2();

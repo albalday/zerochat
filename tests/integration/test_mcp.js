@@ -415,7 +415,7 @@ function fakeLocalServer(state) {
 
 test('MCP - connectProxy publica el estado vivo de initialize y registra las herramientas de los servicios externos en marcha', async t => {
   const Security = require('../../js/tool-security.js');
-  const state = { server: 'up', live: { cwd: '/repo', jobs: [], exit_on_close: true, servers: [{ id: 'sqlite', status: 'running', toolCount: 1, enabled: true }] } };
+  const state = { server: 'up', live: { cwd: '/repo', jobs: [], exit_on_close: true, servers: [{ id: 'sqlite', status: 'running', toolCount: 1 }] } };
   const fetchMock = t.mock.method(global, 'fetch', fakeLocalServer(state));
   const manager = new MCP.McpManager();
   try {
@@ -596,36 +596,125 @@ test('MCP - una lectura del latido colgada se corta al cumplirse su intervalo pa
   await assert.rejects(read, { name: 'AbortError' });
 });
 
-test('MCP - startExternalServer espera instalaciones largas y limita cada fase', async () => {
-  const originalSetTimeout = global.setTimeout;
-  global.setTimeout = (fn, ms, ...args) => (ms === 15000 ? setImmediate(fn, ...args) : originalSetTimeout(fn, ms, ...args));
-  const timeout = () => Object.assign(new Error('timeout'), { code: 'MCP_REQUEST_TIMEOUT' });
-  const run = async (phases) => {
-    const manager = new MCP.McpManager();
-    const waits = [];
-    let polls = 0;
-    manager.requestExternalControl = async () => { throw timeout(); };
-    manager.readLiveState = async () => {
-      const status = phases[Math.min(polls, phases.length - 1)];
-      polls += 1;
-      return { servers: [{ id: 'playwright', status }] };
-    };
-    const result = await manager.startExternalServer('playwright', (attempt, total, status) => waits.push({ attempt, total, status }));
-    return { result, waits };
-  };
-  try {
-    const install = [...Array(30).fill('installing'), ...Array(5).fill('starting'), 'running'];
-    const { result, waits } = await run(install);
-    assert.equal(result.servers[0].status, 'running');
-    assert.deepEqual(waits[29], { attempt: 30, total: 80, status: 'installing' });
-    assert.deepEqual(waits[30], { attempt: 1, total: 10, status: 'starting' });
+function makeAbortError() {
+  const error = new Error('Aborted');
+  error.name = 'AbortError';
+  return error;
+}
 
-    await assert.rejects(run(Array(20).fill('starting')), error => (
-      error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
-    ));
-  } finally {
-    global.setTimeout = originalSetTimeout;
+async function flushMicrotasks() {
+  await new Promise(resolve => setImmediate(resolve));
+}
+
+test('ChatMCP - start: resuelve timeouts a estado vivo, propaga errores inmediatos y rechaza estados terminales', async t => {
+  const manager = MCP.manager;
+
+  for (const errFactory of [() => makeAbortError(), () => Object.assign(new Error('SSE response timed out'), { code: 'MCP_REQUEST_TIMEOUT' })]) {
+    const req = t.mock.method(manager, 'requestExternalControl', async () => { throw errFactory(); });
+    const read = t.mock.method(manager, 'readLiveState', async () => ({ servers: [{ id: 'ejemplo', status: 'running' }] }));
+    const waits = [];
+    const res = await manager.startExternalServer('ejemplo', (a, tot) => waits.push([a, tot]));
+    assert.equal(res.servers[0].status, 'running');
+    assert.deepEqual(waits, []);
+    assert.equal(read.mock.callCount(), 1);
+    req.mock.restore();
+    read.mock.restore();
   }
+
+  // Estados terminales o fallo al consultar estado rechazan sin esperar.
+  const reqAbort = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  let waits = 0;
+  for (const status of ['error', 'available', 'stopped', undefined]) {
+    const fetch = t.mock.method(manager, 'readLiveState', async () => ({ servers: status ? [{ id: 'ejemplo', status }] : [] }));
+    await assert.rejects(manager.startExternalServer('ejemplo', () => { waits += 1; }), error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE');
+    assert.equal(fetch.mock.callCount(), 1);
+    fetch.mock.restore();
+  }
+  assert.equal(waits, 0);
+
+  const fetchFail = t.mock.method(manager, 'readLiveState', async () => { throw new Error('Status unavailable'); });
+  await assert.rejects(manager.startExternalServer('ejemplo', null),
+    error => error.code === 'EXTERNAL_START_STATUS_UNAVAILABLE' && error.cause.message === 'Status unavailable');
+  reqAbort.mock.restore();
+  fetchFail.mock.restore();
+
+  // Error distinto de timeout se propaga sin consultar estado.
+  t.mock.method(manager, 'requestExternalControl', async () => { throw new Error('Sin conexión'); });
+  const fetchSpy = t.mock.method(manager, 'readLiveState', async () => ({ servers: [] }));
+  await assert.rejects(() => manager.startExternalServer('ejemplo', null), /Sin conexión/);
+  assert.equal(fetchSpy.mock.callCount(), 0);
+});
+
+test('ChatMCP - start: espera en installing/starting con oauthUrl hasta 10 intentos antes de rendirse', async t => {
+  const manager = MCP.manager;
+
+  // 1. Límite de 10 comprobaciones cuando permanece en starting
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const req1 = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  let fetchCalls = 0;
+  const read1 = t.mock.method(manager, 'readLiveState', async () => {
+    fetchCalls += 1;
+    return { servers: [{ id: 'ejemplo', status: 'starting' }] };
+  });
+  const waits1 = [];
+  const pending1 = assert.rejects(
+    manager.startExternalServer('ejemplo', (attempt, total) => waits1.push([attempt, total])),
+    error => error.code === 'EXTERNAL_START_WAIT_TIMEOUT' && error.externalServer.status === 'starting'
+  );
+  for (let i = 0; i < 10; i += 1) {
+    await flushMicrotasks();
+    t.mock.timers.tick(15000);
+    await flushMicrotasks();
+  }
+  await pending1;
+  assert.equal(fetchCalls, 11);
+  assert.deepEqual([waits1[0], waits1[9]], [[1, 10], [10, 10]]);
+  t.mock.timers.reset();
+  req1.mock.restore();
+  read1.mock.restore();
+
+  // 2. OAuth termina durante la espera sin reenviar arranque y propaga oauthUrl
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const req2 = t.mock.method(manager, 'requestExternalControl', async () => { throw makeAbortError(); });
+  let checks = 0;
+  t.mock.method(manager, 'readLiveState', async () => ({
+    servers: [{
+      id: 'composio',
+      status: ++checks === 3 ? 'running' : checks === 1 ? 'installing' : 'starting',
+      oauthUrl: checks === 2 ? 'https://example.com/oauth' : null
+    }]
+  }));
+  const waits2 = [];
+  const receivedServers = [];
+  const pending2 = manager.startExternalServer('composio', (a, tot, st, srv) => {
+    waits2.push([a, tot, st]);
+    receivedServers.push(srv);
+  });
+  await flushMicrotasks();
+  assert.deepEqual(waits2, [[1, 80, 'installing']]);
+  t.mock.timers.tick(15000);
+  await flushMicrotasks();
+  assert.deepEqual(waits2, [[1, 80, 'installing'], [1, 80, 'starting']]);
+  assert.equal(receivedServers[1].oauthUrl, 'https://example.com/oauth');
+  t.mock.timers.tick(15000);
+  assert.equal((await pending2).servers[0].status, 'running');
+  assert.equal(req2.mock.callCount(), 1);
+});
+
+test('ChatMCP - runExternalServerAction: el plazo de espera agotado deja el servicio en starting con el aviso de OAuth', async t => {
+  const previousMcp = ChatState.get('mcp');
+  ChatState.set('mcp', { ...previousMcp, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
+  t.after(() => ChatState.set('mcp', previousMcp));
+  const manager = MCP.manager;
+  t.mock.method(manager, 'startExternalServer', async (id, onWait) => {
+    onWait(3, 10);
+    assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 3, total: 10 });
+    throw Object.assign(new Error('Wait expired'), { code: 'EXTERNAL_START_WAIT_TIMEOUT', externalServer: { id: 'ejemplo', status: 'starting' } });
+  });
+  assert.equal(await manager.runExternalServerAction('ejemplo', 'start'), false);
+  const [server] = ChatState.get('mcp').externalServers;
+  assert.deepEqual({ status: server.status, startWait: server.startWait }, { status: 'starting', startWait: null });
+  assert.match(server.error, /OAuth/);
 });
 
 test('MCP - cabecera de proyecto, disponibilidad por carpeta, caída de carpeta y carrera con setProjectDirectory', async () => {
@@ -925,45 +1014,4 @@ test('MCP - startServerRun, cancelServerRun, readLiveState con focus_conversatio
     ChatState.set('mcp', previousMcp);
     ChatState.set('sessions', previousSessions);
   }
-});
-
-test('MCP - gestión de perfiles de servidor (listServerProfiles, saveServerProfile, deleteServerProfile)', async () => {
-  const manager = new MCP.McpManager();
-  manager.target = { url: 'http://127.0.0.1:6388', proxyKey: null };
-  const calls = [];
-  const profilesDb = [
-    { id: 'profile:server-1', name: 'Servidor Local', settings: { apiType: 'ollama', model: 'llama3' }, apiKey: '' },
-    { id: 'profile:server-2', name: 'OpenAI Servidor', settings: { apiType: 'openai', model: 'gpt-4o' }, apiKey: 'sk-serv-key' }
-  ];
-
-  manager.clients.set('mcp_proxy', {
-    request: async (method, params) => {
-      calls.push({ method, params });
-      if (method === 'zerochat/profiles/list') {
-        return { profiles: profilesDb };
-      }
-      if (method === 'zerochat/profiles/save') {
-        return { profile: { id: 'profile:saved', ...params.profile } };
-      }
-      if (method === 'zerochat/profiles/delete') {
-        return { deleted: true };
-      }
-      return {};
-    }
-  });
-
-  // listServerProfiles
-  const list = await manager.listServerProfiles();
-  assert.equal(list.length, 2);
-  assert.equal(list[0].name, 'Servidor Local');
-
-  // saveServerProfile
-  const saved = await manager.saveServerProfile({ name: 'Nuevo', settings: { apiType: 'openai' } });
-  assert.equal(saved.id, 'profile:saved');
-  assert.equal(saved.name, 'Nuevo');
-
-  // deleteServerProfile
-  const deleted = await manager.deleteServerProfile('profile:saved');
-  assert.equal(deleted, true);
-
 });

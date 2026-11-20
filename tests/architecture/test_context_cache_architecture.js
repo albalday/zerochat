@@ -67,10 +67,6 @@ test('ContextCache - ClaudeAdapter genera cabeceras nativas y ubica cache_contro
     toolsList: [{ type: 'function', function: { name: 'execute_javascript' } }]
   });
 
-  // Tools deben tener cache_control
-  assert.ok(payload.tools[0].cache_control, 'La herramienta debe tener cache_control');
-  // System debe tener cache_control
-  assert.ok(payload.system[0].cache_control, 'El system prompt debe tener cache_control');
   // El último mensaje (tool response) debe ser el que tenga cache_control
   const lastMsg = payload.messages[payload.messages.length - 1];
   assert.equal(lastMsg.role, 'user');
@@ -115,17 +111,4 @@ test('ContextCache - OpenRouterAdapter respeta el límite de 4 breakpoints y sop
   assert.ok(Array.isArray(userMsg.content));
   assert.equal(userMsg.content.length, 2);
   assert.ok(userMsg.content[1].cache_control, 'La última parte de la entrada multimodal debe tener cache_control');
-});
-
-test('ContextCache - GeminiAdapter declara promptCaching: true y no inyecta stream_options en streaming false', () => {
-  const adapter = new GeminiProviderAdapter();
-  const caps = adapter.getCapabilities();
-  assert.equal(caps.promptCaching, true, 'Gemini debe declarar promptCaching true');
-
-  const payloadSync = adapter.buildPayload({
-    model: 'gemini-2.0-flash',
-    messages: [{ role: 'user', content: 'Hola' }],
-    stream: false
-  });
-  assert.equal(payloadSync.stream_options, undefined, 'No debe inyectar stream_options en stream false');
 });

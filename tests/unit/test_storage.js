@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const Database = require('../../js/storage-db.js');
 const Storage = require('../../js/storage.js');
 
 test('Storage - la sesión del backend guarda un token válido y solo el origen http(s) de su URL', () => {
@@ -509,4 +510,63 @@ test('Storage.saveRemoteConversation divide conversaciones grandes en tramos baj
   assert.equal(reconstructed[2].content, hugeContent);
   assert.equal(reconstructed[2].tool_call_id, 'call_1');
   assert.ok(!reconstructed[2].content.includes('\uFFFD'));
+});
+
+test('Storage - clearAllStorage elimina datos RAG y cachés sin borrar bases ajenas', async () => {
+  const db = await Database.openDatabase();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(Database.STORES.ragDocuments, 'readwrite');
+    tx.objectStore(Database.STORES.ragDocuments).put({ id: 'document', content: 'test' });
+    tx.oncomplete = resolve;
+    tx.onerror = reject;
+  });
+  await new Promise(resolve => {
+    const request = indexedDB.open('unrelated-file-origin-database');
+    request.onsuccess = () => { request.result.close(); resolve(); };
+  });
+  const originalCaches = global.caches;
+  const deleted = [];
+  global.caches = { keys: async () => ['webllm/model', 'webllm/wasm'], delete: async name => { deleted.push(name); return true; } };
+  try {
+    assert.equal(await Storage.clearAllStorage(), true);
+    assert.deepEqual(await indexedDB.databases(), [{ name: 'unrelated-file-origin-database', version: 1 }]);
+    assert.deepEqual(deleted.sort(), ['webllm/model', 'webllm/wasm']);
+  } finally {
+    global.caches = originalCaches;
+    await Database.closeDatabase();
+    await new Promise((resolve, reject) => {
+      const request = indexedDB.deleteDatabase('unrelated-file-origin-database');
+      request.onsuccess = resolve;
+      request.onerror = () => reject(request.error);
+    });
+  }
+});
+
+test('Storage - clearAllStorage tolera Service Worker no disponible e informa errores de caché sin saltar IndexedDB', async () => {
+  await Database.openDatabase();
+  const originalCaches = global.caches;
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(global, 'navigator');
+  global.caches = { keys: async () => { throw new Error('Storage denied'); } };
+  try {
+    assert.equal(await Storage.clearAllStorage(), false);
+    assert.match(Storage.getLastClearAllStorageError(), /^Cache Storage: Storage denied$/);
+    assert.deepEqual(await indexedDB.databases(), []);
+
+    global.caches = originalCaches;
+    Object.defineProperty(global, 'navigator', {
+      configurable: true,
+      value: {
+        serviceWorker: {
+          getRegistrations: async () => {
+            throw new Error("Failed to get ServiceWorkerRegistration objects: The URL protocol of the current origin ('null') is not supported.");
+          }
+        }
+      }
+    });
+    assert.equal(await Storage.clearAllStorage(), true);
+  } finally {
+    global.caches = originalCaches;
+    if (navigatorDescriptor) Object.defineProperty(global, 'navigator', navigatorDescriptor);
+    else delete global.navigator;
+  }
 });

@@ -39,13 +39,19 @@ test('OpenAIAdapter y OpenRouterAdapter - Normalización de endpoint, payload y 
   const payload = adapter.buildPayload({
     model: 'gpt-4o',
     messages: [{ role: 'user', content: 'Hola' }],
-    reasoningEffort: 'medium',
-    enableContextCache: false
+    reasoningEffort: 'medium'
   });
   assert.equal(payload.model, 'gpt-4o');
   assert.equal(payload.stream, true);
   assert.equal(payload.reasoning_effort, 'medium');
   assert.deepEqual(payload.stream_options, { include_usage: true });
+
+  const payloadSync = adapter.buildPayload({
+    model: 'gpt-4o',
+    messages: [{ role: 'user', content: 'Hola' }],
+    stream: false
+  });
+  assert.equal(payloadSync.stream_options, undefined);
 
   const routerPayload = new OpenRouterProviderAdapter().buildPayload({
     model: 'deepseek/deepseek-r1',
@@ -126,7 +132,6 @@ test('ClaudeAdapter - Formato de mensajes, bloques tool_use/tool_result, presupu
     model: 'claude-3-7-sonnet',
     reasoningEffort: 'medium',
     toolsList,
-    enableContextCache: false,
     messages: [
       { role: 'system', content: 'Eres un bot' },
       { role: 'user', content: 'Tiempo en Madrid y París' },
@@ -180,7 +185,10 @@ test('ClaudeAdapter - Formato de mensajes, bloques tool_use/tool_result, presupu
   const msgStart = adapter.parseStreamChunk({ type: 'message_start', message: { usage: { input_tokens: 4, cache_read_input_tokens: 319, cache_creation_input_tokens: 10, output_tokens: 0 } } });
   assert.equal(msgStart.usage.prompt_tokens, 333);
   assert.equal(msgStart.cachedTokens, 319);
-  assert.equal(adapter.parseStreamChunk({ type: 'message_delta', usage: { output_tokens: 57 } }).usage.prompt_tokens, undefined);
+  assert.equal(msgStart.cacheCreationTokens, 10);
+  const msgDelta = adapter.parseStreamChunk({ type: 'message_delta', usage: { output_tokens: 57 } });
+  assert.equal(msgDelta.usage.prompt_tokens, undefined);
+  assert.equal(msgDelta.usage.output_tokens, 57);
 });
 
 test('ClaudeAdapter - tool_choice, imágenes sin visión y límite de salida del modelo', () => {
@@ -253,10 +261,12 @@ test('Capabilities - Utilización en buildPayload para filtrar parámetros no so
   const ollamaAdapter = new OllamaProviderAdapter();
   const ollamaPayload = ollamaAdapter.buildPayload({
     model: 'llama3:latest',
-    messages: [{ role: 'user', content: 'test' }],
-    enableContextCache: true
+    messages: [{ role: 'user', content: 'test' }]
   });
   assert.equal(ollamaPayload.stream_options, undefined, 'Ollama no debe tener stream_options');
+
+  const ollamaParsed = ollamaAdapter.parseStreamChunk({ done: true, prompt_eval_count: 85, eval_count: 140 });
+  assert.deepEqual(ollamaParsed.usage, { prompt_tokens: 85, completion_tokens: 140, total_tokens: 225 });
 
   // 2. Proveedor con capability tools: false no debe inyectar tools
   const noToolsAdapter = new BaseProviderAdapter({
@@ -352,8 +362,7 @@ test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ 
       { role: 'user', content: 'hola' },
       { role: 'tool', tool_call_id: 'call_999', name: 'render_chart', content: '{"success":true}' }
     ],
-    reasoningEffort: 'none',
-    enableContextCache: true
+    reasoningEffort: 'none'
   });
   assert.equal(payload.model, 'gemini-1.5-flash');
   assert.equal(payload.reasoning_effort, 'none');

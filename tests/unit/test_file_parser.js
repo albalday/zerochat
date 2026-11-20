@@ -52,25 +52,6 @@ test('FileParser - usa el mapa ToUnicode de la fuente PDF activa', () => {
   assert.equal(FileParser.parsePdfStreamText(stream, aggregate), 'AB');
 });
 
-test('FileParser - descifra texto, CMaps e imágenes en PDFs con seguridad estándar RC4 sin contraseña', async () => {
-  const fs = require('fs');
-  const boeingPath = '/home/alberto/FinanceBench/financebench-main/pdfs/BOEING_2021_10K.pdf';
-  if (fs.existsSync(boeingPath)) {
-    const res = await FileParser.parsePdfDocument(fs.readFileSync(boeingPath));
-    assert.ok(res.images.length >= 1);
-    assert.equal(res.images[0].mimeType, 'image/jpeg');
-    assert.ok(res.images[0].dataUrl.startsWith('data:image/jpeg;base64,/9j/'));
-  }
-  const walmartPath = '/home/alberto/FinanceBench/financebench-main/pdfs/WALMART_2020_10K.pdf';
-  if (fs.existsSync(walmartPath)) {
-    const res = await FileParser.parsePdfDocument(fs.readFileSync(walmartPath));
-    assert.ok(res.text.length > 50000);
-    assert.match(res.text, /WALMART INC\./);
-    assert.match(res.text, /Operating income/);
-  }
-});
-
-
 
 test('FileParser.parseFile - un documento ofimático se adjunta como Markdown con sus imágenes para modelos con visión', async () => {
   const fs = require('node:fs');

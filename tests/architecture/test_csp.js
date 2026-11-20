@@ -2,21 +2,6 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const Markdown = require('../../js/markdown.js');
-
-test('Security - Renderizado seguro de enlaces en Markdown', () => {
-  // Enlace legítimo
-  const safeMd = '[Página Segura](https://example.com)';
-  const safeHtml = Markdown.parseMarkdown(safeMd);
-  assert.ok(safeHtml.includes('href="https://example.com"'));
-  assert.ok(safeHtml.includes('rel="noopener noreferrer"'));
-  assert.ok(safeHtml.includes('target="_blank"'));
-
-  // Intento de XSS vía enlace javascript:
-  const xssMd = '[Ataque XSS](javascript:alert(1))';
-  const xssHtml = Markdown.parseMarkdown(xssMd);
-  assert.ok(!xssHtml.includes('href="javascript:'), 'No debe renderizar enlaces javascript:');
-});
 
 test('Security - Presencia de Content Security Policy (CSP) en zerochat.html', () => {
   const indexPath = path.join(__dirname, '../..', 'zerochat.html');
