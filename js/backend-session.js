@@ -38,6 +38,11 @@
     };
   }
 
+  /** Proyecto pedido en la consulta de la URL (`?project=...`), o vacío. */
+  function parseLaunchProject(search) {
+    return (new URLSearchParams(String(search || '').replace(/^\?/, '')).get('project') || '').trim();
+  }
+
   /** Destino de una configuración: el servidor local (`localUrl`) o el remoto, con la clave del proxy si lo usa. */
   function connectionTarget(config, localUrl) {
     const settings = normalizeConnectionSettings(config);
@@ -94,9 +99,12 @@
      */
     function connectStartup() {
       adoptLaunchFragment();
+      const project = parseLaunchProject(location.search);
+      const mcp = getMcpManager();
+      if (project) mcp.setInitialProject(project);
       const connection = sessionConnection(runSession || getStorage().getBackendSession(), getConfig().getActive(), getDefaults().LOCAL_BACKEND_URL);
       if (!connection) return Promise.resolve({ success: false });
-      return getMcpManager().connectProxy(connection).then(async result => {
+      return mcp.connectProxy(connection).then(async result => {
         if (result.success) await loadSessions();
         return result;
       }).catch(error => {
@@ -131,5 +139,5 @@
     return { connectStartup, connectConfigured, login };
   }
 
-  return { parseLaunchSession, connectionTarget, sessionConnection, create };
+  return { parseLaunchSession, parseLaunchProject, connectionTarget, sessionConnection, create };
 }));

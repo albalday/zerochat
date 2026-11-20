@@ -370,6 +370,26 @@ describe('Servidor local zerochat.py', () => {
     // Un .. en la consulta no es una ruta.
     assert.equal((await raw('GET', '/files.html?path=../x')).status, 200);
   });
+
+  test('guarda por HTTP real conversaciones de más de 1 MiB en tramos sin recibir 413', async () => {
+    const Storage = require('../../js/storage.js');
+    const client = new McpClient({ url: baseUrl, token: testToken, headers: { Origin: ORIGIN } });
+    const messages = [
+      { id: 'big_1', role: 'user', content: 'A'.repeat(450 * 1024) },
+      { id: 'big_2', role: 'assistant', content: 'B'.repeat(450 * 1024) },
+      { id: 'big_3', role: 'tool', content: `${'C'.repeat(400 * 1024)}🚀`, tool_call_id: 'call_big' },
+    ];
+    const saved = await Storage.saveRemoteConversation(
+      (method, params) => client.request(method, params),
+      { id: 'conv_http_chunked', title: 'Conversación > 1 MiB' },
+      messages
+    );
+    assert.equal(saved.conversation.messageCount, 3);
+    const loaded = await client.request('zerochat/conversations/get', { id: 'conv_http_chunked' });
+    assert.equal(loaded.conversation.history.length, 3);
+    assert.equal(loaded.conversation.history[2].content, messages[2].content);
+    await client.request('zerochat/conversations/delete', { id: 'conv_http_chunked' });
+  });
 });
 
 

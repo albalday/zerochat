@@ -373,3 +373,45 @@ test('ConversationService - switchToSession notifica onSessionSwitched con los m
   assert.equal(storedInState?.serverRun, true);
   assert.equal(storedInState?.profileId, 'claude');
 });
+
+test('ConversationService - confirmProjectSwitch avisa solo al abrir un chat de otro proyecto estando conectado y respeta cancelar', async t => {
+  await Storage.deleteAllConversations();
+  const sA = { id: 'sess_a', title: 'Chat A', project: '/repo/a', createdAt: 1000, updatedAt: 1000 };
+  const sB = { id: 'sess_b', title: 'Chat B', project: '/repo/b', createdAt: 2000, updatedAt: 2000 };
+  const sG = { id: 'sess_g', title: 'Chat General', createdAt: 3000, updatedAt: 3000 };
+  for (const s of [sA, sB, sG]) await Storage.saveConversation(s, [{ id: `${s.id}_m`, role: 'user', content: s.title }]);
+
+  const previousMcp = State.get('mcp');
+  t.after(() => State.set('mcp', previousMcp));
+
+  State.replaceConversation({
+    sessionId: 'sess_a',
+    sessions: [sA, sB, sG],
+    messages: [{ id: 'sess_a_m', role: 'user', content: 'Chat A' }]
+  });
+  State.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { cwd: '/repo/a' } });
+
+  const { confirms } = useDialogs(t, [false, true, true]);
+  const opts = { ...appOptions({ getProject: () => '/repo/a' }), confirmProjectSwitch: true };
+
+  assert.equal(await ConversationService.switchToSession('sess_b', opts), false);
+  assert.equal(confirms.length, 1);
+  assert.match(confirms[0].message, /\bb\b/);
+  assert.equal(State.get('sessions').activeId, 'sess_a');
+
+  assert.equal(await ConversationService.switchToSession('sess_b', opts), true);
+  assert.equal(confirms.length, 2);
+  assert.equal(State.get('sessions').activeId, 'sess_b');
+
+  // Sin confirmar si ya pertenece al proyecto activo, si no hay conexión o si no se pide confirmProjectSwitch.
+  assert.equal(await ConversationService.switchToSession('sess_a', opts), true);
+  assert.equal(confirms.length, 2);
+
+  assert.equal(await ConversationService.switchToSession('sess_g', opts), true);
+  assert.equal(confirms.length, 3);
+  assert.match(confirms[2].message, /\bgeneral\b/);
+
+  State.set('mcp', { ...previousMcp, status: 'disconnected', serverInfo: null });
+  assert.equal(await ConversationService.switchToSession('sess_b', opts), true);
+  assert.equal(confirms.length, 3);
+});

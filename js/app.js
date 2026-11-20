@@ -37,6 +37,7 @@
     btnCloseSidebar: 'btn-close-sidebar',
     btnSidebarNewTab: 'btn-sidebar-new-tab',
     btnSidebarNewChat: 'btn-sidebar-new-chat',
+    btnOpenProjectFiles: 'btn-open-project-files',
     sidebarSearchInput: 'sidebar-search-input',
     sidebarProjectFilter: 'sidebar-project-filter',
     sidebarChatsList: 'sidebar-chats-list',
@@ -306,8 +307,7 @@
     onSummarizing: active => (active ? UIConversation.showBranchLoadingIndicator(wrapper) : UIConversation.hideBranchLoadingIndicator(wrapper))
   });
 
-  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, MCP.currentProject(),
-    State.get('mcp').status === 'connected' ? MCP.directoryOfProject('') : '');
+  const renderSidebarChats = () => UISidebar.renderSidebarChats(elements, State.get('sessions').list, getCurrentSessionId(), State.get('mcp').serverRuns, MCP.currentProject());
 
   const getActiveProfileName = () => getRuntimeConfig().activeProfile?.name || getRuntimeConfig().activeProfile?.id || '';
 
@@ -537,6 +537,7 @@
   function applyLanguage(lang) {
     UISettings.applyLanguage(elements, lang);
     UIReasoning.updateReasoningUI(elements, getRuntimeConfig().reasoningEffort);
+    UIProject.syncProjectFilesLink(elements);
     syncLiveServerRun();
   }
 
@@ -603,7 +604,15 @@
   // Escuchadores de Eventos
   // ==========================================================================
 
-  const updateNewTabLink = () => { elements.btnSidebarNewTab.href = location.pathname + location.search; };
+  const updateNewTabLink = () => {
+    const params = new URLSearchParams(location.search);
+    params.delete('project');
+    const mcp = State.get('mcp');
+    const cwd = mcp.status === 'connected' ? mcp.serverInfo?.cwd : '';
+    const next = cwd ? new URLSearchParams([...params, ['project', cwd]]) : params;
+    const query = next.toString();
+    elements.btnSidebarNewTab.href = query ? `${location.pathname}?${query}` : location.pathname;
+  };
 
   function setupEventListeners() {
     // Ojo de los campos de clave: muestra u oculta el texto del campo que acompaña.
@@ -637,12 +646,11 @@
 
     // Barra Lateral de Chats y navegación de configuración
     UISidebar.mount(elements, {
-      onSwitchSession: switchToSession,
+      onSwitchSession: sessionId => ConversationService.switchToSession(sessionId, { ...getConversationServiceOptions(), confirmProjectSwitch: true }),
       onRenameSession: sessionId => ConversationService.renameSession(sessionId, getConversationServiceOptions()),
       onDeleteSession: sessionId => ConversationService.deleteSession(sessionId, getConversationServiceOptions()),
       onExportSession: sessionId => UITransfer.openExportModal(sessionId),
       onNewSession: createNewSession,
-      onNewProjectSession: project => UIProject.createProjectSession(project, createNewSession).catch(error => console.warn('[App] Could not open a chat in the project:', error)),
       searchConversations: (query, onProgress) => Storage.searchConversations(query, { onProgress }),
       renderList: renderSidebarChats,
       onSyncSessions: () => ConversationService.loadSessionsFromStorage(getConversationServiceOptions()),
@@ -829,7 +837,10 @@
     );
 
     // La barra muestra las conversaciones del proyecto actual: se repinta al conectar o cambiar de proyecto.
-    State.subscribe(state => ({ cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), renderSidebarChats);
+    State.subscribe(state => ({ status: state.mcp.status, cwd: state.mcp.status === 'connected' ? state.mcp.serverInfo?.cwd || '' : '' }), () => {
+      renderSidebarChats();
+      updateNewTabLink();
+    });
     const syncSidebarSyncButton = status => { elements.btnSyncChats.hidden = status !== 'connected'; };
     State.subscribe(state => state.mcp.status, syncSidebarSyncButton);
     syncSidebarSyncButton(State.get('mcp').status);

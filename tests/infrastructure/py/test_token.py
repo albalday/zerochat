@@ -66,6 +66,8 @@ class DailyTokenTest(unittest.TestCase):
         self.assertTrue(grant.allows("/mcp", "zerochat/sandbox/execute", {"code": "1+1"}))
         self.assertTrue(grant.allows("/mcp", "zerochat/conversations/get", {"id": "conv-1"}))
         self.assertTrue(grant.allows("/mcp", "zerochat/conversations/save", {"conversation": {"id": "conv-1"}}))
+        self.assertTrue(grant.allows("/mcp", "zerochat/conversations/save_chunk", {"conversationId": "conv-1"}))
+        self.assertFalse(grant.allows("/mcp", "zerochat/conversations/save_chunk", {"conversationId": "conv-2"}))
         self.assertFalse(grant.allows("/mcp", "zerochat/conversations/get", {"id": "conv-2"}))
         self.assertFalse(grant.allows("/mcp", "zerochat/conversations/list", {}))
         self.assertFalse(grant.allows("/mcp", "zerochat/security/policies", {}))

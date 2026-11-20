@@ -638,3 +638,125 @@ class StorageEngineTest(unittest.TestCase):
         zerochat.delete_conversation("conv_rev_1")
         rev3 = zerochat.conversations_revision()
         self.assertNotEqual(rev3, rev2)
+
+    def test_guardado_por_tramos_y_topes_temporales(self):
+        zerochat._PENDING_CONVERSATION_UPLOADS.clear()
+        self.addCleanup(zerochat._PENDING_CONVERSATION_UPLOADS.clear)
+
+        # 1. Tramos de mensajes + mensaje partido con emojis se consolidan atómicamente en SQLite.
+        uid = "upload_ok_1"
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": uid,
+            "conversationId": "conv_chunked_1",
+            "chunkIndex": 0,
+            "totalChunks": 3,
+            "messages": [{"id": "m1", "role": "user", "content": "Inicio"}],
+        })
+        self.assertIsNone(err)
+        self.assertEqual(res["receivedChunks"], 1)
+
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": uid,
+            "conversationId": "conv_chunked_1",
+            "chunkIndex": 1,
+            "totalChunks": 3,
+            "messagePart": {
+                "partIndex": 0,
+                "totalParts": 2,
+                "content": "Parte 1 🚀 ",
+                "message": {"id": "m2", "role": "assistant", "content": "", "tool_calls": [{"id": "tc1"}]},
+            },
+        })
+        self.assertIsNone(err)
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": uid,
+            "conversationId": "conv_chunked_1",
+            "chunkIndex": 2,
+            "totalChunks": 3,
+            "messagePart": {"partIndex": 1, "totalParts": 2, "content": "Parte 2"},
+        })
+        self.assertIsNone(err)
+
+        # Antes del commit final no existe en SQLite.
+        self.assertIsNone(zerochat.get_conversation("conv_chunked_1"))
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
+            "conversation": {"id": "conv_chunked_1", "title": "Por tramos"},
+            "uploadId": uid,
+        })
+        self.assertIsNone(err)
+        self.assertEqual(res["conversation"]["messageCount"], 2)
+        saved = zerochat.get_conversation("conv_chunked_1")
+        self.assertEqual(saved["history"][1]["content"], "Parte 1 🚀 Parte 2")
+        self.assertEqual(saved["history"][1]["tool_calls"], [{"id": "tc1"}])
+        self.assertEqual(len(zerochat._PENDING_CONVERSATION_UPLOADS), 0)
+
+        # 2. Errores de protocolo (incompleta, fuera de orden, mezcla uploadId+messages) devuelven -32602.
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": "upload_inc", "conversationId": "conv_inc", "chunkIndex": 0, "totalChunks": 2,
+            "messages": [{"id": "mi1", "role": "user", "content": "a"}],
+        })
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
+            "conversation": {"id": "conv_inc", "title": "Incompleta"},
+            "uploadId": "upload_inc",
+        })
+        self.assertEqual(err["code"], -32602)
+        self.assertIsNone(zerochat.get_conversation("conv_inc"))
+
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
+            "conversation": {"id": "conv_inc", "title": "Mezcla"},
+            "uploadId": "upload_inc",
+            "messages": [],
+        })
+        self.assertEqual(err["code"], -32602)
+
+        # 3. Topes exactos N y N+1: MAX_CONVERSATION_UPLOAD_CHUNKS, MAX_PENDING_CONVERSATION_UPLOADS y MAX_STAGED_CONVERSATION_BYTES.
+        zerochat._PENDING_CONVERSATION_UPLOADS.clear()
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": "upload_chunks_ok", "conversationId": "c_chunks",
+            "chunkIndex": 0, "totalChunks": zerochat.MAX_CONVERSATION_UPLOAD_CHUNKS,
+            "messages": [],
+        })
+        self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": "upload_chunks_over", "conversationId": "c_chunks",
+            "chunkIndex": 0, "totalChunks": zerochat.MAX_CONVERSATION_UPLOAD_CHUNKS + 1,
+            "messages": [],
+        })
+        self.assertEqual(err["code"], -32602)
+
+        zerochat._PENDING_CONVERSATION_UPLOADS.clear()
+        for idx in range(zerochat.MAX_PENDING_CONVERSATION_UPLOADS):
+            _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+                "uploadId": f"up_{idx}", "conversationId": f"c_{idx}",
+                "chunkIndex": 0, "totalChunks": 2, "messages": [],
+            })
+            self.assertIsNone(err)
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": "up_overflow", "conversationId": "c_over",
+            "chunkIndex": 0, "totalChunks": 2, "messages": [],
+        })
+        self.assertEqual(err["code"], -32602)
+
+        # Al caducar el TTL se purgan las subidas viejas y entra una nueva.
+        zerochat._PENDING_CONVERSATION_UPLOADS["up_0"]["updated_at"] -= zerochat.CONVERSATION_UPLOAD_TTL_SECONDS + 1
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+            "uploadId": "up_reclaimed", "conversationId": "c_reclaimed",
+            "chunkIndex": 0, "totalChunks": 2, "messages": [],
+        })
+        self.assertIsNone(err)
+
+        zerochat._PENDING_CONVERSATION_UPLOADS.clear()
+        with mock.patch.object(zerochat, "MAX_STAGED_CONVERSATION_BYTES", 64):
+            _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+                "uploadId": "up_bytes", "conversationId": "c_bytes",
+                "chunkIndex": 0, "totalChunks": 2,
+                "messages": [{"id": "1", "role": "user", "content": "x"}],
+            })
+            self.assertIsNone(err)
+            _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+                "uploadId": "up_bytes", "conversationId": "c_bytes",
+                "chunkIndex": 1, "totalChunks": 2,
+                "messages": [{"id": "2", "role": "user", "content": "y" * 64}],
+            })
+            self.assertEqual(err["code"], -32602)

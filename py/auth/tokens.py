@@ -59,6 +59,8 @@ class TokenGrant:
             if method == "zerochat/conversations/save":
                 conv = params.get("conversation")
                 return isinstance(conv, dict) and conv.get("id") == self.conversation_id
+            if method == "zerochat/conversations/save_chunk":
+                return params.get("conversationId") == self.conversation_id
         return False
 
 

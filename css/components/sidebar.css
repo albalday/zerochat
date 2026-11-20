@@ -439,7 +439,7 @@
   user-select: none;
 }
 
-/* Fila de un proyecto, separada por una línea: su cabecera y, a la derecha, el botón de chat nuevo */
+/* Fila de un proyecto, separada por una línea */
 .sidebar-project-group {
   display: flex;
   align-items: stretch;
@@ -464,37 +464,6 @@
   text-transform: none;
   letter-spacing: normal;
   color: var(--text-main);
-}
-
-/* «Sin proyecto» no lleva botones: reserva el hueco de los dos para alinear los contadores */
-.sidebar-project-group > .sidebar-project-header:only-child {
-  margin-right: 64px;
-}
-
-/* Acciones de un proyecto: abrir sus ficheros y un chat nuevo en él */
-.btn-project-files,
-.btn-project-new-chat {
-  flex: 0 0 32px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: var(--radius-md);
-  background: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.btn-project-files:hover,
-.btn-project-new-chat:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-main);
-}
-
-.btn-project-files:focus-visible,
-.btn-project-new-chat:focus-visible {
-  outline: 2px solid var(--input-border-focus);
-  outline-offset: -2px;
 }
 
 .sidebar-project-header .ui-icon {
@@ -726,16 +695,6 @@
 
   .sidebar-chat-item {
     padding-right: 0.45rem;
-  }
-
-  .btn-project-files,
-  .btn-project-new-chat {
-    flex-basis: 44px;
-    min-height: 44px;
-  }
-
-  .sidebar-project-group > .sidebar-project-header:only-child {
-    margin-right: 88px;
   }
 }
 

@@ -12,7 +12,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, projectName } = Utils;
   const { t } = I18n;
 
   const getState = () => resolveDep('ChatState', './state.js');
@@ -22,6 +22,7 @@
   const getProjectContext = () => resolveDep('ChatProjectContext', './project-context.js');
   const getUIReasoning = () => resolveDep('ChatUIReasoning', './ui-reasoning.js');
   const getFolderPicker = () => resolveDep('ChatUIFolderPicker', './ui-folder-picker.js');
+  const getFilesPage = () => resolveDep('ChatFilesPage', './files-page.js');
 
   const getServerCwd = () => getState().get('mcp').serverInfo?.cwd || '';
 
@@ -47,19 +48,20 @@
     return openProjectDirectory(getMCP().directoryOfProject(conversation.project));
   }
 
-  let pendingProjectSession = null;
-
-  /**
-   * Chat nuevo en otro proyecto (vacío para la carpeta general) desde su cabecera del historial: primero el chat
-   * vacío (si una generación lo impide, el servidor no cambia de carpeta) y después la carpeta, que el
-   * chat toma al guardarse. El perfil activo no cambia.
-   */
-  function createProjectSession(project, createNewSession) {
-    if (pendingProjectSession) return pendingProjectSession;
-    pendingProjectSession = (async () => {
-      if (await createNewSession()) await openProjectDirectory(getMCP().directoryOfProject(project));
-    })().finally(() => { pendingProjectSession = null; });
-    return pendingProjectSession;
+  /** Muestra en la cabecera el enlace a los ficheros del proyecto activo cuando hay conexión. */
+  function syncProjectFilesLink(elements) {
+    const link = elements.btnOpenProjectFiles;
+    const mcp = getState().get('mcp');
+    const cwd = mcp.status === 'connected' ? mcp.serverInfo?.cwd || '' : '';
+    link.hidden = !cwd;
+    if (!cwd) {
+      link.removeAttribute('href');
+      return;
+    }
+    const label = t('btn_project_files_title', { name: projectName(cwd) });
+    link.href = `files.html${getFilesPage().pageUrl(cwd, '')}`;
+    link.title = label;
+    link.setAttribute('aria-label', label);
   }
 
   function refreshProjectContext() {
@@ -196,8 +198,12 @@
     // El proyecto depende del servidor local: se recalcula al conectar, cambiar de cwd o de herramientas.
     State.subscribe(
       state => ({ status: state.mcp.status, cwd: state.mcp.serverInfo?.cwd || '', tools: state.mcp.tools.length }),
-      refreshProjectContext
+      () => {
+        syncProjectFilesLink(elements);
+        refreshProjectContext();
+      }
     );
+    syncProjectFilesLink(elements);
     State.subscribe('project', render);
     // Al terminar un turno el agente puede haber creado o actualizado los ficheros del proyecto.
     State.subscribe(state => ({ generating: state.streaming.isGenerating }), ({ generating }) => {
@@ -219,7 +225,7 @@
   return {
     openProjectDirectory,
     followConversationProject,
-    createProjectSession,
+    syncProjectFilesLink,
     refreshProjectContext,
     renderProjectPanel,
     createPanelHandlers,

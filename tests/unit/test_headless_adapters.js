@@ -78,4 +78,16 @@ test('HeadlessAdapters - createHeadlessConversationStore interactúa con el back
   assert.equal(calls[1].method, 'zerochat/conversations/save');
   assert.equal(calls[1].params.conversation.id, 'conv_123');
   assert.equal(calls[1].params.messages.length, 1);
+
+  // Conversación > CONVERSATION_SAVE_CHUNK_BYTES pasa por save_chunk y commit final.
+  const Storage = require('../../js/storage.js');
+  calls.length = 0;
+  const big = 'Z'.repeat(Math.floor(Storage.CONVERSATION_SAVE_CHUNK_BYTES * 0.7));
+  await store.saveConversation({ id: 'conv_big', title: 'Big' }, [
+    { id: 'b1', role: 'user', content: big },
+    { id: 'b2', role: 'assistant', content: big }
+  ]);
+  assert.equal(calls.slice(0, -1).every(c => c.method === 'zerochat/conversations/save_chunk'), true);
+  assert.equal(calls.at(-1).method, 'zerochat/conversations/save');
+  assert.ok(calls.at(-1).params.uploadId);
 });
