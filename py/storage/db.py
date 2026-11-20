@@ -173,12 +173,17 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             error TEXT
         );
     """),
+    (12, "012_split_security_policies_by_project", """
+        DELETE FROM security_policies WHERE id = 'default';
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
-PROJECT_ENVIRONMENT_KEYS = frozenset({"systemDataPrompt", "enabledTools", "mcpServers", "browser"})
+PROJECT_ENVIRONMENT_FIELDS = ("systemDataPrompt", "enabledTools", "mcpServers", "browser", "activeRagBranchIds")
+PROJECT_ENVIRONMENT_KEYS = frozenset(PROJECT_ENVIRONMENT_FIELDS)
 MAX_PROJECT_PROMPT_LENGTH = 32768
 MAX_PROJECT_MCP_SERVERS = 64
+MAX_PROJECT_RAG_BRANCHES = 64
 MAX_PROJECT_ENABLED_TOOLS = 256
 MAX_PROJECT_TOOL_ID_LENGTH = 128
 
@@ -961,6 +966,18 @@ def has_blobs(blob_ids: list[str]) -> dict:
         }
 
 
+GLOBAL_SECURITY_POLICY_ID = "global"
+PROJECT_SECURITY_POLICY_PREFIX = "project:"
+
+
+def project_security_policy_id(project_key: str) -> str:
+    """Clave de fila en `security_policies` para un proyecto concreto."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    return f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}"
+
+
 def _parse_security_policy_row(row) -> dict | None:
     """Decodifica la fila de políticas; un JSON corrupto es un error visible, nunca un estado vacío."""
     if not row:
@@ -974,32 +991,64 @@ def _parse_security_policy_row(row) -> dict | None:
     return data
 
 
-def get_security_policy_data() -> dict | None:
-    """Recupera los datos de políticas de seguridad guardados en SQLite (None si no hay ninguno)."""
+def _upsert_security_policy_row(conn: sqlite3.Connection, row_id: str, data: dict, now: int) -> None:
+    conn.execute("""
+        INSERT INTO security_policies (id, data_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at;
+    """, (row_id, json.dumps(data, ensure_ascii=False), now))
+
+
+def _count_other_project_patterns(conn: sqlite3.Connection, excluded_id: str) -> int:
+    rows = conn.execute(
+        "SELECT data_json FROM security_policies WHERE id LIKE 'project:%' AND id != ?;",
+        (excluded_id,),
+    ).fetchall()
+    total = 0
+    for row in rows:
+        parsed = _parse_security_policy_row(row)
+        if parsed and isinstance(parsed.get("commandPatterns"), list):
+            total += len(parsed["commandPatterns"])
+    return total
+
+
+def get_security_policy_data(project_key: str) -> tuple[dict | None, dict | None]:
+    """Recupera de SQLite las políticas globales y las del proyecto (None si aún no existen)."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
-        row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-        return _parse_security_policy_row(row)
+        global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+        proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+        return _parse_security_policy_row(global_row), _parse_security_policy_row(proj_row)
 
 
-def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -> dict:
-    """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
+def update_security_policy_data(
+    project_key: str,
+    mutator: typing.Callable[[dict | None, dict | None, int], tuple[dict, dict | None]],
+) -> tuple[dict, dict | None]:
+    """Ejecuta una lectura-modificación-escritura atómica sobre la fila global y la del proyecto en BEGIN IMMEDIATE."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
-            row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-            updated = mutator(_parse_security_policy_row(row))
-            data_str = json.dumps(updated, ensure_ascii=False)
+            global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+            proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+            other_pattern_count = _count_other_project_patterns(conn, proj_id)
+            new_global, new_project = mutator(
+                _parse_security_policy_row(global_row),
+                _parse_security_policy_row(proj_row),
+                other_pattern_count,
+            )
             now = int(time.time() * 1000)
-            conn.execute("""
-                INSERT INTO security_policies (id, data_json, updated_at)
-                VALUES ('default', ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    data_json = excluded.data_json,
-                    updated_at = excluded.updated_at;
-            """, (data_str, now))
+            _upsert_security_policy_row(conn, GLOBAL_SECURITY_POLICY_ID, new_global, now)
+            if new_project is None:
+                conn.execute("DELETE FROM security_policies WHERE id = ?;", (proj_id,))
+            else:
+                _upsert_security_policy_row(conn, proj_id, new_project, now)
             conn.execute("COMMIT;")
-            return updated
+            return new_global, new_project
         except Exception:
             conn.execute("ROLLBACK;")
             raise
@@ -1196,6 +1245,7 @@ def _empty_project_environment() -> dict:
         "enabledTools": {},
         "mcpServers": [],
         "browser": "browser_action",
+        "activeRagBranchIds": [],
         "saved": False,
         "updatedAt": 0,
     }
@@ -1235,13 +1285,13 @@ def _validate_enabled_tools(tools) -> dict[str, bool]:
     return clean_tools
 
 
-def _validate_project_mcp_servers(servers) -> list[str]:
-    if not isinstance(servers, list):
-        raise ValueError("mcpServers debe ser una lista")
-    unique_servers = list(dict.fromkeys(_clean_project_tool_id(item, "mcpServers") for item in servers))
-    if len(unique_servers) > MAX_PROJECT_MCP_SERVERS:
-        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_MCP_SERVERS} servicios MCP")
-    return unique_servers
+def _validate_project_id_list(raw, label: str, max_items: int) -> list[str]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{label} debe ser una lista")
+    unique_items = list(dict.fromkeys(_clean_project_tool_id(item, label) for item in raw))
+    if len(unique_items) > max_items:
+        raise ValueError(f"Un proyecto no puede tener más de {max_items} entradas en {label}")
+    return unique_items
 
 
 def _validate_project_browser(browser) -> str:
@@ -1253,8 +1303,9 @@ def _validate_project_browser(browser) -> str:
 _PROJECT_ENV_VALIDATORS = {
     "systemDataPrompt": _validate_project_prompt,
     "enabledTools": _validate_enabled_tools,
-    "mcpServers": _validate_project_mcp_servers,
+    "mcpServers": lambda raw: _validate_project_id_list(raw, "mcpServers", MAX_PROJECT_MCP_SERVERS),
     "browser": _validate_project_browser,
+    "activeRagBranchIds": lambda raw: _validate_project_id_list(raw, "activeRagBranchIds", MAX_PROJECT_RAG_BRANCHES),
 }
 
 
@@ -1309,7 +1360,7 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
                 (clean_key,),
             ).fetchone()
             base = _row_to_project_environment(row) if row else _empty_project_environment()
-            stored = {key: patch[key] if key in patch else base[key] for key in ("systemDataPrompt", "enabledTools", "mcpServers", "browser")}
+            stored = {key: patch[key] if key in patch else base[key] for key in PROJECT_ENVIRONMENT_FIELDS}
             conn.execute("""
                 INSERT INTO project_environments (project_key, config_json, updated_at)
                 VALUES (?, ?, ?)

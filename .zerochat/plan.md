@@ -22,7 +22,7 @@
 - [ ] M81-T11 Diálogo de permisos: limitar la línea de comandos a aprobar a un máximo de 2 líneas
 - [ ] M81-T12 Propuesta: cortar el contenedor de ejecución de tools tras 20 tarjetas y abrir uno nuevo
 - [x] M81-T13 Simplificación: unificar la persistencia del backend en SQLite (mover config/browser.json con extensionToken en secrets, config/services.json y runs/*.json a SQLite) (2026-11-20)
-- [ ] M81-T14 Simplificación: unificar el modelo de proyecto (mover activeRagBranchIds al entorno por proyecto, adelgazar runtime_config_v2 a preferencias globales y separar por proyecto security_policies)
+- [x] M81-T14 Simplificación: unificar el modelo de proyecto (mover activeRagBranchIds al entorno por proyecto, adelgazar runtime_config_v2 a preferencias globales y separar por proyecto security_policies) (2026-11-20)
 - [ ] M81-T15 A discutir con el usuario: simplificación de búsqueda de conversaciones delegando searchConversations a SQLite (zerochat/conversations/search) cuando hay backend conectado en lugar de descargar pendientes a IndexedDB
 - [ ] M81-T16 A discutir con el usuario: simplificación de la réplica bidireccional de perfiles y conversaciones usando SQLite como fuente directa con servidor conectado y localStorage/IndexedDB solo sin servidor
 - [ ] M81-T17 Quitar polling: en check_command (py/tools/job_waits.py), eliminar WAIT_SLICE_SECONDS haciendo que WAITS.cancel notifique job._changed para esperar en un solo wait(remaining)

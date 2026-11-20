@@ -2150,30 +2150,11 @@ def clean_pattern_list(raw, label: str) -> list[str]:
     return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
-def normalize_command_patterns(raw) -> dict:
-    """
-    Valida los patrones de comando guardados: `global` (todos los proyectos) y `projects` (ruta absoluta
-    del proyecto -> patrones), sin repetidos ni cubiertos por otro más amplio y como máximo
-    MAX_COMMAND_PATTERNS en total. Los de sesión nunca forman parte del estado guardado.
-    """
-    if not isinstance(raw, dict):
-        raise ValueError("commandPatterns debe ser un diccionario con global y project.")
-    raw_projects = raw.get("projects") or {}
-    if not isinstance(raw_projects, dict):
-        raise ValueError("commandPatterns.projects debe ser un diccionario de proyecto a patrones.")
-    projects: dict[str, list[str]] = {}
-    for raw_path, raw_list in raw_projects.items():
-        path = normalize_directory_path(str(raw_path))
-        if not path or not re.match(r"^(/|[A-Za-z]:/)", path):
-            raise ValueError(f"Proyecto no válido en commandPatterns.projects: '{raw_path}'.")
-        patterns = clean_pattern_list(projects.get(path, []) + clean_pattern_list(raw_list, "commandPatterns.projects"), "commandPatterns.projects")
-        if patterns:
-            projects[path] = patterns
-    global_patterns = clean_pattern_list(raw.get("global") or [], "commandPatterns.global")
-    total = len(global_patterns) + sum(len(v) for v in projects.values())
+def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int = 0) -> None:
+    """Comprueba que el total de patrones globales y de todos los proyectos no supere MAX_COMMAND_PATTERNS."""
+    total = len(global_patterns) + len(project_patterns) + other_project_count
     if total > MAX_COMMAND_PATTERNS:
         raise ValueError(f"Hay {total} patrones de comando; el máximo es {MAX_COMMAND_PATTERNS}.")
-    return {"global": global_patterns, "projects": projects}
 
 
 def suggest_command_prefix(command: str) -> str:
@@ -2429,12 +2410,17 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             error TEXT
         );
     """),
+    (12, "012_split_security_policies_by_project", """
+        DELETE FROM security_policies WHERE id = 'default';
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
-PROJECT_ENVIRONMENT_KEYS = frozenset({"systemDataPrompt", "enabledTools", "mcpServers", "browser"})
+PROJECT_ENVIRONMENT_FIELDS = ("systemDataPrompt", "enabledTools", "mcpServers", "browser", "activeRagBranchIds")
+PROJECT_ENVIRONMENT_KEYS = frozenset(PROJECT_ENVIRONMENT_FIELDS)
 MAX_PROJECT_PROMPT_LENGTH = 32768
 MAX_PROJECT_MCP_SERVERS = 64
+MAX_PROJECT_RAG_BRANCHES = 64
 MAX_PROJECT_ENABLED_TOOLS = 256
 MAX_PROJECT_TOOL_ID_LENGTH = 128
 
@@ -3217,6 +3203,18 @@ def has_blobs(blob_ids: list[str]) -> dict:
         }
 
 
+GLOBAL_SECURITY_POLICY_ID = "global"
+PROJECT_SECURITY_POLICY_PREFIX = "project:"
+
+
+def project_security_policy_id(project_key: str) -> str:
+    """Clave de fila en `security_policies` para un proyecto concreto."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    return f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}"
+
+
 def _parse_security_policy_row(row) -> dict | None:
     """Decodifica la fila de políticas; un JSON corrupto es un error visible, nunca un estado vacío."""
     if not row:
@@ -3230,32 +3228,64 @@ def _parse_security_policy_row(row) -> dict | None:
     return data
 
 
-def get_security_policy_data() -> dict | None:
-    """Recupera los datos de políticas de seguridad guardados en SQLite (None si no hay ninguno)."""
+def _upsert_security_policy_row(conn: sqlite3.Connection, row_id: str, data: dict, now: int) -> None:
+    conn.execute("""
+        INSERT INTO security_policies (id, data_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            data_json = excluded.data_json,
+            updated_at = excluded.updated_at;
+    """, (row_id, json.dumps(data, ensure_ascii=False), now))
+
+
+def _count_other_project_patterns(conn: sqlite3.Connection, excluded_id: str) -> int:
+    rows = conn.execute(
+        "SELECT data_json FROM security_policies WHERE id LIKE 'project:%' AND id != ?;",
+        (excluded_id,),
+    ).fetchall()
+    total = 0
+    for row in rows:
+        parsed = _parse_security_policy_row(row)
+        if parsed and isinstance(parsed.get("commandPatterns"), list):
+            total += len(parsed["commandPatterns"])
+    return total
+
+
+def get_security_policy_data(project_key: str) -> tuple[dict | None, dict | None]:
+    """Recupera de SQLite las políticas globales y las del proyecto (None si aún no existen)."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
-        row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-        return _parse_security_policy_row(row)
+        global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+        proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+        return _parse_security_policy_row(global_row), _parse_security_policy_row(proj_row)
 
 
-def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -> dict:
-    """Ejecuta una lectura-modificación-escritura atómica en una transacción BEGIN IMMEDIATE."""
+def update_security_policy_data(
+    project_key: str,
+    mutator: typing.Callable[[dict | None, dict | None, int], tuple[dict, dict | None]],
+) -> tuple[dict, dict | None]:
+    """Ejecuta una lectura-modificación-escritura atómica sobre la fila global y la del proyecto en BEGIN IMMEDIATE."""
+    proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
-            row = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()
-            updated = mutator(_parse_security_policy_row(row))
-            data_str = json.dumps(updated, ensure_ascii=False)
+            global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
+            proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
+            other_pattern_count = _count_other_project_patterns(conn, proj_id)
+            new_global, new_project = mutator(
+                _parse_security_policy_row(global_row),
+                _parse_security_policy_row(proj_row),
+                other_pattern_count,
+            )
             now = int(time.time() * 1000)
-            conn.execute("""
-                INSERT INTO security_policies (id, data_json, updated_at)
-                VALUES ('default', ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    data_json = excluded.data_json,
-                    updated_at = excluded.updated_at;
-            """, (data_str, now))
+            _upsert_security_policy_row(conn, GLOBAL_SECURITY_POLICY_ID, new_global, now)
+            if new_project is None:
+                conn.execute("DELETE FROM security_policies WHERE id = ?;", (proj_id,))
+            else:
+                _upsert_security_policy_row(conn, proj_id, new_project, now)
             conn.execute("COMMIT;")
-            return updated
+            return new_global, new_project
         except Exception:
             conn.execute("ROLLBACK;")
             raise
@@ -3452,6 +3482,7 @@ def _empty_project_environment() -> dict:
         "enabledTools": {},
         "mcpServers": [],
         "browser": "browser_action",
+        "activeRagBranchIds": [],
         "saved": False,
         "updatedAt": 0,
     }
@@ -3491,13 +3522,13 @@ def _validate_enabled_tools(tools) -> dict[str, bool]:
     return clean_tools
 
 
-def _validate_project_mcp_servers(servers) -> list[str]:
-    if not isinstance(servers, list):
-        raise ValueError("mcpServers debe ser una lista")
-    unique_servers = list(dict.fromkeys(_clean_project_tool_id(item, "mcpServers") for item in servers))
-    if len(unique_servers) > MAX_PROJECT_MCP_SERVERS:
-        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_MCP_SERVERS} servicios MCP")
-    return unique_servers
+def _validate_project_id_list(raw, label: str, max_items: int) -> list[str]:
+    if not isinstance(raw, list):
+        raise ValueError(f"{label} debe ser una lista")
+    unique_items = list(dict.fromkeys(_clean_project_tool_id(item, label) for item in raw))
+    if len(unique_items) > max_items:
+        raise ValueError(f"Un proyecto no puede tener más de {max_items} entradas en {label}")
+    return unique_items
 
 
 def _validate_project_browser(browser) -> str:
@@ -3509,8 +3540,9 @@ def _validate_project_browser(browser) -> str:
 _PROJECT_ENV_VALIDATORS = {
     "systemDataPrompt": _validate_project_prompt,
     "enabledTools": _validate_enabled_tools,
-    "mcpServers": _validate_project_mcp_servers,
+    "mcpServers": lambda raw: _validate_project_id_list(raw, "mcpServers", MAX_PROJECT_MCP_SERVERS),
     "browser": _validate_project_browser,
+    "activeRagBranchIds": lambda raw: _validate_project_id_list(raw, "activeRagBranchIds", MAX_PROJECT_RAG_BRANCHES),
 }
 
 
@@ -3565,7 +3597,7 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
                 (clean_key,),
             ).fetchone()
             base = _row_to_project_environment(row) if row else _empty_project_environment()
-            stored = {key: patch[key] if key in patch else base[key] for key in ("systemDataPrompt", "enabledTools", "mcpServers", "browser")}
+            stored = {key: patch[key] if key in patch else base[key] for key in PROJECT_ENVIRONMENT_FIELDS}
             conn.execute("""
                 INSERT INTO project_environments (project_key, config_json, updated_at)
                 VALUES (?, ?, ?)
@@ -6989,63 +7021,85 @@ class AccessController:
             return session
 
     @staticmethod
-    def _normalize_state(raw: dict | None) -> dict:
-        """Única definición del estado permanente y de sus valores por defecto."""
+    def _normalize_global(raw: dict | None) -> dict:
+        """Única definición de las políticas globales guardadas en SQLite."""
         data = raw if isinstance(raw, dict) else {}
-        patterns = data.get("commandPatterns") if isinstance(data.get("commandPatterns"), dict) else {}
-        raw_dir_rules = data.get("directoryRules")
-        dir_rules = {
-            str(project): list(rules)
-            for project, rules in raw_dir_rules.items()
-            if isinstance(project, str) and isinstance(rules, list)
-        } if isinstance(raw_dir_rules, dict) else {}
         # run_command nunca se guarda autorizado entero: sus permisos permanentes son patrones.
         tools = {tid: entry for tid, entry in dict(data.get("tools") or {}).items()
                  if not (tid == COMMAND_TOOL and isinstance(entry, dict) and entry.get("policy") == POLICY_ALLOW)}
-        raw_allow_all = data.get("allowAll")
-        allow_all = {
-            str(project): True
-            for project, enabled in raw_allow_all.items()
-            if isinstance(project, str) and enabled is True
-        } if isinstance(raw_allow_all, dict) else {}
+        raw_patterns = data.get("commandPatterns")
+        patterns = list(raw_patterns) if isinstance(raw_patterns, list) else []
         return {
             "version": POLICY_STATE_VERSION,
-            "allowAll": allow_all,
-            "directoryRules": dir_rules,
             "tools": tools,
             "servers": dict(data.get("servers") or {}),
-            "commandPatterns": {"global": list(patterns.get("global") or []), "projects": dict(patterns.get("projects") or {})}
+            "commandPatterns": patterns,
         }
 
-    def _read_permanent_state(self) -> dict:
-        """Lee el estado permanente de SQLite; un fallo de lectura se propaga al llamador."""
-        return self._normalize_state(get_security_policy_data())
+    @staticmethod
+    def _normalize_project(raw: dict | None) -> dict:
+        """Única definición de las políticas por proyecto guardadas en SQLite."""
+        data = raw if isinstance(raw, dict) else {}
+        raw_rules = data.get("directoryRules")
+        raw_patterns = data.get("commandPatterns")
+        return {
+            "allowAll": data.get("allowAll") is True,
+            "directoryRules": list(raw_rules) if isinstance(raw_rules, list) else None,
+            "commandPatterns": list(raw_patterns) if isinstance(raw_patterns, list) else [],
+        }
 
-    def _update_permanent(self, mutator: typing.Callable[[dict], dict]) -> dict:
-        """Lectura-modificación-escritura transaccional sobre el estado permanente normalizado."""
-        return update_security_policy_data(lambda raw: mutator(self._normalize_state(raw)))
+    @staticmethod
+    def _compact_project(project_state: dict) -> dict | None:
+        """Omite la fila del proyecto en SQLite cuando todo queda en sus valores por defecto."""
+        stored: dict = {}
+        if project_state["allowAll"]:
+            stored["allowAll"] = True
+        if project_state["directoryRules"] is not None:
+            stored["directoryRules"] = list(project_state["directoryRules"])
+        if project_state["commandPatterns"]:
+            stored["commandPatterns"] = list(project_state["commandPatterns"])
+        return stored or None
+
+    def _read_permanent_state(self, context: SecurityContext) -> tuple[dict, dict]:
+        """Lee el estado permanente global y del proyecto en SQLite; un fallo se propaga."""
+        raw_global, raw_project = get_security_policy_data(context.key)
+        return self._normalize_global(raw_global), self._normalize_project(raw_project)
+
+    def _update_permanent(self, context: SecurityContext, mutator: typing.Callable[[dict, dict, int], None]) -> tuple[dict, dict | None]:
+        """Lectura-modificación-escritura transaccional sobre las filas global y del proyecto."""
+        def apply(raw_global: dict | None, raw_project: dict | None, other_pattern_count: int) -> tuple[dict, dict | None]:
+            global_state = self._normalize_global(raw_global)
+            project_state = self._normalize_project(raw_project)
+            mutator(global_state, project_state, other_pattern_count)
+            check_command_pattern_limit(global_state["commandPatterns"], project_state["commandPatterns"], other_pattern_count)
+            self._check_entry_limit({
+                "directoryRules": project_state["directoryRules"] or [],
+                "tools": global_state["tools"],
+                "servers": global_state["servers"],
+            })
+            return global_state, self._compact_project(project_state)
+        return update_security_policy_data(context.key, apply)
 
     def _effective_state(self, context: SecurityContext) -> dict:
         """Una sola lectura del estado permanente combinada con la capa de sesión del proyecto."""
-        state = self._read_permanent_state()
+        global_state, project_state = self._read_permanent_state(context)
         default_rule = self.get_default_directory_rule(context)
         with self._lock:
             session = self._session(context)
             if session.directory_rules is not None:
                 dir_rules = list(session.directory_rules)
-            elif context.key in state["directoryRules"]:
-                dir_rules = list(state["directoryRules"][context.key])
+            elif project_state["directoryRules"] is not None:
+                dir_rules = list(project_state["directoryRules"])
             else:
                 dir_rules = [default_rule]
-            saved_patterns = state["commandPatterns"]
             return {
-                "allowAll": session.allow_all if session.allow_all is not None else bool(state["allowAll"].get(context.key, False)),
+                "allowAll": session.allow_all if session.allow_all is not None else project_state["allowAll"],
                 "directoryRules": dir_rules,
-                "tools": {**state["tools"], **session.tools},
-                "servers": {**state["servers"], **session.servers},
+                "tools": {**global_state["tools"], **session.tools},
+                "servers": {**global_state["servers"], **session.servers},
                 "commandPatterns": {
-                    "global": list(saved_patterns["global"]),
-                    "project": list(saved_patterns["projects"].get(context.key) or []),
+                    "global": list(global_state["commandPatterns"]),
+                    "project": list(project_state["commandPatterns"]),
                     "session": list(session.command_patterns)
                 }
             }
@@ -7162,48 +7216,28 @@ class AccessController:
         project = context.key
         default_rule = self.get_default_directory_rule(context)
 
-        def mutator(current: dict) -> dict:
-            self._apply_state_patch(current, project, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
-            self._check_entry_limit(current)
-            return current
-        self._update_permanent(mutator)
+        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+            self._apply_state_patch(global_state, project_state, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
+        self._update_permanent(context, mutator)
         self._forget_session_overrides(project, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers)
         return self.export_state(context)
 
-    def _apply_state_patch(self, current: dict, project: str, default_rule: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+    def _apply_state_patch(self, global_state: dict, project_state: dict, default_rule: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
         """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
         if clean_allow_all is not None:
-            if clean_allow_all:
-                current["allowAll"][project] = True
-            else:
-                current["allowAll"].pop(project, None)
+            project_state["allowAll"] = clean_allow_all
         if clean_rules is not None:
-            if clean_rules == [default_rule]:
-                current["directoryRules"].pop(project, None)
-            else:
-                current["directoryRules"][project] = clean_rules
+            project_state["directoryRules"] = None if clean_rules == [default_rule] else clean_rules
         if added_rules:
-            base_rules = self._project_rules_base(current["directoryRules"], project, default_rule)
-            current["directoryRules"][project] = self._append_rules(base_rules, added_rules)
+            base_rules = project_state["directoryRules"] if project_state["directoryRules"] is not None else [default_rule]
+            project_state["directoryRules"] = self._append_rules(base_rules, added_rules)
         if clean_tools is not None:
-            current["tools"] = self._apply_entry_patch(current.get("tools"), clean_tools)
+            global_state["tools"] = self._apply_entry_patch(global_state.get("tools"), clean_tools)
         if clean_servers is not None:
-            current["servers"] = self._apply_entry_patch(current.get("servers"), clean_servers)
+            global_state["servers"] = self._apply_entry_patch(global_state.get("servers"), clean_servers)
         if clean_patterns is not None:
-            current["commandPatterns"] = self._merge_command_patterns(current["commandPatterns"], clean_patterns, project)
-
-    @staticmethod
-    def _project_rules_base(directory_rules: dict[str, list[str]], project: str, default_rule: str) -> list[str]:
-        return directory_rules[project] if project in directory_rules else [default_rule]
-
-    @staticmethod
-    def _merge_command_patterns(current_patterns: dict, patch: dict, project: str) -> dict:
-        projects = dict(current_patterns["projects"])
-        if patch["project"]:
-            projects[project] = patch["project"]
-        else:
-            projects.pop(project, None)
-        return normalize_command_patterns({"global": patch["global"], "projects": projects})
+            global_state["commandPatterns"] = clean_pattern_list(clean_patterns["global"], "commandPatterns.global")
+            project_state["commandPatterns"] = clean_pattern_list(clean_patterns["project"], "commandPatterns.project")
 
     def _forget_session_overrides(self, project: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers):
         """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas y permitir todo, solo en su proyecto)."""
@@ -7432,14 +7466,12 @@ class AccessController:
             return
         project = context.key
 
-        def mutator(state: dict) -> dict:
-            self._store_decision(state, decision, pattern, project, tool, server_name, server_id)
+        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+            self._store_decision(global_state, project_state, decision, pattern, tool, server_name, server_id)
             if rules:
-                base_rules = self._project_rules_base(state["directoryRules"], project, self.get_default_directory_rule(context))
-                state["directoryRules"][project] = self._append_rules(base_rules, rules)
-            self._check_entry_limit(state)
-            return state
-        self._update_permanent(mutator)
+                base_rules = project_state["directoryRules"] if project_state["directoryRules"] is not None else [self.get_default_directory_rule(context)]
+                project_state["directoryRules"] = self._append_rules(base_rules, rules)
+        self._update_permanent(context, mutator)
         self._drop_superseded_session_entries(decision, pattern, tool, server_id, project, rules)
 
     def _allow_for_session(self, context: SecurityContext, tool: str, server_name: str, pattern: str | None):
@@ -7452,19 +7484,17 @@ class AccessController:
             else:
                 session.tools[tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_SESSION, server_name, tool)
 
-    def _store_decision(self, state: dict, decision: str, pattern: str | None, project: str, tool: str,
+    def _store_decision(self, global_state: dict, project_state: dict, decision: str, pattern: str | None, tool: str,
                         server_name: str, server_id: str):
         """Guarda una decisión permanente: el patrón del proyecto o global, la herramienta o el servidor."""
-        saved = state["commandPatterns"]
         if pattern and decision == "allow_project":
-            projects = {**saved["projects"], project: [*(saved["projects"].get(project) or []), pattern]}
-            state["commandPatterns"] = normalize_command_patterns({**saved, "projects": projects})
+            project_state["commandPatterns"] = clean_pattern_list([*project_state["commandPatterns"], pattern], "commandPatterns.project")
         elif pattern and decision == "allow_always":
-            state["commandPatterns"] = normalize_command_patterns({**saved, "global": [*saved["global"], pattern]})
+            global_state["commandPatterns"] = clean_pattern_list([*global_state["commandPatterns"], pattern], "commandPatterns.global")
         elif decision == "allow_always":
-            state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
+            global_state["tools"][tool] = self._make_entry("tools", POLICY_ALLOW, SCOPE_PERMANENT, server_name, tool)
         elif decision == "allow_server_always":
-            state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
+            global_state["servers"][server_id] = self._make_entry("servers", POLICY_ALLOW, SCOPE_PERMANENT, server_name or server_id)
 
     def _drop_superseded_session_entries(self, decision: str, pattern: str | None, tool: str, server_id: str,
                                          project: str, rules: list[str]):

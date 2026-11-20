@@ -18,8 +18,9 @@
 
   const { clone } = Utils;
 
-  function normalizeBranchIds(value) {
-    return (Array.isArray(value) ? value : []).map(String).map(id => id.trim()).filter(Boolean);
+  function normalizeUniqueIdList(value) {
+    if (!Array.isArray(value)) return [];
+    return [...new Set(value.map(String).map(id => id.trim()).filter(Boolean))];
   }
 
   function normalizeMcpServers(value) {
@@ -41,6 +42,7 @@
       enabledTools,
       mcpServers: normalizeMcpServers(source.mcpServers),
       browser: Defaults.BROWSER_TOOLS.includes(source.browser) ? source.browser : DEFAULTS.browser,
+      activeRagBranchIds: normalizeUniqueIdList(source.activeRagBranchIds),
       updatedAt: Number.isFinite(Number(source.updatedAt)) ? Number(source.updatedAt) : 0
     };
   }
@@ -64,13 +66,15 @@
           systemDataPrompt: source.systemDataPrompt === null ? DEFAULTS.systemDataPrompt : source.systemDataPrompt,
           enabledTools: clone(source.enabledTools),
           mcpServers: clone(source.mcpServers),
-          browser: source.browser
+          browser: source.browser,
+          activeRagBranchIds: clone(source.activeRagBranchIds)
         }
       : {
           systemDataPrompt: DEFAULTS.systemDataPrompt,
           enabledTools: {},
           mcpServers: [],
-          browser: DEFAULTS.browser
+          browser: DEFAULTS.browser,
+          activeRagBranchIds: []
         };
   }
 
@@ -127,7 +131,7 @@
     Object.assign(next, Utils.normalizeConnectionSettings(next));
     next.projectMode = next.projectMode !== false;
     next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
-    next.activeRagBranchIds = normalizeBranchIds(next.activeRagBranchIds);
+    next.activeRagBranchIds = normalizeUniqueIdList(next.activeRagBranchIds);
     next.mcpServers = normalizeMcpServers(next.mcpServers);
     next.browser = Defaults.BROWSER_TOOLS.includes(next.browser) ? next.browser : DEFAULTS.browser;
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;
@@ -152,10 +156,32 @@
     };
   }
 
+  const GLOBAL_PREFERENCE_KEYS = Object.freeze([
+    'activeProfile',
+    'theme',
+    'language',
+    'enableDebugMessages',
+    'localBackend',
+    'backendUrl',
+    'useProxy',
+    'proxyKey',
+    'projectMode',
+    'projectDeclined'
+  ]);
+
+  function pickGlobalPreferences(source) {
+    const prefs = {};
+    if (!source || typeof source !== 'object') return prefs;
+    for (const key of GLOBAL_PREFERENCE_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) prefs[key] = clone(source[key]);
+    }
+    return prefs;
+  }
+
   function persist(next) {
     // Un perfil activado solo para esta página (modo ejecución) no cambia la configuración guardada.
     if (next.sessionOnly) return;
-    Storage.saveRuntimeConfigV2({ ...next, modelContextLimit: null });
+    Storage.saveRuntimeConfigV2(pickGlobalPreferences(next));
   }
 
   function commit(next) {
@@ -173,27 +199,24 @@
       console.warn('[ChatConfig] Could not initialize the profile repository:', error);
     }
     const stored = Storage.loadRuntimeConfigV2();
+    const globalPrefs = stored ? pickGlobalPreferences(stored) : {};
     let fallbackProfile = null;
+    let activeProfile = null;
     try {
       fallbackProfile = Profiles.get(Profiles.READONLY_PROFILE_ID) || Profiles.list()[0] || null;
+      if (globalPrefs.activeProfile?.id) {
+        activeProfile = Profiles.get(globalPrefs.activeProfile.id);
+      }
     } catch (_) { /* perfiles no disponibles: sin perfil de respaldo */ }
     const generalPatch = projectEnvironmentPatch(getProjectEnvironment('general'));
-    if (stored) {
-      const config = { ...stored, ...generalPatch, modelContextLimit: null };
+    const base = { ...DEFAULTS, ...globalPrefs, ...generalPatch, modelContextLimit: null };
+    const profileToApply = activeProfile || fallbackProfile;
+    if (profileToApply) {
       try {
-        if (!Profiles.get(config.activeProfile?.id) && fallbackProfile) {
-          return commit(applyProfile(config, fallbackProfile));
-        }
-      } catch (_) { /* perfiles no disponibles: se conserva la configuración guardada */ }
-      return commit(config);
+        return commit(applyProfile(base, profileToApply));
+      } catch (_) { /* perfiles no disponibles: se conserva la configuración base */ }
     }
-
-    try {
-      const base = fallbackProfile ? applyProfile(DEFAULTS, fallbackProfile) : DEFAULTS;
-      return commit({ ...base, ...generalPatch });
-    } catch (_) {
-      return commit({ ...DEFAULTS, ...generalPatch });
-    }
+    return commit(base);
   }
 
   function getActive() {
@@ -257,7 +280,7 @@
   }
 
   return {
-    DEFAULT_SYSTEM_DATA_PROMPT, normalize,
+    DEFAULT_SYSTEM_DATA_PROMPT, GLOBAL_PREFERENCE_KEYS, normalize,
     getProjectEnvironment, saveProjectEnvironmentBackup, applyProjectEnvironment,
     initialize, getActive, updateRuntime, activateProfile, activateFallbackProfile, refreshActiveProfile, subscribe
   };

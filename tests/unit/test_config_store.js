@@ -61,7 +61,13 @@ test('ChatConfig - el límite detectado es volátil y se descarta al activar per
   initializeWithOffice();
   ChatConfig.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });
   assert.equal(ChatConfig.getActive().modelContextLimit, 90112);
-  assert.equal(Storage.loadRuntimeConfigV2().modelContextLimit, null);
+  const savedSlim = Storage.loadRuntimeConfigV2();
+  assert.equal(savedSlim.modelContextLimit, undefined);
+  assert.equal(savedSlim.model, undefined);
+  assert.equal(savedSlim.systemDataPrompt, undefined);
+  assert.equal(savedSlim.activeRagBranchIds, undefined);
+  assert.equal(savedSlim.enabledTools, undefined);
+  assert.deepEqual(Object.keys(savedSlim).sort(), [...ChatConfig.GLOBAL_PREFERENCE_KEYS].sort());
 
   const activated = ChatConfig.activateProfile('office');
   assert.equal(activated.modelContextLimit, null);
@@ -138,6 +144,7 @@ test('ChatConfig - el respaldo offline de entornos por proyecto normaliza, separ
     enabledTools: { search_web: false, bad: 'nope' },
     mcpServers: [' memory ', 'memory', 'brave'],
     browser: 'invalid_browser',
+    activeRagBranchIds: [' b1 ', 'b1', 'b2'],
     updatedAt: 100
   });
   assert.deepEqual(ChatConfig.getProjectEnvironment(''), {
@@ -145,6 +152,7 @@ test('ChatConfig - el respaldo offline de entornos por proyecto normaliza, separ
     enabledTools: { search_web: false },
     mcpServers: ['memory', 'brave'],
     browser: 'browser_action',
+    activeRagBranchIds: ['b1', 'b2'],
     updatedAt: 100
   });
 
@@ -165,12 +173,14 @@ test('ChatConfig - applyProjectEnvironment aplica valores del proyecto, preserva
     enabledTools: { search_web: false },
     mcpServers: ['memory'],
     browser: 'playwright',
+    activeRagBranchIds: ['rag-alpha'],
     updatedAt: 500
   });
   assert.equal(appliedA.systemDataPrompt, '');
   assert.deepEqual(appliedA.enabledTools, { search_web: false });
   assert.deepEqual(appliedA.mcpServers, ['memory']);
   assert.equal(appliedA.browser, 'playwright');
+  assert.deepEqual(appliedA.activeRagBranchIds, ['rag-alpha']);
   assert.equal(ChatConfig.getProjectEnvironment('/repo/alpha').browser, 'playwright');
 
   // Proyecto nuevo sin entorno guardado en SQLite no hereda ajustes del proyecto anterior.
@@ -179,11 +189,13 @@ test('ChatConfig - applyProjectEnvironment aplica valores del proyecto, preserva
   assert.deepEqual(appliedB.enabledTools, {});
   assert.deepEqual(appliedB.mcpServers, []);
   assert.equal(appliedB.browser, 'browser_action');
+  assert.deepEqual(appliedB.activeRagBranchIds, []);
 
   // Sin servidor (offline) recupera el respaldo local guardado previamente.
   const offlineA = ChatConfig.applyProjectEnvironment('/repo/alpha');
   assert.equal(offlineA.browser, 'playwright');
   assert.deepEqual(offlineA.mcpServers, ['memory']);
+  assert.deepEqual(offlineA.activeRagBranchIds, ['rag-alpha']);
 
   // Arranque offline sin servidor: usa general (o defaults) y no hereda lo guardado en runtimeConfigV2 del último proyecto.
   ChatConfig.saveProjectEnvironmentBackup('general', {
@@ -191,10 +203,12 @@ test('ChatConfig - applyProjectEnvironment aplica valores del proyecto, preserva
     enabledTools: { search_web: true },
     mcpServers: ['brave'],
     browser: 'none',
+    activeRagBranchIds: ['rag-general'],
     updatedAt: 900
   });
   const offlineInit = ChatConfig.initialize();
   assert.equal(offlineInit.systemDataPrompt, 'Solo general');
   assert.deepEqual(offlineInit.mcpServers, ['brave']);
   assert.equal(offlineInit.browser, 'none');
+  assert.deepEqual(offlineInit.activeRagBranchIds, ['rag-general']);
 });

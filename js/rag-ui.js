@@ -17,6 +17,7 @@
   const ingestion = () => resolveDep('ChatIngestionEngine', './ingestionEngine.js');
   const indexer = () => resolveDep('ChatRagIndex', './rag-index.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getMCP = () => resolveDep('ChatMCP', './mcp.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getRagService = () => resolveDep('ChatRagService', './rag-service.js');
   const $ = id => document.getElementById(id);
@@ -52,10 +53,12 @@
   const getActiveBranchIds = () => getConfig().getActive().activeRagBranchIds;
   const isBranchActive = branchId => getActiveBranchIds().includes(String(branchId).trim());
 
-  /** Guarda las ramas activas sin vacíos ni repetidos y las devuelve. */
+  /** Guarda las ramas activas en el entorno del proyecto sin vacíos ni repetidos y las devuelve. */
   function setActiveBranchIds(ids) {
     const unique = [...new Set(ids.map(id => String(id).trim()).filter(Boolean))];
     getConfig().updateRuntime({ activeRagBranchIds: unique });
+    getMCP()?.manager?.saveProjectEnvironment?.({ activeRagBranchIds: unique })
+      ?.catch?.(error => console.warn('[RagUI] Could not persist project RAG branches:', error));
     return unique;
   }
 
@@ -771,6 +774,11 @@
     bindActivationDialog();
     bindManageDialog();
     updateToolbarStatus();
+    getConfig().subscribe((next, prev) => {
+      if (JSON.stringify(next?.activeRagBranchIds || []) !== JSON.stringify(prev?.activeRagBranchIds || [])) {
+        refresh().catch(reportError);
+      }
+    });
     I18n.onChange(() => refresh().catch(error => console.warn('[RagUI] Could not refresh after a language change:', error)));
   }
 

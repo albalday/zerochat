@@ -58,7 +58,8 @@ def server_entry(controller, server_id):
 
 def stored(kind):
     """Entradas permanentes guardadas en SQLite, sin la capa de sesión."""
-    return (zerochat.get_security_policy_data() or {}).get(kind) or {}
+    global_data, _ = zerochat.get_security_policy_data(cwd().key)
+    return (global_data or {}).get(kind) or {}
 
 
 def set_patterns(controller, *patterns, project_patterns=None):
@@ -70,7 +71,19 @@ def set_patterns(controller, *patterns, project_patterns=None):
 
 def saved_patterns():
     """Patrones de comando guardados en SQLite, sin los de sesión."""
-    return (zerochat.get_security_policy_data() or {}).get("commandPatterns") or {}
+    with zerochat.open_storage() as conn:
+        rows = conn.execute("SELECT id, data_json FROM security_policies;").fetchall()
+    result: dict = {}
+    for row in rows:
+        data = zerochat.json.loads(row["data_json"])
+        if row["id"] == zerochat.GLOBAL_SECURITY_POLICY_ID and data.get("commandPatterns"):
+            result["global"] = data["commandPatterns"]
+        elif row["id"].startswith(zerochat.PROJECT_SECURITY_POLICY_PREFIX) and data.get("commandPatterns"):
+            key = row["id"][len(zerochat.PROJECT_SECURITY_POLICY_PREFIX):]
+            result.setdefault("projects", {})[key] = data["commandPatterns"]
+    if "projects" in result:
+        result.setdefault("global", [])
+    return result
 
 
 class SecurityContextTest(unittest.TestCase):
@@ -213,7 +226,7 @@ class PolicyEvaluationTest(ControllerTestCase):
         exported_a = self.controller.export_state(ctx_a)
         self.assertEqual(exported_a["directoryRules"], [rule_a])
         self.controller.import_state({**exported_a, "directoryRules": [rule_a]}, context=ctx_a)
-        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), {})
+        self.assertIsNone(zerochat.get_security_policy_data(ctx_a.key)[1])
 
         # En el proyecto B rige su propia regla y A deja de estar autorizado
         self.assertTrue(self.evaluate("write_file", {"path": file_b}, ctx_b).allowed)
@@ -221,7 +234,8 @@ class PolicyEvaluationTest(ControllerTestCase):
 
         # Desde B, la regla de A se guarda solo para B y no se filtra a A
         set_rules(self.controller, [rule_b, rule_a], ctx_b)
-        self.assertEqual(zerochat.get_security_policy_data().get("directoryRules"), {ctx_b.key: [rule_b, rule_a]})
+        self.assertEqual((zerochat.get_security_policy_data(ctx_b.key)[1] or {}).get("directoryRules"), [rule_b, rule_a])
+        self.assertIsNone(zerochat.get_security_policy_data(ctx_a.key)[1])
         self.assertEqual(self.controller.export_state(ctx_a)["directoryRules"], [rule_a])
         self.assertEqual(self.evaluate("read_file", {"path": file_b}, ctx_a).status, "ask")
 
@@ -461,14 +475,14 @@ class PolicyStateTest(ControllerTestCase):
         self.assertEqual(self.controller.export_state(self.ctx), initial)
 
         with zerochat.open_storage() as conn:
-            conn.execute("INSERT INTO security_policies (id, data_json, updated_at) VALUES ('default', '{corrupt', 0);")
+            conn.execute("INSERT OR REPLACE INTO security_policies (id, data_json, updated_at) VALUES (?, '{corrupt', 0);", (zerochat.GLOBAL_SECURITY_POLICY_ID,))
             conn.commit()
         res, err, _ = zerochat.dispatch_security("zerochat/security/update", {"allowAll": True}, cwd())
         self.assertIsNone(res)
         self.assertEqual(err["code"], -32603)
         self.assertIn("corruptas", err["message"])
         with zerochat.open_storage() as conn:
-            raw = conn.execute("SELECT data_json FROM security_policies WHERE id = 'default';").fetchone()["data_json"]
+            raw = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (zerochat.GLOBAL_SECURITY_POLICY_ID,)).fetchone()["data_json"]
         self.assertEqual(raw, "{corrupt")
         with self.assertRaises(RuntimeError):
             self.evaluate("read_file", {"path": "x.txt"})
@@ -695,8 +709,14 @@ class CommandPatternTest(HandlerTestCase):
         self.controller.apply_session_overlay({"tools": {"run_command": {"policy": "allow"}}}, cwd())
         self.controller.clear_session()
         # Solo los patrones autorizan run_command de forma permanente, aunque la base de datos diga otra cosa
-        zerochat.update_security_policy_data(lambda current: {**(current or {}), "tools": {
-            "run_command": {"policy": "allow", "scope": "permanent"}}, "commandPatterns": {"global": []}})
+        zerochat.update_security_policy_data(
+            cwd().key,
+            lambda global_data, proj_data, _other: ({
+                **(global_data or {}),
+                "tools": {"run_command": {"policy": "allow", "scope": "permanent"}},
+                "commandPatterns": [],
+            }, proj_data),
+        )
         self.assertEqual(self.evaluate("run_command", {"command": "sudo rm -rf build"}).status, "ask")
 
         # export_state solo expone {global, project, session} y update desde A no expone ni borra los de B
@@ -827,8 +847,8 @@ class SessionLifecycleTest(HandlerTestCase):
             self.assertEqual(res["content"][0]["text"], "ok")
             mock_ext.assert_called_once()
 
-        saved = zerochat.get_security_policy_data()
-        self.assertEqual((saved["allowAll"], list(saved["tools"])), ({}, ["db_tool"]))
+        saved_global, saved_project = zerochat.get_security_policy_data(cwd().key)
+        self.assertEqual((saved_project, list(saved_global["tools"])), (None, ["db_tool"]))
 
         zerochat.RUN_SESSION = None
         zerochat.reset_session_authorizations()
