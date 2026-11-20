@@ -4949,7 +4949,7 @@ def find_node_executable() -> str | None:
     if not executable:
         return None
     try:
-        res = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=5)
+        res = subprocess.run([executable, "--version"], capture_output=True, text=True, timeout=15)
         if res.returncode != 0:
             return None
         match = re.search(r"v?(\d+)\.(\d+)\.", res.stdout.strip())
