@@ -71,6 +71,7 @@ MAX_PATH_LENGTH = 4096
 MAX_COMMAND_LENGTH = 16384
 MAX_RPC_METHOD_LENGTH = 128
 MAX_TOOL_NAME_LENGTH = 128
+BROWSER_TOOLS = ("none", "browser_action", "playwright")
 
 # --- core.logging ---
 """Registro en consola con la hora local; la consola interactiva, si existe, recibe las líneas."""
@@ -836,382 +837,6 @@ def login(params: dict) -> dict:
         LOGIN_FAILURES = 0
     return {"token": issue_login_token()}
 
-# --- browser.config ---
-"""Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
-
-
-
-
-
-# Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
-# Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
-# en ~/zerochat/playwright/profile/<motor>/<nombre>.
-# Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
-BROWSER_TOOLS = ("none", "browser_action", "playwright")
-BROWSER_MODES = ("own", "user")
-OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
-USER_BROWSERS = ("chrome", "msedge", "chromium")
-BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
-# Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
-PLAYWRIGHT_SERVER_ID = "playwright"
-PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
-# Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
-_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
-_BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
-
-
-def browser_config_file() -> Path:
-    return get_data_dir() / "config" / "browser.json"
-
-
-def own_browser_profile_dir(engine: str) -> Path:
-    return get_data_dir() / "playwright" / "profile" / engine
-
-
-def validate_browser_config(raw) -> dict:
-    """Devuelve la configuración completa o lanza ValueError; los campos que faltan toman su valor por defecto."""
-    if not isinstance(raw, dict):
-        raise ValueError("La configuración del navegador debe ser un objeto")
-    unknown = sorted(set(raw) - set(BROWSER_CONFIG_DEFAULTS))
-    if unknown:
-        raise ValueError(f"Campos desconocidos en la configuración del navegador: {', '.join(unknown)}")
-    config = {**BROWSER_CONFIG_DEFAULTS, **raw}
-    for key, choices in _BROWSER_CONFIG_CHOICES.items():
-        if config[key] not in choices:
-            raise ValueError(f"{key} debe ser uno de: {', '.join(choices)}")
-    if not isinstance(config["headless"], bool):
-        raise ValueError("headless debe ser un booleano")
-    if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
-        raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
-    return config
-
-
-def load_browser_config() -> dict:
-    path = browser_config_file()
-    if not path.exists():
-        return dict(BROWSER_CONFIG_DEFAULTS)
-    try:
-        return validate_browser_config(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, ValueError) as err:
-        log_event(f"[zerochat] Configuración del navegador no válida en {path}, se usan los valores por defecto: {err}")
-        return dict(BROWSER_CONFIG_DEFAULTS)
-
-
-def save_browser_config(raw) -> dict:
-    config = validate_browser_config(raw)
-    path = browser_config_file()
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    # Guarda el token de la extensión: solo lo lee el usuario.
-    _write_private_text(path, json.dumps(config, indent=2))
-    return config
-
-
-def chromium_install() -> tuple[str, Path] | None:
-    """Chromium del sistema: ejecutable y carpeta de datos del usuario, o None si no está."""
-    if sys.platform == "darwin":
-        executable = "/Applications/Chromium.app/Contents/MacOS/Chromium"
-        data_dir = Path.home() / "Library" / "Application Support" / "Chromium"
-    elif sys.platform.startswith("win"):
-        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        executable = str(local / "Chromium" / "Application" / "chrome.exe")
-        data_dir = local / "Chromium" / "User Data"
-    else:
-        executable = shutil.which("chromium") or shutil.which("chromium-browser") or ""
-        # El Chromium de snap guarda el perfil dentro de su confinamiento.
-        snap = os.path.realpath(executable).startswith("/snap/")
-        data_dir = Path.home() / ("snap/chromium/common/chromium" if snap else ".config/chromium")
-    return (executable, data_dir) if executable and os.path.isfile(executable) else None
-
-
-def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[str]:
-    """Argumentos de Playwright MCP para la configuración del navegador."""
-    if config["mode"] == "user":
-        # La extensión maneja el navegador abierto del usuario: siempre con ventana.
-        if config["userBrowser"] != "chromium":
-            return ["--extension", f"--browser={config['userBrowser']}"]
-        # Chromium no es un canal de Playwright: se da su ejecutable y su perfil, con el canal chrome
-        # para que no lo lance sin sandbox si no está abierto.
-        install = chromium_install()
-        if not install:
-            raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
-        executable, data_dir = install
-        return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    args = [f"--browser={config['engine']}", "--isolated"]
-    # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
-    if user_agent:
-        args.append(f"--user-agent={user_agent}")
-    if config["headless"]:
-        args.append("--headless")
-    return args
-
-
-def playwright_launch_env(config: dict) -> dict[str, str]:
-    """Entorno de Playwright MCP: el token de la extensión, que no aparece en la línea de órdenes ni en el log."""
-    if config["mode"] == "user" and config["extensionToken"]:
-        return {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": config["extensionToken"]}
-    return {}
-
-
-def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
-    """Argumentos y entorno de Playwright MCP según la configuración guardada."""
-    config = load_browser_config()
-    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
-
-
-# User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
-# activo de las salidas web (ff-server) para que ambos compartan el mismo fingerprint.
-SERVICE_USER_AGENT: str | None = None
-
-
-def set_service_user_agent(user_agent: str | None) -> None:
-    global SERVICE_USER_AGENT
-    SERVICE_USER_AGENT = user_agent
-
-
-# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
-# calculados en cada arranque.
-SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda: _playwright_launch(SERVICE_USER_AGENT)}
-
-# --- browser.engines ---
-"""Motores propios de Playwright (listar, instalar y quitar) y navegadores del sistema con la extensión de Playwright."""
-
-
-
-
-
-# Si Playwright MCP está en marcha: lo registra el gestor de servicios MCP (on_playwright_status).
-PLAYWRIGHT_STATUS_CHECK: list = []
-
-
-def on_playwright_status(check):
-    """Registra la función, sin argumentos, que dice si Playwright MCP está arrancando o en marcha."""
-    PLAYWRIGHT_STATUS_CHECK[:] = [check]
-    return check
-
-
-def _playwright_active() -> bool:
-    return any(check() for check in PLAYWRIGHT_STATUS_CHECK)
-
-
-def clear_own_browser_data(engine) -> dict:
-    """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
-    if engine not in OWN_BROWSER_ENGINES:
-        raise ValueError(f"engine debe ser uno de: {', '.join(OWN_BROWSER_ENGINES)}")
-    # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
-    if _playwright_active():
-        raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")
-    shutil.rmtree(own_browser_profile_dir(engine), ignore_errors=True)
-    return {"cleared": engine}
-
-
-# Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
-# "playwright install <motor>"; ffmpeg es común y no se quita.
-ENGINE_CACHE_ENTRIES = {"chromium": ("chromium", "chromium-headless-shell"), "firefox": ("firefox",), "webkit": ("webkit",)}
-ENGINE_INSTALL_TIMEOUT_SECONDS = 1200
-_DRY_RUN_ENTRY = re.compile(r"^(.+?) \(playwright (\S+) v\d+\)\n\s+Install location:\s+(.+)$", re.MULTILINE)
-_INSTALL_PERCENT = re.compile(r"(\d{1,3})% of ")
-_INSTALL_DOWNLOAD = re.compile(r"^Downloading (.+?) \(playwright ")
-
-
-def playwright_engine_cache() -> Path:
-    """Caché de motores de Playwright sin lanzar Node: PLAYWRIGHT_BROWSERS_PATH o la ruta por defecto de la plataforma."""
-    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
-    if configured:
-        return Path(configured).expanduser()
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / "ms-playwright"
-    if sys.platform.startswith("win"):
-        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ms-playwright"
-    return Path.home() / ".cache" / "ms-playwright"
-
-
-def cached_engine_entries() -> set[str]:
-    """Entradas de ENGINE_CACHE_ENTRIES con alguna revisión completa en la caché; la revisión exacta de esta
-    versión de Playwright solo la da BrowserEngines.list lanzando Node."""
-    try:
-        folders = [child.name for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()]
-    except OSError:
-        return set()
-    # Las carpetas se llaman como la entrada con guiones bajos y su revisión: chromium_headless_shell-1187.
-    names = {name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries}
-    return {name for name in names if any(folder.startswith(name.replace("-", "_") + "-") for folder in folders)}
-
-
-def playwright_service_module() -> Path:
-    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
-
-
-def playwright_service_cli() -> Path:
-    return playwright_service_module() / "cli.js"
-
-
-def system_browsers() -> dict[str, bool]:
-    """Chrome y Edge en las rutas donde los busca Playwright para --browser=chrome|msedge, Chromium donde lo
-    busca chromium_install; Firefox solo se informa."""
-    if sys.platform == "darwin":
-        candidates = {
-            "chrome": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
-            "msedge": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
-            "firefox": ["/Applications/Firefox.app/Contents/MacOS/firefox"],
-        }
-    elif sys.platform.startswith("win"):
-        roots = [os.environ.get(name) for name in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)")]
-        roots = [root for root in roots if root]
-        candidates = {
-            "chrome": [os.path.join(root, "Google", "Chrome", "Application", "chrome.exe") for root in roots],
-            "msedge": [os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe") for root in roots],
-            "firefox": [os.path.join(root, "Mozilla Firefox", "firefox.exe") for root in roots],
-        }
-    else:
-        candidates = {
-            "chrome": ["/opt/google/chrome/chrome"],
-            "msedge": ["/opt/microsoft/msedge/msedge"],
-            "firefox": [shutil.which("firefox") or ""],
-        }
-    found = {name: any(path and os.path.isfile(path) for path in paths) for name, paths in candidates.items()}
-    return {**found, "chromium": chromium_install() is not None}
-
-
-def user_browser_data_dir(browser: str) -> Path | None:
-    """Carpeta de datos del usuario de Chrome, Edge o Chromium, donde están sus perfiles."""
-    if browser == "chromium":
-        install = chromium_install()
-        return install[1] if install else None
-    if sys.platform == "darwin":
-        root, paths = Path.home() / "Library" / "Application Support", {"chrome": "Google/Chrome", "msedge": "Microsoft Edge"}
-    elif sys.platform.startswith("win"):
-        root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-        paths = {"chrome": "Google/Chrome/User Data", "msedge": "Microsoft/Edge/User Data"}
-    else:
-        root, paths = Path.home() / ".config", {"chrome": "google-chrome", "msedge": "microsoft-edge"}
-    return root / paths[browser]
-
-
-def user_browser_extensions() -> dict[str, bool]:
-    """Si algún perfil de cada navegador del usuario tiene instalada la extensión de Playwright desde la tienda."""
-    found = {}
-    for browser in USER_BROWSERS:
-        data_dir = user_browser_data_dir(browser)
-        found[browser] = bool(data_dir) and any(data_dir.glob(f"*/Extensions/{PLAYWRIGHT_EXTENSION_ID}"))
-    return found
-
-
-class BrowserEngines:
-    """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._jobs: dict[str, dict] = {}
-        self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
-
-    @staticmethod
-    def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
-        return subprocess.run([shutil.which("node") or "node", str(cli), *args], cwd=cli.parent,
-                              capture_output=True, text=True, timeout=timeout)
-
-    def _locations(self, cli: Path) -> dict[str, tuple[str, Path]]:
-        """Entradas de la caché de esta versión de Playwright: nombre -> (título con versión, ruta)."""
-        key = (str(cli), cli.stat().st_mtime_ns)
-        cached = self._locations_cache
-        if cached is not None and cached[0] == key:
-            return cached[1]
-        names = [name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries]
-        result = self._run_cli(cli, "install", "--dry-run", *names, timeout=30)
-        if result.returncode != 0:
-            raise RuntimeError(f"Playwright no pudo listar sus navegadores: {(result.stderr or result.stdout).strip()}")
-        locations = {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
-        self._locations_cache = (key, locations)
-        return locations
-
-    def list(self) -> dict:
-        """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
-        cli = playwright_service_cli()
-        result = {
-            "systemBrowsers": system_browsers(),
-            "extensions": user_browser_extensions(),
-            "engines": [],
-            "config": load_browser_config(),
-        }
-        if not cli.is_file():
-            return result
-        locations = self._locations(cli)
-        with self._lock:
-            jobs = {engine: dict(job) for engine, job in self._jobs.items()}
-        for engine, entries in ENGINE_CACHE_ENTRIES.items():
-            title = locations.get(entries[0], (engine,))[0]
-            installed = all(name in locations and (locations[name][1] / "INSTALLATION_COMPLETE").is_file() for name in entries)
-            result["engines"].append({"id": engine, "title": title, "installed": installed, **jobs.get(engine, {})})
-        return result
-
-    def _check_engine(self, engine) -> Path:
-        if engine not in ENGINE_CACHE_ENTRIES:
-            raise ValueError(f"engine debe ser uno de: {', '.join(ENGINE_CACHE_ENTRIES)}")
-        cli = playwright_service_cli()
-        if not cli.is_file():
-            raise ValueError("Playwright MCP no está instalado: arráncalo una vez desde Ajustes › MCP.")
-        if self._jobs.get(engine, {}).get("status") == "installing":
-            raise ValueError(f"{engine} ya se está instalando.")
-        return cli
-
-    def install(self, engine) -> dict:
-        with self._lock:
-            cli = self._check_engine(engine)
-            self._jobs[engine] = {"status": "installing", "percent": 0}
-        threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
-        return self.list()
-
-    def _install(self, cli: Path, engine: str):
-        log_event(f"[zerochat] Instalando el motor {engine} de Playwright")
-        lines = []
-        try:
-            proc = subprocess.Popen([shutil.which("node") or "node", str(cli), "install", engine], cwd=cli.parent,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, proc.kill)
-            timer.start()
-            try:
-                for line in proc.stdout:
-                    lines = (lines + [line.rstrip()])[-20:]
-                    percent, download = _INSTALL_PERCENT.search(line), _INSTALL_DOWNLOAD.match(line)
-                    with self._lock:
-                        if download:
-                            self._jobs[engine].update(download=download.group(1), percent=0)
-                        elif percent:
-                            self._jobs[engine]["percent"] = min(100, int(percent.group(1)))
-                code = proc.wait()
-            finally:
-                timer.cancel()
-            if code != 0:
-                raise RuntimeError("\n".join(lines[-5:]) or f"código {code}")
-            with self._lock:
-                self._jobs.pop(engine, None)
-            log_event(f"[zerochat] Motor {engine} de Playwright instalado")
-        except (OSError, RuntimeError, subprocess.SubprocessError) as err:
-            with self._lock:
-                self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
-            log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
-
-    def remove(self, engine) -> dict:
-        with self._lock:
-            cli = self._check_engine(engine)
-            # Borrar un motor en uso deja al navegador abierto sin sus ficheros.
-            if _playwright_active():
-                raise ValueError("Detén Playwright MCP antes de quitar un motor.")
-            locations = self._locations(cli)
-            for name in ENGINE_CACHE_ENTRIES[engine]:
-                if name in locations:
-                    shutil.rmtree(locations[name][1], ignore_errors=True)
-            self._jobs.pop(engine, None)
-        result = self.list()
-        # La configuración no se queda con un motor quitado si hay otro instalado.
-        config = result["config"]
-        replacement = next((item["id"] for item in result["engines"] if item["installed"]), None)
-        if config["engine"] == engine and replacement:
-            result["config"] = save_browser_config({**config, "engine": replacement})
-        return result
-
-
-BROWSER_ENGINES = BrowserEngines()
-
 # --- core.process ---
 """Procesos del sistema: si siguen vivos, su huella de arranque y la terminación de su árbol."""
 
@@ -1450,27 +1075,6 @@ def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, 
     """Atiende el método con su función de la tabla, que recibe *args; sin ella, «no soportado»."""
     handler = handlers.get(method)
     return handler(*args) if handler else rpc_not_supported(method)
-
-# --- browser.rpc ---
-"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
-
-
-
-
-BROWSER_METHODS = {
-    "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
-    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
-    "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),
-    "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
-    "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),
-}
-
-
-def dispatch_browser(method: str, params: dict) -> RpcOutcome:
-    try:
-        return dispatch_table(BROWSER_METHODS, method, params)
-    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
-        return rpc_error(INVALID_PARAMS, str(exc))
 
 # --- core.version ---
 """Versiones del backend y de la interfaz, y direcciones desde las que se publican."""
@@ -2805,7 +2409,26 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             config_json TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
-    """)
+    """),
+    (11, "011_create_settings_and_runs_tables", """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS runs (
+            conversation_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            pid INTEGER,
+            pid_start TEXT,
+            started_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            step_text TEXT NOT NULL DEFAULT '',
+            pending_json TEXT,
+            error TEXT
+        );
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
@@ -3638,6 +3261,13 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
             raise
 
 
+def _write_secret_on_conn(conn: sqlite3.Connection, name: str, value: str, now: int):
+    conn.execute("""
+        INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+    """, (name, obfuscate_secret(value), now))
+
+
 def save_secret(name: str, value: str):
     """Guarda ofuscado el secreto `name` (por ejemplo mcp:<servicio>:<VARIABLE>); nunca se devuelve a la interfaz."""
     if not isinstance(value, str) or not value.strip():
@@ -3645,16 +3275,136 @@ def save_secret(name: str, value: str):
     if len(value) > MAX_SECRET_LENGTH:
         raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
     with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
-        """, (name, obfuscate_secret(value.strip()), int(time.time() * 1000)))
+        _write_secret_on_conn(conn, name, value.strip(), int(time.time() * 1000))
         conn.commit()
 
 
 def delete_secret(name: str) -> bool:
     with open_storage() as conn:
         cursor = conn.execute("DELETE FROM secrets WHERE name = ?;", (name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_setting(key: str):
+    """Lee un ajuste JSON guardado en la tabla `settings`; None si no existe."""
+    with open_storage() as conn:
+        row = conn.execute("SELECT value_json FROM settings WHERE key = ?;", (key,)).fetchone()
+        if not row:
+            return None
+        return json.loads(row["value_json"])
+
+
+def set_setting(key: str, value) -> None:
+    """Guarda un ajuste JSON en la tabla `settings`."""
+    payload = json.dumps(value, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+        """, (key, payload, now))
+        conn.commit()
+
+
+def save_browser_config_storage(public_config: dict, extension_token: str, key: str, secret_key: str) -> None:
+    """Guarda atómicamente la configuración del navegador en `settings` y su token en `secrets`."""
+    payload = json.dumps(public_config, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            conn.execute("""
+                INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+            """, (key, payload, now))
+            if extension_token:
+                _write_secret_on_conn(conn, secret_key, extension_token, now)
+            else:
+                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_key,))
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+
+
+def _row_to_run_state(row: sqlite3.Row) -> dict:
+    pending = None
+    if row["pending_json"]:
+        try:
+            pending = json.loads(row["pending_json"])
+        except (ValueError, TypeError):
+            pending = None
+    return {
+        "run_id": row["run_id"],
+        "conversation_id": row["conversation_id"],
+        "pid": row["pid"],
+        "pid_start": row["pid_start"],
+        "started_at": row["started_at"],
+        "updated_at": row["updated_at"],
+        "status": row["status"],
+        "step_text": row["step_text"] or "",
+        "pending": pending,
+        "error": row["error"],
+    }
+
+
+def upsert_run_state(payload: dict) -> None:
+    """Guarda o actualiza en SQLite el estado en vivo de una ejecución en servidor."""
+    conv_id = _validate_conversation_id(payload.get("conversation_id"))
+    pending = payload.get("pending")
+    pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                run_id = excluded.run_id,
+                pid = excluded.pid,
+                pid_start = excluded.pid_start,
+                started_at = excluded.started_at,
+                updated_at = excluded.updated_at,
+                status = excluded.status,
+                step_text = excluded.step_text,
+                pending_json = excluded.pending_json,
+                error = excluded.error;
+        """, (
+            conv_id,
+            str(payload.get("run_id") or ""),
+            payload.get("pid"),
+            payload.get("pid_start"),
+            int(payload.get("started_at") or now),
+            int(payload.get("updated_at") or now),
+            str(payload.get("status") or "running"),
+            str(payload.get("step_text") or ""),
+            pending_json,
+            payload.get("error"),
+        ))
+        conn.commit()
+
+
+def get_run_state(conversation_id: str) -> dict | None:
+    """Recupera de SQLite el estado en vivo de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM runs WHERE conversation_id = ?;", (clean_id,)).fetchone()
+        return _row_to_run_state(row) if row else None
+
+
+def list_run_states() -> list[dict]:
+    """Lista todas las ejecuciones registradas en SQLite ordenadas por inicio."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT * FROM runs ORDER BY started_at ASC, conversation_id ASC;").fetchall()
+        return [_row_to_run_state(row) for row in rows]
+
+
+def delete_run_state(conversation_id: str) -> bool:
+    """Elimina de SQLite el estado de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM runs WHERE conversation_id = ?;", (clean_id,))
         conn.commit()
         return cursor.rowcount > 0
 
@@ -3829,6 +3579,402 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
             conn.execute("ROLLBACK;")
             raise
 
+# --- browser.config ---
+"""Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
+
+
+
+
+
+# Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
+# Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
+# en ~/zerochat/playwright/profile/<motor>/<nombre>.
+# Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
+BROWSER_MODES = ("own", "user")
+OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
+USER_BROWSERS = ("chrome", "msedge", "chromium")
+BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
+BROWSER_CONFIG_KEY = "browser"
+BROWSER_EXTENSION_TOKEN_KEY = "browser:extension_token"  # noqa: S105 - nombre de fila en la tabla secrets
+# Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
+PLAYWRIGHT_SERVER_ID = "playwright"
+PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
+# Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
+_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
+_BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
+
+
+def own_browser_profile_dir(engine: str) -> Path:
+    return get_data_dir() / "playwright" / "profile" / engine
+
+
+def validate_browser_config(raw) -> dict:
+    """Devuelve la configuración completa o lanza ValueError; los campos que faltan toman su valor por defecto."""
+    if not isinstance(raw, dict):
+        raise ValueError("La configuración del navegador debe ser un objeto")
+    unknown = sorted(set(raw) - set(BROWSER_CONFIG_DEFAULTS))
+    if unknown:
+        raise ValueError(f"Campos desconocidos en la configuración del navegador: {', '.join(unknown)}")
+    config = {**BROWSER_CONFIG_DEFAULTS, **raw}
+    for key, choices in _BROWSER_CONFIG_CHOICES.items():
+        if config[key] not in choices:
+            raise ValueError(f"{key} debe ser uno de: {', '.join(choices)}")
+    if not isinstance(config["headless"], bool):
+        raise ValueError("headless debe ser un booleano")
+    if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
+        raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
+    return config
+
+
+def load_browser_config() -> dict:
+    try:
+        stored = get_setting(BROWSER_CONFIG_KEY)
+        token = get_secret(BROWSER_EXTENSION_TOKEN_KEY) or ""
+        if stored is None and not token:
+            return dict(BROWSER_CONFIG_DEFAULTS)
+        raw = stored if isinstance(stored, dict) else {}
+        if stored is not None and not isinstance(stored, dict):
+            raise ValueError("La configuración del navegador debe ser un objeto")
+        return validate_browser_config({**raw, "extensionToken": token})
+    except (OSError, ValueError, TypeError) as err:
+        log_event(f"[zerochat] Configuración del navegador no válida en SQLite, se usan los valores por defecto: {err}")
+        return dict(BROWSER_CONFIG_DEFAULTS)
+
+
+def save_browser_config(raw) -> dict:
+    config = validate_browser_config(raw)
+    public_config = {key: value for key, value in config.items() if key != "extensionToken"}
+    save_browser_config_storage(public_config, config["extensionToken"], BROWSER_CONFIG_KEY, BROWSER_EXTENSION_TOKEN_KEY)
+    return config
+
+
+def chromium_install() -> tuple[str, Path] | None:
+    """Chromium del sistema: ejecutable y carpeta de datos del usuario, o None si no está."""
+    if sys.platform == "darwin":
+        executable = "/Applications/Chromium.app/Contents/MacOS/Chromium"
+        data_dir = Path.home() / "Library" / "Application Support" / "Chromium"
+    elif sys.platform.startswith("win"):
+        local = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        executable = str(local / "Chromium" / "Application" / "chrome.exe")
+        data_dir = local / "Chromium" / "User Data"
+    else:
+        executable = shutil.which("chromium") or shutil.which("chromium-browser") or ""
+        # El Chromium de snap guarda el perfil dentro de su confinamiento.
+        snap = os.path.realpath(executable).startswith("/snap/")
+        data_dir = Path.home() / ("snap/chromium/common/chromium" if snap else ".config/chromium")
+    return (executable, data_dir) if executable and os.path.isfile(executable) else None
+
+
+def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[str]:
+    """Argumentos de Playwright MCP para la configuración del navegador."""
+    if config["mode"] == "user":
+        # La extensión maneja el navegador abierto del usuario: siempre con ventana.
+        if config["userBrowser"] != "chromium":
+            return ["--extension", f"--browser={config['userBrowser']}"]
+        # Chromium no es un canal de Playwright: se da su ejecutable y su perfil, con el canal chrome
+        # para que no lo lance sin sandbox si no está abierto.
+        install = chromium_install()
+        if not install:
+            raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
+        executable, data_dir = install
+        return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
+    args = [f"--browser={config['engine']}", "--isolated"]
+    # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
+    if user_agent:
+        args.append(f"--user-agent={user_agent}")
+    if config["headless"]:
+        args.append("--headless")
+    return args
+
+
+def playwright_launch_env(config: dict) -> dict[str, str]:
+    """Entorno de Playwright MCP: el token de la extensión, que no aparece en la línea de órdenes ni en el log."""
+    if config["mode"] == "user" and config["extensionToken"]:
+        return {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": config["extensionToken"]}
+    return {}
+
+
+def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
+    """Argumentos y entorno de Playwright MCP según la configuración guardada."""
+    config = load_browser_config()
+    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
+
+
+# User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
+# activo de las salidas web (ff-server) para que ambos compartan el mismo fingerprint.
+SERVICE_USER_AGENT: str | None = None
+
+
+def set_service_user_agent(user_agent: str | None) -> None:
+    global SERVICE_USER_AGENT
+    SERVICE_USER_AGENT = user_agent
+
+
+# Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
+# calculados en cada arranque.
+SERVICE_LAUNCH = {PLAYWRIGHT_SERVER_ID: lambda: _playwright_launch(SERVICE_USER_AGENT)}
+
+# --- browser.engines ---
+"""Motores propios de Playwright (listar, instalar y quitar) y navegadores del sistema con la extensión de Playwright."""
+
+
+
+
+
+# Si Playwright MCP está en marcha: lo registra el gestor de servicios MCP (on_playwright_status).
+PLAYWRIGHT_STATUS_CHECK: list = []
+
+
+def on_playwright_status(check):
+    """Registra la función, sin argumentos, que dice si Playwright MCP está arrancando o en marcha."""
+    PLAYWRIGHT_STATUS_CHECK[:] = [check]
+    return check
+
+
+def _playwright_active() -> bool:
+    return any(check() for check in PLAYWRIGHT_STATUS_CHECK)
+
+
+def clear_own_browser_data(engine) -> dict:
+    """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
+    if engine not in OWN_BROWSER_ENGINES:
+        raise ValueError(f"engine debe ser uno de: {', '.join(OWN_BROWSER_ENGINES)}")
+    # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
+    if _playwright_active():
+        raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")
+    shutil.rmtree(own_browser_profile_dir(engine), ignore_errors=True)
+    return {"cleared": engine}
+
+
+# Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
+# "playwright install <motor>"; ffmpeg es común y no se quita.
+ENGINE_CACHE_ENTRIES = {"chromium": ("chromium", "chromium-headless-shell"), "firefox": ("firefox",), "webkit": ("webkit",)}
+ENGINE_INSTALL_TIMEOUT_SECONDS = 1200
+_DRY_RUN_ENTRY = re.compile(r"^(.+?) \(playwright (\S+) v\d+\)\n\s+Install location:\s+(.+)$", re.MULTILINE)
+_INSTALL_PERCENT = re.compile(r"(\d{1,3})% of ")
+_INSTALL_DOWNLOAD = re.compile(r"^Downloading (.+?) \(playwright ")
+
+
+def playwright_engine_cache() -> Path:
+    """Caché de motores de Playwright sin lanzar Node: PLAYWRIGHT_BROWSERS_PATH o la ruta por defecto de la plataforma."""
+    configured = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Caches" / "ms-playwright"
+    if sys.platform.startswith("win"):
+        return Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ms-playwright"
+    return Path.home() / ".cache" / "ms-playwright"
+
+
+def cached_engine_entries() -> set[str]:
+    """Entradas de ENGINE_CACHE_ENTRIES con alguna revisión completa en la caché; la revisión exacta de esta
+    versión de Playwright solo la da BrowserEngines.list lanzando Node."""
+    try:
+        folders = [child.name for child in playwright_engine_cache().iterdir() if (child / "INSTALLATION_COMPLETE").is_file()]
+    except OSError:
+        return set()
+    # Las carpetas se llaman como la entrada con guiones bajos y su revisión: chromium_headless_shell-1187.
+    names = {name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries}
+    return {name for name in names if any(folder.startswith(name.replace("-", "_") + "-") for folder in folders)}
+
+
+def playwright_service_module() -> Path:
+    return get_data_dir() / "services" / "playwright" / "node_modules" / "playwright"
+
+
+def playwright_service_cli() -> Path:
+    return playwright_service_module() / "cli.js"
+
+
+def system_browsers() -> dict[str, bool]:
+    """Chrome y Edge en las rutas donde los busca Playwright para --browser=chrome|msedge, Chromium donde lo
+    busca chromium_install; Firefox solo se informa."""
+    if sys.platform == "darwin":
+        candidates = {
+            "chrome": ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"],
+            "msedge": ["/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge"],
+            "firefox": ["/Applications/Firefox.app/Contents/MacOS/firefox"],
+        }
+    elif sys.platform.startswith("win"):
+        roots = [os.environ.get(name) for name in ("LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)")]
+        roots = [root for root in roots if root]
+        candidates = {
+            "chrome": [os.path.join(root, "Google", "Chrome", "Application", "chrome.exe") for root in roots],
+            "msedge": [os.path.join(root, "Microsoft", "Edge", "Application", "msedge.exe") for root in roots],
+            "firefox": [os.path.join(root, "Mozilla Firefox", "firefox.exe") for root in roots],
+        }
+    else:
+        candidates = {
+            "chrome": ["/opt/google/chrome/chrome"],
+            "msedge": ["/opt/microsoft/msedge/msedge"],
+            "firefox": [shutil.which("firefox") or ""],
+        }
+    found = {name: any(path and os.path.isfile(path) for path in paths) for name, paths in candidates.items()}
+    return {**found, "chromium": chromium_install() is not None}
+
+
+def user_browser_data_dir(browser: str) -> Path | None:
+    """Carpeta de datos del usuario de Chrome, Edge o Chromium, donde están sus perfiles."""
+    if browser == "chromium":
+        install = chromium_install()
+        return install[1] if install else None
+    if sys.platform == "darwin":
+        root, paths = Path.home() / "Library" / "Application Support", {"chrome": "Google/Chrome", "msedge": "Microsoft Edge"}
+    elif sys.platform.startswith("win"):
+        root = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
+        paths = {"chrome": "Google/Chrome/User Data", "msedge": "Microsoft/Edge/User Data"}
+    else:
+        root, paths = Path.home() / ".config", {"chrome": "google-chrome", "msedge": "microsoft-edge"}
+    return root / paths[browser]
+
+
+def user_browser_extensions() -> dict[str, bool]:
+    """Si algún perfil de cada navegador del usuario tiene instalada la extensión de Playwright desde la tienda."""
+    found = {}
+    for browser in USER_BROWSERS:
+        data_dir = user_browser_data_dir(browser)
+        found[browser] = bool(data_dir) and any(data_dir.glob(f"*/Extensions/{PLAYWRIGHT_EXTENSION_ID}"))
+    return found
+
+
+class BrowserEngines:
+    """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._jobs: dict[str, dict] = {}
+        self._locations_cache: tuple[tuple[str, int], dict[str, tuple[str, Path]]] | None = None
+
+    @staticmethod
+    def _run_cli(cli: Path, *args: str, timeout: float) -> subprocess.CompletedProcess:
+        return subprocess.run([shutil.which("node") or "node", str(cli), *args], cwd=cli.parent,
+                              capture_output=True, text=True, timeout=timeout)
+
+    def _locations(self, cli: Path) -> dict[str, tuple[str, Path]]:
+        """Entradas de la caché de esta versión de Playwright: nombre -> (título con versión, ruta)."""
+        key = (str(cli), cli.stat().st_mtime_ns)
+        cached = self._locations_cache
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        names = [name for entries in ENGINE_CACHE_ENTRIES.values() for name in entries]
+        result = self._run_cli(cli, "install", "--dry-run", *names, timeout=30)
+        if result.returncode != 0:
+            raise RuntimeError(f"Playwright no pudo listar sus navegadores: {(result.stderr or result.stdout).strip()}")
+        locations = {name: (title, Path(location.strip())) for title, name, location in _DRY_RUN_ENTRY.findall(result.stdout)}
+        self._locations_cache = (key, locations)
+        return locations
+
+    def list(self) -> dict:
+        """Navegadores del sistema y motores de Playwright; sin Playwright del servicio no hay motores."""
+        cli = playwright_service_cli()
+        result = {
+            "systemBrowsers": system_browsers(),
+            "extensions": user_browser_extensions(),
+            "engines": [],
+            "config": load_browser_config(),
+        }
+        if not cli.is_file():
+            return result
+        locations = self._locations(cli)
+        with self._lock:
+            jobs = {engine: dict(job) for engine, job in self._jobs.items()}
+        for engine, entries in ENGINE_CACHE_ENTRIES.items():
+            title = locations.get(entries[0], (engine,))[0]
+            installed = all(name in locations and (locations[name][1] / "INSTALLATION_COMPLETE").is_file() for name in entries)
+            result["engines"].append({"id": engine, "title": title, "installed": installed, **jobs.get(engine, {})})
+        return result
+
+    def _check_engine(self, engine) -> Path:
+        if engine not in ENGINE_CACHE_ENTRIES:
+            raise ValueError(f"engine debe ser uno de: {', '.join(ENGINE_CACHE_ENTRIES)}")
+        cli = playwright_service_cli()
+        if not cli.is_file():
+            raise ValueError("Playwright MCP no está instalado: arráncalo una vez desde Ajustes › MCP.")
+        if self._jobs.get(engine, {}).get("status") == "installing":
+            raise ValueError(f"{engine} ya se está instalando.")
+        return cli
+
+    def install(self, engine) -> dict:
+        with self._lock:
+            cli = self._check_engine(engine)
+            self._jobs[engine] = {"status": "installing", "percent": 0}
+        threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
+        return self.list()
+
+    def _install(self, cli: Path, engine: str):
+        log_event(f"[zerochat] Instalando el motor {engine} de Playwright")
+        lines = []
+        try:
+            proc = subprocess.Popen([shutil.which("node") or "node", str(cli), "install", engine], cwd=cli.parent,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, proc.kill)
+            timer.start()
+            try:
+                for line in proc.stdout:
+                    lines = (lines + [line.rstrip()])[-20:]
+                    percent, download = _INSTALL_PERCENT.search(line), _INSTALL_DOWNLOAD.match(line)
+                    with self._lock:
+                        if download:
+                            self._jobs[engine].update(download=download.group(1), percent=0)
+                        elif percent:
+                            self._jobs[engine]["percent"] = min(100, int(percent.group(1)))
+                code = proc.wait()
+            finally:
+                timer.cancel()
+            if code != 0:
+                raise RuntimeError("\n".join(lines[-5:]) or f"código {code}")
+            with self._lock:
+                self._jobs.pop(engine, None)
+            log_event(f"[zerochat] Motor {engine} de Playwright instalado")
+        except (OSError, RuntimeError, subprocess.SubprocessError) as err:
+            with self._lock:
+                self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
+            log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
+
+    def remove(self, engine) -> dict:
+        with self._lock:
+            cli = self._check_engine(engine)
+            # Borrar un motor en uso deja al navegador abierto sin sus ficheros.
+            if _playwright_active():
+                raise ValueError("Detén Playwright MCP antes de quitar un motor.")
+            locations = self._locations(cli)
+            for name in ENGINE_CACHE_ENTRIES[engine]:
+                if name in locations:
+                    shutil.rmtree(locations[name][1], ignore_errors=True)
+            self._jobs.pop(engine, None)
+        result = self.list()
+        # La configuración no se queda con un motor quitado si hay otro instalado.
+        config = result["config"]
+        replacement = next((item["id"] for item in result["engines"] if item["installed"]), None)
+        if config["engine"] == engine and replacement:
+            result["config"] = save_browser_config({**config, "engine": replacement})
+        return result
+
+
+BROWSER_ENGINES = BrowserEngines()
+
+# --- browser.rpc ---
+"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
+
+
+
+
+BROWSER_METHODS = {
+    "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
+    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
+    "zerochat/browser/engines/list": lambda _params: rpc_result(BROWSER_ENGINES.list()),
+    "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
+    "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),
+}
+
+
+def dispatch_browser(method: str, params: dict) -> RpcOutcome:
+    try:
+        return dispatch_table(BROWSER_METHODS, method, params)
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
 # --- mcp.manager ---
 """Gestor de servicios MCP: descubrimiento en ~/zerochat/services, actualización desde el catálogo, preferencias,
 arranque y parada, y nombres públicos de sus herramientas."""
@@ -3935,12 +4081,12 @@ class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
         self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
-        self.config_file = get_data_dir() / "config" / "services.json"
         self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
+        self._preferences_db: Path | None = None
 
     @property
     def services(self) -> dict[str, dict]:
@@ -3954,8 +4100,10 @@ class McpServiceManager:
 
     @property
     def preferences(self) -> dict:
-        if self._preferences is None:
+        db_path = get_storage_db_path()
+        if self._preferences is None or self._preferences_db != db_path:
             self._preferences = self._load_preferences()
+            self._preferences_db = db_path
         return self._preferences
 
     @staticmethod
@@ -3983,21 +4131,18 @@ class McpServiceManager:
         return servers
 
     def _load_preferences(self) -> dict:
-        if self.config_file.exists():
-            try:
-                return json.loads(self.config_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                return {}
-        return {}
+        try:
+            stored = get_setting("mcp_services")
+            return stored if isinstance(stored, dict) else {}
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al leer preferencias MCP en SQLite: {err}")
+            return {}
 
     def _save_preferences(self):
         try:
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.config_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
-            tmp.replace(self.config_file)
-        except OSError as err:
-            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
+            set_setting("mcp_services", self.preferences)
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en SQLite: {err}")
 
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
@@ -4414,7 +4559,7 @@ def _set_secret(server_id: str, params: dict) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 # --- run_mode.state ---
-"""Estado de la ejecución desatendida: la sesión de --prompt o --conversation, sus ficheros en ~/zerochat/runs, el arranque en segundo plano, sus códigos de salida y sus métodos zerochat/run/*."""
+"""Estado de la ejecución desatendida: la sesión de --prompt o --conversation, su persistencia en SQLite, el arranque en segundo plano, sus códigos de salida y sus métodos zerochat/run/*."""
 
 
 
@@ -4437,21 +4582,6 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
-def get_runs_dir() -> Path:
-    """Directorio persistente con permisos 0700 para los ficheros de situación de ejecuciones en servidor."""
-    runs_dir = get_data_dir() / "runs"
-    runs_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt":
-        runs_dir.chmod(0o700)
-    return runs_dir
-
-
-def get_run_state_path(conversation_id: str) -> Path:
-    """Ruta al fichero de situación de la conversación en ~/zerochat/runs/."""
-    clean_name = urllib.parse.quote(conversation_id.strip(), safe="")
-    return get_runs_dir() / f"{clean_name}.json"
-
-
 def _run_process_alive(data: dict) -> bool:
     """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
     pid = data.get("pid")
@@ -4466,10 +4596,9 @@ def _run_process_alive(data: dict) -> bool:
 
 
 def write_run_state(session: RunSession) -> None:
-    """Escribe atómicamente el estado en vivo de la ejecución en ~/zerochat/runs/<conversation_id>.json (0600)."""
+    """Guarda atómicamente el estado en vivo de la ejecución en SQLite."""
     if not session.conversation_id:
         return
-    state_path = get_run_state_path(session.conversation_id)
     now = int(time.time() * 1000)
     session.updated_at = now
     payload = {
@@ -4484,22 +4613,22 @@ def write_run_state(session: RunSession) -> None:
         "pending": session.pending,
         "error": session.error
     }
-    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    upsert_run_state(payload)
 
 
 def remove_run_state(conversation_id: str | None) -> None:
-    """Elimina el fichero de situación de la conversación al completarse con éxito."""
+    """Elimina de SQLite el estado de la ejecución de la conversación al completarse con éxito."""
     if not conversation_id:
         return
     try:
-        get_run_state_path(conversation_id).unlink(missing_ok=True)
-    except OSError:
+        delete_run_state(conversation_id)
+    except ValueError:
         pass
 
 
 def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
     """
-    Lee las situaciones en ~/zerochat/runs/*.json. Si un proceso 'running' ya murió,
+    Lee las ejecuciones en la tabla `runs` de SQLite. Si un proceso 'running' ya murió,
     lo marca como 'error'. Devuelve (runs, focus_run), donde runs es una lista ligera
     ordenada por started_at, y focus_run es el detalle completo si coincide con focus_conversation_id.
     En un servidor de ejecución (--prompt o --conversation) devuelve ([], None) para que el propio
@@ -4507,17 +4636,10 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
     """
     if RUN_SESSION is not None:
         return [], None
-    runs_dir = get_runs_dir()
     entries = []
     clean_focus_id = focus_conversation_id.strip() if (isinstance(focus_conversation_id, str) and focus_conversation_id.strip()) else None
 
-    for path in sorted(runs_dir.glob("*.json")):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        if not isinstance(data, dict):
-            continue
+    for data in list_run_states():
         conv_id = data.get("conversation_id")
         if not conv_id or not isinstance(conv_id, str):
             continue
@@ -4528,10 +4650,7 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
             data["updated_at"] = int(time.time() * 1000)
-            try:
-                _write_private_text(path, json.dumps(data, ensure_ascii=False, indent=2))
-            except OSError:
-                pass
+            upsert_run_state(data)
 
         light = {
             "conversation_id": conv_id,
@@ -4583,13 +4702,10 @@ def _run_target(params: dict) -> tuple[str, dict, str]:
     return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
 
-def _check_no_active_run(state_path: Path, conv_id: str):
-    """Una conversación solo tiene una ejecución en marcha; un estado ilegible no cuenta como tal."""
-    try:
-        existing = json.loads(state_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return
-    if isinstance(existing, dict) and existing.get("status") == "running" and _run_process_alive(existing):
+def _check_no_active_run(conv_id: str):
+    """Una conversación solo tiene una ejecución en marcha."""
+    existing = get_run_state(conv_id)
+    if existing and existing.get("status") == "running" and _run_process_alive(existing):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
@@ -4598,8 +4714,7 @@ def start_server_run(params: dict) -> dict:
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
-    state_path = get_run_state_path(clean_conv_id)
-    _check_no_active_run(state_path, clean_conv_id)
+    _check_no_active_run(clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -4651,24 +4766,20 @@ def start_server_run(params: dict) -> dict:
         "pending": None,
         "error": None
     }
-    _write_private_text(state_path, json.dumps(payload, ensure_ascii=False, indent=2))
+    upsert_run_state(payload)
 
     return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
 
 
 def cancel_server_run(conversation_id: str) -> dict:
-    """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina el fichero."""
+    """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina su estado."""
     if not isinstance(conversation_id, str) or not conversation_id.strip():
         raise ValueError("conversation_id requerido.")
     clean_conv_id = _validate_conversation_id(conversation_id)
-    state_path = get_run_state_path(clean_conv_id)
-    if state_path.exists():
-        try:
-            data = json.loads(state_path.read_text(encoding="utf-8"))
-            if isinstance(data, dict) and data.get("status") == "running" and _run_process_alive(data):
-                _kill_process_tree(data.get("pid"), grace_seconds=0.05)
-        except (json.JSONDecodeError, OSError):
-            pass
+    data = get_run_state(clean_conv_id)
+    if data:
+        if data.get("status") == "running" and _run_process_alive(data):
+            _kill_process_tree(data.get("pid"), grace_seconds=0.05)
         remove_run_state(clean_conv_id)
     return {"cancelled": True}
 
@@ -5032,7 +5143,7 @@ def _cancel_runs(conversation_ids):
 
 def _rpc_delete_conversations(params: dict) -> RpcOutcome:
     if params.get("all") is True:
-        _cancel_runs(urllib.parse.unquote(run_file.stem) for run_file in get_runs_dir().glob("*.json"))
+        _cancel_runs(entry["conversation_id"] for entry in list_run_states())
         return rpc_result({"deleted": True, "count": delete_all_conversations()})
     if "project" in params:
         deleted_ids = delete_project_conversations(params.get("project"))

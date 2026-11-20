@@ -42,8 +42,6 @@ def playwright_running(status):
 class PlaywrightLaunchTest(unittest.TestCase):
     def setUp(self):
         data_dir = use_data_dir(self)
-        self.config_file = data_dir / "config" / "browser.json"
-        self.config_file.parent.mkdir()
         self.own = data_dir / "playwright" / "profile"
         # El servicio que el catálogo instala, tal como está en services/.
         service = data_dir / "services" / "playwright" / "service.json"
@@ -55,11 +53,26 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.launched_env = {}
 
     def launch_args(self, config):
-        """Arranca Playwright MCP con ese browser.json y devuelve sus argumentos tras el ejecutable."""
+        """Arranca Playwright MCP con esa configuración en SQLite y devuelve sus argumentos tras el ejecutable."""
         if config is None:
-            self.config_file.unlink(missing_ok=True)
+            with zerochat.open_storage() as conn:
+                conn.execute("DELETE FROM settings WHERE key = ?;", (zerochat.BROWSER_CONFIG_KEY,))
+                conn.execute("DELETE FROM secrets WHERE name = ?;", (zerochat.BROWSER_EXTENSION_TOKEN_KEY,))
+                conn.commit()
+        elif isinstance(config, str):
+            with zerochat.open_storage() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value_json, updated_at) VALUES (?, ?, 0);",
+                    (zerochat.BROWSER_CONFIG_KEY, config),
+                )
+                conn.commit()
         else:
-            self.config_file.write_text(config if isinstance(config, str) else json.dumps(config), encoding="utf-8")
+            zerochat.set_setting(zerochat.BROWSER_CONFIG_KEY, {k: v for k, v in config.items() if k != "extensionToken"})
+            token = config.get("extensionToken", "")
+            if token:
+                zerochat.save_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY, token)
+            else:
+                zerochat.delete_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY)
         with patch.object(self.manager, "_prepare_service", return_value={"serviceDir": "/svc", "nodeExecutable": "node", "pythonExecutable": "python"}), \
                 patch.object(zerochat, "StdioMcpClient", return_value=self.client) as constructor:
             self.manager.start("playwright")
@@ -113,11 +126,22 @@ class PlaywrightLaunchTest(unittest.TestCase):
             zerochat.playwright_launch_args({**zerochat.BROWSER_CONFIG_DEFAULTS, "mode": "user", "userBrowser": "chromium"})
 
     def test_lo_guardado_se_valida_solo_lo_lee_el_usuario_y_lo_usa_el_siguiente_arranque(self):
-        saved = zerochat.save_browser_config({"engine": "webkit", "headless": False})
-        self.assertEqual(saved, {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False, "extensionToken": ""})
+        saved = zerochat.save_browser_config({"engine": "webkit", "headless": False, "extensionToken": "tok_secret_1"})
+        self.assertEqual(saved, {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False, "extensionToken": "tok_secret_1"})
         if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
-            self.assertEqual(self.config_file.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(zerochat.get_storage_db_path().stat().st_mode & 0o777, 0o600)
+        # extensionToken vive ofuscado en secrets y no en settings['browser'].
+        self.assertNotIn("extensionToken", zerochat.get_setting(zerochat.BROWSER_CONFIG_KEY))
+        with zerochat.open_storage() as conn:
+            stored_secret = conn.execute("SELECT value FROM secrets WHERE name = ?;", (zerochat.BROWSER_EXTENSION_TOKEN_KEY,)).fetchone()["value"]
+        self.assertTrue(stored_secret.startswith(zerochat.OBFUSCATION_PREFIX))
+        self.assertEqual(zerochat.get_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY), "tok_secret_1")
+        self.assertEqual(zerochat.load_browser_config(), saved)
         self.assertEqual(self.launch_args(saved), self.own_args("webkit"))
+        # Limpiar extensionToken borra la entrada en secrets.
+        zerochat.save_browser_config({"engine": "webkit", "headless": False, "extensionToken": ""})
+        self.assertIsNone(zerochat.get_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY))
+        saved = zerochat.load_browser_config()
         for raw, message in (
             ([], "objeto"),
             ({"mode": "own", "extra": 1}, "extra"),

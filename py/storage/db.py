@@ -16,9 +16,8 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
-from browser.config import BROWSER_TOOLS
 from core.environment import get_data_dir
-from core.limits import MAX_PATH_LENGTH
+from core.limits import BROWSER_TOOLS, MAX_PATH_LENGTH
 from storage.obfuscation import OBFUSCATION_PREFIX, obfuscate_secret, reveal_secret
 
 
@@ -154,7 +153,26 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
             config_json TEXT NOT NULL,
             updated_at INTEGER NOT NULL
         );
-    """)
+    """),
+    (11, "011_create_settings_and_runs_tables", """
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS runs (
+            conversation_id TEXT PRIMARY KEY,
+            run_id TEXT NOT NULL,
+            pid INTEGER,
+            pid_start TEXT,
+            started_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            step_text TEXT NOT NULL DEFAULT '',
+            pending_json TEXT,
+            error TEXT
+        );
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
@@ -987,6 +1005,13 @@ def update_security_policy_data(mutator: typing.Callable[[dict | None], dict]) -
             raise
 
 
+def _write_secret_on_conn(conn: sqlite3.Connection, name: str, value: str, now: int):
+    conn.execute("""
+        INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
+    """, (name, obfuscate_secret(value), now))
+
+
 def save_secret(name: str, value: str):
     """Guarda ofuscado el secreto `name` (por ejemplo mcp:<servicio>:<VARIABLE>); nunca se devuelve a la interfaz."""
     if not isinstance(value, str) or not value.strip():
@@ -994,16 +1019,136 @@ def save_secret(name: str, value: str):
     if len(value) > MAX_SECRET_LENGTH:
         raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
     with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO secrets (name, value, updated_at) VALUES (?, ?, ?)
-            ON CONFLICT(name) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;
-        """, (name, obfuscate_secret(value.strip()), int(time.time() * 1000)))
+        _write_secret_on_conn(conn, name, value.strip(), int(time.time() * 1000))
         conn.commit()
 
 
 def delete_secret(name: str) -> bool:
     with open_storage() as conn:
         cursor = conn.execute("DELETE FROM secrets WHERE name = ?;", (name,))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def get_setting(key: str):
+    """Lee un ajuste JSON guardado en la tabla `settings`; None si no existe."""
+    with open_storage() as conn:
+        row = conn.execute("SELECT value_json FROM settings WHERE key = ?;", (key,)).fetchone()
+        if not row:
+            return None
+        return json.loads(row["value_json"])
+
+
+def set_setting(key: str, value) -> None:
+    """Guarda un ajuste JSON en la tabla `settings`."""
+    payload = json.dumps(value, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+        """, (key, payload, now))
+        conn.commit()
+
+
+def save_browser_config_storage(public_config: dict, extension_token: str, key: str, secret_key: str) -> None:
+    """Guarda atómicamente la configuración del navegador en `settings` y su token en `secrets`."""
+    payload = json.dumps(public_config, ensure_ascii=False)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            conn.execute("""
+                INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+            """, (key, payload, now))
+            if extension_token:
+                _write_secret_on_conn(conn, secret_key, extension_token, now)
+            else:
+                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_key,))
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+
+
+def _row_to_run_state(row: sqlite3.Row) -> dict:
+    pending = None
+    if row["pending_json"]:
+        try:
+            pending = json.loads(row["pending_json"])
+        except (ValueError, TypeError):
+            pending = None
+    return {
+        "run_id": row["run_id"],
+        "conversation_id": row["conversation_id"],
+        "pid": row["pid"],
+        "pid_start": row["pid_start"],
+        "started_at": row["started_at"],
+        "updated_at": row["updated_at"],
+        "status": row["status"],
+        "step_text": row["step_text"] or "",
+        "pending": pending,
+        "error": row["error"],
+    }
+
+
+def upsert_run_state(payload: dict) -> None:
+    """Guarda o actualiza en SQLite el estado en vivo de una ejecución en servidor."""
+    conv_id = _validate_conversation_id(payload.get("conversation_id"))
+    pending = payload.get("pending")
+    pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.execute("""
+            INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                run_id = excluded.run_id,
+                pid = excluded.pid,
+                pid_start = excluded.pid_start,
+                started_at = excluded.started_at,
+                updated_at = excluded.updated_at,
+                status = excluded.status,
+                step_text = excluded.step_text,
+                pending_json = excluded.pending_json,
+                error = excluded.error;
+        """, (
+            conv_id,
+            str(payload.get("run_id") or ""),
+            payload.get("pid"),
+            payload.get("pid_start"),
+            int(payload.get("started_at") or now),
+            int(payload.get("updated_at") or now),
+            str(payload.get("status") or "running"),
+            str(payload.get("step_text") or ""),
+            pending_json,
+            payload.get("error"),
+        ))
+        conn.commit()
+
+
+def get_run_state(conversation_id: str) -> dict | None:
+    """Recupera de SQLite el estado en vivo de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT * FROM runs WHERE conversation_id = ?;", (clean_id,)).fetchone()
+        return _row_to_run_state(row) if row else None
+
+
+def list_run_states() -> list[dict]:
+    """Lista todas las ejecuciones registradas en SQLite ordenadas por inicio."""
+    with open_storage() as conn:
+        rows = conn.execute("SELECT * FROM runs ORDER BY started_at ASC, conversation_id ASC;").fetchall()
+        return [_row_to_run_state(row) for row in rows]
+
+
+def delete_run_state(conversation_id: str) -> bool:
+    """Elimina de SQLite el estado de la ejecución de una conversación."""
+    clean_id = _validate_conversation_id(conversation_id)
+    with open_storage() as conn:
+        cursor = conn.execute("DELETE FROM runs WHERE conversation_id = ?;", (clean_id,))
         conn.commit()
         return cursor.rowcount > 0
 

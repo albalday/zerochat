@@ -1,6 +1,6 @@
 /**
  * Sección Navegador de los ajustes: la herramienta de navegación (configuración del cliente) y,
- * con Playwright MCP, su navegador (config/browser.json del servidor local): el propio de ZeroChat
+ * con Playwright MCP, su navegador (guardado en SQLite del servidor local): el propio de ZeroChat
  * con sus motores y sus datos, o el del usuario (Chrome, Edge o Chromium) mediante la extensión de Playwright.
  * Se organiza en tres zonas: el modelo (estado de la sección y consultas al estado MCP), la vista
  * (plantillas que pintan ese estado) y el controlador (acciones, peticiones al servidor local y

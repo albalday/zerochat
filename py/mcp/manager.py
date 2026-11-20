@@ -34,7 +34,7 @@ from mcp.stdio_client import (
     _mcp_trace_text,
     _positive_seconds,
 )
-from storage.db import delete_secret, get_secret, save_secret, secret_names
+from storage.db import delete_secret, get_secret, get_setting, get_storage_db_path, save_secret, secret_names, set_setting
 
 
 def public_tool_name(server_id: str, original: str) -> str:
@@ -135,12 +135,12 @@ class McpServiceManager:
     def __init__(self, services_root: Path | None = None):
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
         self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
-        self.config_file = get_data_dir() / "config" / "services.json"
         self.records: dict[str, McpServiceRecord] = {}
         self._lock = threading.Lock()
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
+        self._preferences_db: Path | None = None
 
     @property
     def services(self) -> dict[str, dict]:
@@ -154,8 +154,10 @@ class McpServiceManager:
 
     @property
     def preferences(self) -> dict:
-        if self._preferences is None:
+        db_path = get_storage_db_path()
+        if self._preferences is None or self._preferences_db != db_path:
             self._preferences = self._load_preferences()
+            self._preferences_db = db_path
         return self._preferences
 
     @staticmethod
@@ -183,21 +185,18 @@ class McpServiceManager:
         return servers
 
     def _load_preferences(self) -> dict:
-        if self.config_file.exists():
-            try:
-                return json.loads(self.config_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                return {}
-        return {}
+        try:
+            stored = get_setting("mcp_services")
+            return stored if isinstance(stored, dict) else {}
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al leer preferencias MCP en SQLite: {err}")
+            return {}
 
     def _save_preferences(self):
         try:
-            self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.config_file.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self.preferences, indent=2), encoding="utf-8")
-            tmp.replace(self.config_file)
-        except OSError as err:
-            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en {self.config_file}: {err}")
+            set_setting("mcp_services", self.preferences)
+        except (OSError, ValueError) as err:
+            log_event(f"[zerochat] Advertencia al guardar preferencias MCP en SQLite: {err}")
 
     def list_servers(self) -> list[dict]:
         self.services = self._load_services()
