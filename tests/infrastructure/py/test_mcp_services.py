@@ -12,7 +12,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import Mock, patch
 
-from backend import ZEROCHAT_PY, use_data_dir, zerochat
+from backend import ZEROCHAT_PY, use_data_dir, wait_pid_exit, zerochat
 
 PUBLIC_TOOL_NAMES = ZEROCHAT_PY.parent / "tests" / "fixtures" / "mcp" / "public-tool-names.json"
 REPO_SERVICES = ZEROCHAT_PY.parent / "services"
@@ -593,14 +593,7 @@ class StdioClientTest(unittest.TestCase):
         self.assertEqual((crashed["status"], crashed["toolCount"]), ("error", 0))
         self.assertTrue(crashed["error"].startswith("MCP process exited with code"))
         manager.stop("limits")
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            try:
-                os.kill(child_pid, 0)
-            except ProcessLookupError:
-                return
-            time.sleep(0.05)
-        self.fail("stop() debe terminar los procesos hijos del MCP")
+        self.assertTrue(wait_pid_exit(child_pid), "stop() debe terminar los procesos hijos del MCP")
 
     def test_start_async_y_wait_server_despiertan_con_oauth_y_fin(self):
         root = use_data_dir(self) / "services"

@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend import use_data_dir, use_project, zerochat
+from backend import use_data_dir, use_project, wait_pid_exit, zerochat
 
 
 def use_fresh_jobs(test):
@@ -21,14 +21,8 @@ def use_fresh_jobs(test):
 
 
 def wait_dead(pid):
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline:
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return
-        time.sleep(0.05)
-    raise AssertionError(f"El proceso {pid} sigue vivo")
+    if not wait_pid_exit(pid):
+        raise AssertionError(f"El proceso {pid} sigue vivo")
 
 
 def run(command, **kwargs):
@@ -107,10 +101,12 @@ class RunCommandTest(unittest.TestCase):
         wait_dead(int(pid_file.read_text().strip()))
 
         # Lo que deja en marcha un comando que ya ha terminado no sobrevive como huérfano.
-        leftover = self.data_dir / "leftover.pid"
-        result = run(f"(sh -c 'echo $$ > {leftover}; exec sleep 100' &); while [ ! -s {leftover} ]; do sleep 0.05; done; echo fin")
-        self.assertEqual((result["status"], result["output"]), ("exited", "fin\n"))
-        wait_dead(int(leftover.read_text().strip()))
+        leftover = self.data_dir / "leftover.fifo"
+        os.mkfifo(leftover)
+        result = run(f"(sh -c 'echo $$ > {leftover}; exec sleep 100' &); read pid < {leftover}; echo fin $pid")
+        self.assertEqual(result["status"], "exited")
+        self.assertRegex(result["output"], r"^fin \d+\n$")
+        wait_dead(int(result["output"].split()[1]))
 
     def test_la_salida_larga_se_trunca_y_el_log_conserva_comienzo_y_final(self):
         result = run("python3 -c \"print('x' * 5000000)\"", timeout_seconds=30)
@@ -147,21 +143,25 @@ class BackgroundCommandTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _gate_cmd(self, name: str) -> Path:
-        return self.project / name
+    def _gate(self, name: str) -> Path:
+        """FIFO en que el comando se queda bloqueado con `read _ < gate` hasta que la prueba la abre."""
+        gate = self.project / name
+        os.mkfifo(gate)
+        return gate
 
-    def _release_gate_soon(self, gate: Path, delay: float = 0.05):
-        timer = threading.Timer(delay, lambda: gate.write_text("go", encoding="utf-8"))
-        timer.start()
-        self.addCleanup(timer.cancel)
+    def _open_gate(self, gate: Path):
+        # O_RDWR no espera a que haya lector: la línea queda en la tubería hasta que el comando la lee.
+        fd = os.open(gate, os.O_RDWR | os.O_NONBLOCK)
+        self.addCleanup(os.close, fd)
+        os.write(fd, b"go\n")
 
     def test_check_command_sigue_la_salida_nueva_y_detiene_el_comando(self):
         failed = run("echo ocupado; exit 4", background=True)
         self.assertEqual((failed["status"], failed["exit_code"], failed["output"]), ("exited", 4, "ocupado\n"))
 
-        gate = self._gate_cmd("gate-follow")
+        gate = self._gate("gate-follow")
         started = time.monotonic()
-        first = run(f"echo uno; while [ ! -e '{gate}' ]; do sleep 0.02; done; echo dos; echo tres", background=True, job_key="clave-de-prueba")
+        first = run(f"echo uno; read _ < '{gate}'; echo dos; echo tres", background=True, job_key="clave-de-prueba")
         self.assertLess(time.monotonic() - started, 2)
         self.assertEqual((first["status"], first["output"]), ("running", "uno\n"))
         self.assertIn("check_command", first["note"])
@@ -171,7 +171,7 @@ class BackgroundCommandTest(unittest.TestCase):
         # Solo devuelve lo que el modelo aún no ha visto, y wait_seconds vuelve en cuanto termina el comando.
         nothing = check(job_id)
         self.assertEqual((nothing["status"], nothing["new_output"]), ("running", ""))
-        self._release_gate_soon(gate)
+        self._open_gate(gate)
         finished = check(job_id, wait_seconds=10)
         self.assertEqual((finished["returned_because"], finished["status"], finished["exit_code"], finished["new_output"]),
                          ("command_finished", "exited", 0, "dos\ntres\n"))
@@ -184,9 +184,9 @@ class BackgroundCommandTest(unittest.TestCase):
 
     def test_check_command_vuelve_en_cuanto_una_linea_nueva_cumple_el_patron(self):
         # Texto literal con | (no regex: (a+)+$ contra 40 «a» y «!» no bloquea ni casa) y sin distinguir mayúsculas.
-        gate = self._gate_cmd("gate-pattern")
-        server = run(f"echo arrancando; while [ ! -e '{gate}' ]; do sleep 0.02; done; printf 'a%.0s' $(seq 40); printf '!\\nServer listening(8080)\\n'; exec sleep 100", background=True)
-        self._release_gate_soon(gate)
+        gate = self._gate("gate-pattern")
+        server = run(f"echo arrancando; read _ < '{gate}'; printf 'a%.0s' $(seq 40); printf '!\\nServer listening(8080)\\n'; exec sleep 100", background=True)
+        self._open_gate(gate)
         started = time.monotonic()
         matched = check(server["job_id"], wait_seconds=30, pattern="(a+)+$|LISTENING(")
         self.assertLess(time.monotonic() - started, 5)
@@ -210,9 +210,9 @@ class BackgroundCommandTest(unittest.TestCase):
         check(server["job_id"], stop=True)
 
         # Al terminar el comando se compara también una última línea sin salto de línea.
-        unterminated_gate = self._gate_cmd("gate-unterminated")
-        unterminated = run(f"while [ ! -e '{unterminated_gate}' ]; do sleep 0.02; done; printf 'fatal error: disk full'", background=True)
-        self._release_gate_soon(unterminated_gate)
+        unterminated_gate = self._gate("gate-unterminated")
+        unterminated = run(f"read _ < '{unterminated_gate}'; printf 'fatal error: disk full'", background=True)
+        self._open_gate(unterminated_gate)
         result = check(unterminated["job_id"], wait_seconds=10, pattern="fatal")
         self.assertEqual((result["returned_because"], result["matched_line"]), ("pattern_matched", "fatal error: disk full"))
 
@@ -243,8 +243,8 @@ class BackgroundCommandTest(unittest.TestCase):
 
     def test_jobs_log_long_poll_despierta_al_llegar_salida_nueva(self):
         ctx = zerochat.project_context()
-        gate = self._gate_cmd("log-gate")
-        job = run(f"printf 'uno\\n'; while [ ! -e '{gate}' ]; do sleep 0.02; done; printf 'dos\\n'; exec sleep 100", background=True)
+        gate = self._gate("log-gate")
+        job = run(f"printf 'uno\\n'; read _ < '{gate}'; printf 'dos\\n'; exec sleep 100", background=True)
         deadline = time.monotonic() + 5
         first = None
         while time.monotonic() < deadline:
@@ -254,7 +254,7 @@ class BackgroundCommandTest(unittest.TestCase):
                 break
             time.sleep(0.02)
         self.assertIn("uno", first["text"])
-        self._release_gate_soon(gate, 0.1)
+        self._open_gate(gate)
         started = time.monotonic()
         second, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {
             "id": job["job_id"],
@@ -321,9 +321,9 @@ class BackgroundCommandTest(unittest.TestCase):
         seen = run("echo visto", background=True)
         zerochat.JOBS.get(str(self.project), job_id=seen["job_id"]).done.wait(5)
         check(seen["job_id"])
-        unseen_gate = self._gate_cmd("gate-unseen")
-        unseen = run(f"echo a; while [ ! -e '{unseen_gate}' ]; do sleep 0.02; done; echo fin; exit 3", background=True)
-        unseen_gate.write_text("go", encoding="utf-8")
+        unseen_gate = self._gate("gate-unseen")
+        unseen = run(f"echo a; read _ < '{unseen_gate}'; echo fin; exit 3", background=True)
+        self._open_gate(unseen_gate)
         zerochat.JOBS.get(str(self.project), job_id=unseen["job_id"]).done.wait(5)
         alive = run("exec sleep 100", background=True)
         reports = zerochat.JOBS.report_finished([unseen["job_id"], seen["job_id"], alive["job_id"], 9999, unseen["job_id"]], str(self.project))

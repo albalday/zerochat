@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M83 Esperas síncronas en lugar de sondeo (restos tras M81)
-- Next task: M83-T1 Pruebas Python: helper único en tests/helpers para esperar la muerte de un PID ajeno sin sondeo (os.pidfd_open+select en Linux, kqueue NOTE_EXIT en macOS; Popen.wait si es hijo de la prueba) y usarlo en wait_dead de test_run_command.py y en el bucle os.kill(pid,0) de test_mcp_services.py (~596). Solo pruebas; producción no cambia
+- Next task: M83-T3 Backend+UI: zerochat/jobs/log y zerochat/jobs/get por key con wait_ms esperan a que el comando se registre (condición en JobManager notificada al registrar, con tope LONG_POLL_MAX_WAIT_MS y despertar en el cierre) en lugar de fallar al instante. Consumidor real: la primera lectura de la tarjeta en vivo, que deja la pausa ciega initialDelayMs=LOG_RETRY_DELAY_MS de command-card.js; revisar también el delay previo de followLog (~735) y quitarlo si no protege nada. Prueba en el borde: clave registrada durante la espera despierta y clave inexistente vuelve al vencer
 - Last updated: 2026-11-21

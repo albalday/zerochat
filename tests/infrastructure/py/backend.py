@@ -2,6 +2,7 @@
 
 import importlib.util
 import os
+import select
 import sys
 import tempfile
 from pathlib import Path
@@ -45,3 +46,26 @@ def use_data_dir(test) -> Path:
     patcher.start()
     test.addCleanup(patcher.stop)
     return Path(data_dir.name).resolve()
+
+
+def wait_pid_exit(pid: int, timeout: float = 5.0) -> bool:
+    """
+    Espera sin sondeo a que termine un proceso que no es hijo de la prueba (los hijos se esperan con Popen.wait):
+    pidfd en Linux y kqueue en macOS. Devuelve False si sigue vivo al vencer timeout.
+    """
+    try:
+        if hasattr(os, "pidfd_open"):
+            fd = os.pidfd_open(pid)
+            try:
+                return bool(select.select([fd], [], [], timeout)[0])
+            finally:
+                os.close(fd)
+        queue = select.kqueue()
+        try:
+            event = select.kevent(pid, filter=select.KQ_FILTER_PROC, flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                  fflags=select.KQ_NOTE_EXIT)
+            return bool(queue.control([event], 1, timeout))
+        finally:
+            queue.close()
+    except ProcessLookupError:
+        return True
