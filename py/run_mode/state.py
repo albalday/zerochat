@@ -25,6 +25,7 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcom
 from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
+    _validate_project_prompt,
     delete_run_state,
     get_conversation,
     get_conversation_updated_at,
@@ -53,6 +54,12 @@ DEFAULT_RUN_PROFILE = "local"
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
+# Petición de --run-file: lo que quien lanza la ejecución fija en ella. Nunca lleva permisos, herramientas ni servicios
+# MCP, que salen siempre del entorno guardado del proyecto, así que no puede ampliarlos.
+RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile")
+RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt",))
+# El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
+RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
 
 # Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: uno que lanzó
@@ -60,6 +67,35 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 _EXIT_WATCHED: set[tuple[int, str | None]] = set()
 _EXITED: set[tuple[int, str | None]] = set()
 _EXIT_LOCK = threading.Lock()
+
+
+def parse_run_request(raw: bytes) -> dict:
+    """Valida el contenido de --run-file y devuelve sus campos limpios; ValueError con el motivo si no vale."""
+    if len(raw) > RUN_FILE_MAX_BYTES:
+        raise ValueError(f"no puede superar {RUN_FILE_MAX_BYTES} bytes")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"no es JSON válido: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("debe ser un objeto JSON")
+    unknown = sorted(set(data) - RUN_FILE_KEYS)
+    if unknown:
+        raise ValueError(f"campos desconocidos: {', '.join(unknown)}")
+    request = {}
+    for key in RUN_FILE_TEXT_KEYS:
+        if key in data:
+            value = data[key]
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{key} debe ser un texto no vacío")
+            request[key] = value.strip()
+    if "conversation_id" in request:
+        request["conversation_id"] = _validate_conversation_id(request["conversation_id"])
+    if "systemDataPrompt" in data:
+        if not isinstance(data["systemDataPrompt"], str):
+            raise ValueError("systemDataPrompt debe ser un texto")
+        request["systemDataPrompt"] = _validate_project_prompt(data["systemDataPrompt"])
+    return request
 
 
 def _run_process_alive(data: dict) -> bool:
@@ -320,14 +356,18 @@ class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
                  conversation_id: str | None = None, run_id: str | None = None,
-                 tool_security: dict | None = None, profile_data: dict | None = None):
+                 tool_security: dict | None = None, profile_data: dict | None = None,
+                 new_conversation_id: str | None = None, system_data_prompt: str | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
-        # Sin --conversation, la conversación nueva que guarda la ejecución: la elige el servidor para atar a ella la
-        # credencial del runner, que no puede escribir en ninguna otra (mismo formato que createId('session')).
-        self.new_conversation_id = None if conversation_id else f"session_{uuid.uuid4()}"
+        # Sin --conversation, la conversación nueva que guarda la ejecución: la de --run-file o, si no, una que elige el
+        # servidor (mismo formato que createId('session')). A ella se ata la credencial del runner, que no puede escribir
+        # en ninguna otra.
+        self.new_conversation_id = None if conversation_id else (new_conversation_id or f"session_{uuid.uuid4()}")
         self.prompt = prompt
+        # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
+        self.system_data_prompt = system_data_prompt
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
         self.profile_data = profile_data
@@ -394,6 +434,15 @@ def set_run_session(session: RunSession | None):
 def current_run_session() -> RunSession | None:
     """Ejecución desatendida de este proceso, o None si atiende a la interfaz."""
     return RUN_SESSION
+
+
+def run_project_environment(env: dict) -> dict:
+    """El entorno del proyecto que recibe la interfaz: en una ejecución con systemDataPrompt propio, ese en lugar del
+    guardado, sin escribirlo en SQLite."""
+    session = RUN_SESSION
+    if session is None or session.system_data_prompt is None:
+        return env
+    return {**env, "systemDataPrompt": session.system_data_prompt}
 
 
 def http_body_limit() -> int:

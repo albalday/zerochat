@@ -199,12 +199,13 @@
     return true;
   }
 
+  /** Abre una conversación nueva; `sessionId`, el del modo ejecución, que elige el servidor. */
   async function createNewSession(options) {
-    const { saveCurrent = true } = options;
+    const { saveCurrent = true, sessionId = createId('session') } = options;
     if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
     // showActiveSession repinta la barra justo después: evitamos el repintado intermedio al guardar.
     if (saveCurrent) await saveCurrentSession({ ...options, renderSidebarChats: () => {} });
-    if (!await activateConversation(createId('session'), createInitialChatHistory(), 'chat_new_blocked_generating', options)) return false;
+    if (!await activateConversation(sessionId, createInitialChatHistory(), 'chat_new_blocked_generating', options)) return false;
     showActiveSession(options, { resetComposer: true });
     return true;
   }

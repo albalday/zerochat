@@ -158,7 +158,7 @@ Todo el estado persistente reside en `~/zerochat/storage/zerochat.db` (`0600`):
 
 ---
 
-## 7. Modo ejecución desatendida (`--prompt` y `--conversation`)
+## 7. Modo ejecución desatendida (`--prompt`, `--conversation` y `--run-file`)
 
 Implementación en `py/run_mode/` (`state.py`, `runner_loader.py`, `supervisor.py`) y `js/run-mode.js` / `js/run-node.js`.
 
@@ -167,8 +167,9 @@ Implementación en `py/run_mode/` (`state.py`, `runner_loader.py`, `supervisor.p
   * El script de `runner_loader.py` (pasado con `node -e`) consulta primero la versión en el título de `zerochat.html` (`UI_VERSION_TITLE_PATTERN`): si coincide con `~/zerochat/cache/runner/modules.json`, ejecuta la caché directamente; si difiere (o siempre en modo desarrollo), descarga `js/run-node.js`, sus `require('./…')` y `js/vendor/` desde la carpeta de la interfaz (tope `RUNNER_MAX_BYTES = 16 MiB`) y actualiza la caché (usada también como respaldo ante fallos de red).
   * Con `--browser` (y opcionalmente `--headless` o `--keep-page`) ejecuta el turno en el navegador del usuario en lugar de Node.js.
   * Si el puerto por defecto está ocupado, abre uno libre (salvo con `--browser` en desarrollo local, donde el origen depende del puerto: código de salida `3`).
+* **Petición por fichero (`--run-file FICHERO` o `-` para stdin):** sustituye a `--prompt`, `--conversation` y `--profile` para quien lanza agentes. `parse_run_request` admite solo `RUN_FILE_KEYS` (`conversation_id`, `prompt`, `profile`, `systemDataPrompt`), rechaza cualquier otro campo con código `4` y no lee más de `RUN_FILE_MAX_BYTES` (el cuerpo HTTP admitido). Un `conversation_id` que existe se continúa como con `--conversation`; si no existe, es el `new_conversation_id` de la conversación nueva. El `systemDataPrompt` llega a la interfaz en el `projectEnvironment` de `initialize` y `set_directory` (`run_project_environment`) sin escribirse en `project_environments`. **Contrato de seguridad:** el fichero nunca lleva permisos, herramientas ni servicios MCP, que salen siempre del entorno guardado del proyecto, así que no puede ampliarlos; por eso `require_saved_environment` termina con código `3` si la carpeta no tiene entorno guardado.
 * **Protocolo RPC del worker (`zerochat/run/*`):**
-  * `zerochat/run/prompt`: entrega una sola vez el prompt, `conversation_id` (o `new_conversation_id` si es nueva, atada a la credencial del runner), `profile`, `profile_data` (con la API key del perfil de arranque), `profiles` (todos los perfiles del servidor sin clave para `switch_model`, que pide la clave bajo demanda con `zerochat/run/profile`), `export` y `keep_page`.
+  * `zerochat/run/prompt`: entrega una sola vez el prompt, `conversation_id` (o `new_conversation_id` si es nueva: la de `--run-file` o una del servidor, atada a la credencial del runner; la interfaz, en Node o en el navegador, la abre con ese id), `profile`, `profile_data` (con la API key del perfil de arranque), `profiles` (todos los perfiles del servidor sin clave para `switch_model`, que pide la clave bajo demanda con `zerochat/run/profile`), `export` y `keep_page`.
   * `zerochat/run/progress`: actualiza el paso en curso (`step_text`, recortado a 500 caracteres) en la tabla `runs` de SQLite.
   * `zerochat/run/export`: recibe la conversación exportada (hasta 64 MiB).
   * `zerochat/run/result`: recibe `text`, `error` o `needs_input` (cuando `--conversation` se pausa limpiamente ante `ask_user` o un reto de permisos tras quedar guardada en SQLite).

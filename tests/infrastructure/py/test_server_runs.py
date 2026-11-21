@@ -11,7 +11,7 @@ import time
 import unittest
 from pathlib import Path
 from unittest import mock
-from backend import use_data_dir, zerochat
+from backend import use_data_dir, use_project, zerochat
 
 # Proyecto de la petición, distinto del proyecto por defecto del servidor.
 CTX = zerochat.SecurityContext(Path(tempfile.gettempdir()).resolve())
@@ -214,6 +214,67 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNotNone(session_with_prompt)
         self.assertEqual(session_with_prompt.prompt, "Nuevo prompt")
         self.assertEqual(session_with_prompt.conversation_id, "conv_vacia")
+
+    def test_run_file_valida_la_peticion_crea_o_continua_la_conversacion_y_exige_entorno_guardado(self):
+        zerochat.save_general_profile({"name": "local", "settings": {}})
+        parser = zerochat.build_parser()
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+
+        def write_request(data) -> str:
+            path = folder / "peticion.json"
+            path.write_text(json.dumps(data) if not isinstance(data, str) else data, encoding="utf-8")
+            return str(path)
+
+        def session_from(argv):
+            return zerochat.run_session_from_args(parser, parser.parse_args(argv))
+
+        def rejects(argv):
+            with self.assertRaises(SystemExit) as cm, mock.patch("sys.stderr", io.StringIO()):
+                session_from(argv)
+            self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_ARGS)
+
+        # Petición no válida: campos de permisos o herramientas, tipos y textos vacíos.
+        for invalid in ({"prompt": "Hola", "enabledTools": {"run_command": True}}, {"prompt": "Hola", "tool_security": {}},
+                        {"prompt": 3}, {"prompt": "  "}, {"prompt": "Hola", "systemDataPrompt": None}, ["Hola"], "{no json"):
+            rejects(["--run-file", write_request(invalid)])
+        rejects(["--run-file", write_request({"profile": "local"})])
+        rejects(["--run-file", str(folder / "no_existe.json")])
+        rejects(["--run-file", write_request({"prompt": "Hola"}), "--prompt", "Otro"])
+
+        # Tope del fichero en el borde exacto: N bytes se aceptan y N+1 no.
+        body = json.dumps({"prompt": "Hola"})
+        at_limit = (body + " " * (zerochat.RUN_FILE_MAX_BYTES - len(body))).encode()
+        self.assertEqual(zerochat.parse_run_request(at_limit), {"prompt": "Hola"})
+        with self.assertRaisesRegex(ValueError, "no puede superar"):
+            zerochat.parse_run_request(at_limit + b" ")
+
+        # Un conversation_id que no existe es el de la conversación nueva; sin prompt no hay con qué empezarla.
+        session = session_from(["--run-file", write_request({
+            "conversation_id": "session_orquestador_1", "prompt": " Redacta el informe ", "systemDataPrompt": "Eres el agente de informes."})])
+        self.assertEqual((session.conversation_id, session.new_conversation_id), (None, "session_orquestador_1"))
+        self.assertEqual((session.prompt, session.profile, session.system_data_prompt), ("Redacta el informe", "local", "Eres el agente de informes."))
+        rejects(["--run-file", write_request({"conversation_id": "session_orquestador_2"})])
+
+        # Uno que existe se continúa, como --conversation; desde stdin con -.
+        zerochat.save_conversation({"id": "session_orquestador_3", "title": "Agente"}, [{"id": "u1", "role": "user", "content": "Hola"}])
+        with mock.patch("sys.stdin", mock.Mock(buffer=io.BytesIO(json.dumps({"conversation_id": "session_orquestador_3"}).encode()))):
+            session = session_from(["--run-file", "-"])
+        self.assertEqual((session.conversation_id, session.new_conversation_id, session.prompt), ("session_orquestador_3", None, None))
+
+        # El systemDataPrompt sustituye al guardado en lo que recibe la interfaz, sin escribirlo en SQLite.
+        ctx = use_project(self, folder)
+        with self.assertRaises(SystemExit) as cm, mock.patch("sys.stderr", io.StringIO()) as stderr:
+            zerochat.require_saved_environment()
+        self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_SETUP)
+        self.assertIn("no tiene entorno guardado", stderr.getvalue())
+        zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt del proyecto"})
+        zerochat.require_saved_environment()
+        zerochat.RUN_SESSION = zerochat.RunSession("Hola", system_data_prompt="Eres el agente de informes.")
+        initialized, err, _ = zerochat.dispatch_local("initialize", {}, ctx)
+        self.assertIsNone(err)
+        self.assertEqual(initialized["projectEnvironment"]["systemDataPrompt"], "Eres el agente de informes.")
+        self.assertEqual(zerochat.get_project_environment(ctx.key)["systemDataPrompt"], "Prompt del proyecto")
 
     def test_supervisor_detiene_y_registra_error_si_cierra_sin_resultado(self):
         conv_id = "session_supervisor_test"

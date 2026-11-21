@@ -6,6 +6,8 @@ const { createTestBrowser, closeGlobalBrowser, startStaticServer, stopStaticServ
 // la red de la página y el proveedor en ChatAPI.streamChatCompletion.
 
 const RUN_ID = 'run-id-for-browser-tests-0123456789';
+// Sin conversation_id, como el backend real: la conversación nueva que elige el servidor (o --run-file).
+const NEW_CONVERSATION_ID = 'session_elegida_por_el_servidor';
 const BACKEND_PORT = 6391;
 const CORS = {
   'access-control-allow-origin': '*',
@@ -67,6 +69,7 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
         return reply({
           prompt,
           conversation_id: conversationId,
+          new_conversation_id: conversationId ? null : NEW_CONVERSATION_ID,
           profile: profile ?? null,
           profile_data: profileData ?? null,
           // Como el backend real: la credencial del runner no puede listar los perfiles, que llegan aquí sin
@@ -153,6 +156,9 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const messages = await page.evaluate(() => window.ChatState.get('messages').map(message => ({ role: message.role, content: message.content })));
     assert.deepEqual(messages.filter(message => message.role === 'user').map(message => message.content), ['Resume el proyecto']);
     assert.equal(messages.at(-1).content, 'Respuesta final');
+    // Quien lanzó la ejecución busca la conversación por el id que eligió el servidor.
+    assert.equal(await page.evaluate(() => window.ChatState.get('sessions').activeId), NEW_CONVERSATION_ID);
+    assert.ok(backend.saved.some(params => params.conversation?.id === NEW_CONVERSATION_ID));
     assert.equal(await page.evaluate(() => (window.ChatState.get('ui').notices || []).length), 0);
     assert.equal(await page.evaluate(() => window.ChatStorage.getBackendSession()), null, 'la conexión de la ejecución no se guarda en la cookie de las demás pestañas');
   });

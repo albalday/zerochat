@@ -144,8 +144,8 @@
    * { started, unavailable }, `submitComposerText` envía el prompt
    * como el usuario (o continúa con `{ resume: true }`) y devuelve { text } o { error },
    * `stopGeneration` la detiene, `exportConversation` da la conversación activa en un formato de
-   * ChatExport y `switchToSession` cambia a una conversación existente. `startNewSession`, solo en el
-   * runner de Node, abre sin --conversation la conversación nueva cuyo id eligió el servidor.
+   * ChatExport, `switchToSession` cambia a una conversación existente y `startNewSession` abre sin
+   * --conversation la conversación nueva cuyo id eligió el servidor (el de --run-file o uno propio).
    */
   async function start(runId, {
     startupConnection,
@@ -156,7 +156,7 @@
     stopGeneration,
     exportConversation,
     switchToSession,
-    startNewSession = null
+    startNewSession
   }) {
     const send = (method, params = {}) => getMcpManager().requestExternalControl(method, { run_id: runId, ...params });
     const report = createProgressReporter(event => {
@@ -208,9 +208,10 @@
 
       if (isConversationMode) {
         await switchToSession(conversationId);
-      } else if (newConversationId && startNewSession) {
-        // El runner de Node solo puede guardar la conversación que eligió el servidor.
-        startNewSession(newConversationId);
+      } else if (newConversationId) {
+        // El runner de Node solo puede guardar la conversación que eligió el servidor, y quien lanzó la ejecución
+        // la busca por ese id.
+        await startNewSession(newConversationId);
       }
 
       await getMcpManager().reconcileProjectServers();

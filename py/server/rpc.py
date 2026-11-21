@@ -15,7 +15,7 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, parse_nonneg_in
 from core.version import VERSION
 from mcp.manager import GLOBAL_MCP_MANAGER
 from mcp.rpc import SERVER_CONTROL_METHODS, dispatch_server_control
-from run_mode.state import dispatch_run
+from run_mode.state import dispatch_run, run_project_environment
 from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from server.state import live_state, wait_live_state
@@ -64,7 +64,7 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
         "tools": _local_tools(),
         "policies": ACCESS_CONTROLLER.export_state(ctx),
         "projectContext": read_project_context(ctx),
-        "projectEnvironment": get_project_environment(ctx.key),
+        "projectEnvironment": run_project_environment(get_project_environment(ctx.key)),
         "liveState": live_state(ctx),
     })
 
@@ -89,7 +89,7 @@ def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
             **resolved,
             "policies": ACCESS_CONTROLLER.export_state(next_ctx),
             "projectContext": read_project_context(next_ctx),
-            "projectEnvironment": get_project_environment(next_ctx.key),
+            "projectEnvironment": run_project_environment(get_project_environment(next_ctx.key)),
         })
     except (ValueError, OSError) as exc:
         return rpc_error(INVALID_PARAMS, str(exc))

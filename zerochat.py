@@ -4942,6 +4942,12 @@ DEFAULT_RUN_PROFILE = "local"
 RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 # Cuerpo HTTP admitido mientras se espera la exportación: el JSON y el HTML llevan las imágenes incrustadas.
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
+# Petición de --run-file: lo que quien lanza la ejecución fija en ella. Nunca lleva permisos, herramientas ni servicios
+# MCP, que salen siempre del entorno guardado del proyecto, así que no puede ampliarlos.
+RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile")
+RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt",))
+# El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
+RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
 
 # Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: uno que lanzó
@@ -4949,6 +4955,35 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 _EXIT_WATCHED: set[tuple[int, str | None]] = set()
 _EXITED: set[tuple[int, str | None]] = set()
 _EXIT_LOCK = threading.Lock()
+
+
+def parse_run_request(raw: bytes) -> dict:
+    """Valida el contenido de --run-file y devuelve sus campos limpios; ValueError con el motivo si no vale."""
+    if len(raw) > RUN_FILE_MAX_BYTES:
+        raise ValueError(f"no puede superar {RUN_FILE_MAX_BYTES} bytes")
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"no es JSON válido: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("debe ser un objeto JSON")
+    unknown = sorted(set(data) - RUN_FILE_KEYS)
+    if unknown:
+        raise ValueError(f"campos desconocidos: {', '.join(unknown)}")
+    request = {}
+    for key in RUN_FILE_TEXT_KEYS:
+        if key in data:
+            value = data[key]
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{key} debe ser un texto no vacío")
+            request[key] = value.strip()
+    if "conversation_id" in request:
+        request["conversation_id"] = _validate_conversation_id(request["conversation_id"])
+    if "systemDataPrompt" in data:
+        if not isinstance(data["systemDataPrompt"], str):
+            raise ValueError("systemDataPrompt debe ser un texto")
+        request["systemDataPrompt"] = _validate_project_prompt(data["systemDataPrompt"])
+    return request
 
 
 def _run_process_alive(data: dict) -> bool:
@@ -5209,14 +5244,18 @@ class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
                  conversation_id: str | None = None, run_id: str | None = None,
-                 tool_security: dict | None = None, profile_data: dict | None = None):
+                 tool_security: dict | None = None, profile_data: dict | None = None,
+                 new_conversation_id: str | None = None, system_data_prompt: str | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
-        # Sin --conversation, la conversación nueva que guarda la ejecución: la elige el servidor para atar a ella la
-        # credencial del runner, que no puede escribir en ninguna otra (mismo formato que createId('session')).
-        self.new_conversation_id = None if conversation_id else f"session_{uuid.uuid4()}"
+        # Sin --conversation, la conversación nueva que guarda la ejecución: la de --run-file o, si no, una que elige el
+        # servidor (mismo formato que createId('session')). A ella se ata la credencial del runner, que no puede escribir
+        # en ninguna otra.
+        self.new_conversation_id = None if conversation_id else (new_conversation_id or f"session_{uuid.uuid4()}")
         self.prompt = prompt
+        # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
+        self.system_data_prompt = system_data_prompt
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
         self.profile_data = profile_data
@@ -5283,6 +5322,15 @@ def set_run_session(session: RunSession | None):
 def current_run_session() -> RunSession | None:
     """Ejecución desatendida de este proceso, o None si atiende a la interfaz."""
     return RUN_SESSION
+
+
+def run_project_environment(env: dict) -> dict:
+    """El entorno del proyecto que recibe la interfaz: en una ejecución con systemDataPrompt propio, ese en lugar del
+    guardado, sin escribirlo en SQLite."""
+    session = RUN_SESSION
+    if session is None or session.system_data_prompt is None:
+        return env
+    return {**env, "systemDataPrompt": session.system_data_prompt}
 
 
 def http_body_limit() -> int:
@@ -10085,7 +10133,7 @@ def _initialize(_params: dict, ctx: SecurityContext) -> RpcOutcome:
         "tools": _local_tools(),
         "policies": ACCESS_CONTROLLER.export_state(ctx),
         "projectContext": read_project_context(ctx),
-        "projectEnvironment": get_project_environment(ctx.key),
+        "projectEnvironment": run_project_environment(get_project_environment(ctx.key)),
         "liveState": live_state(ctx),
     })
 
@@ -10110,7 +10158,7 @@ def _set_project_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
             **resolved,
             "policies": ACCESS_CONTROLLER.export_state(next_ctx),
             "projectContext": read_project_context(next_ctx),
-            "projectEnvironment": get_project_environment(next_ctx.key),
+            "projectEnvironment": run_project_environment(get_project_environment(next_ctx.key)),
         })
     except (ValueError, OSError) as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
@@ -10678,6 +10726,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner o navegador cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile y systemDataPrompt; exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
@@ -10700,20 +10749,22 @@ def _check_run_flags(parser: ZeroChatArgumentParser, args):
         parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
 
 
-def _run_prompt(parser: ZeroChatArgumentParser, args) -> str | None:
-    if args.prompt is None:
+def _run_prompt(parser: ZeroChatArgumentParser, raw_prompt: str | None) -> str | None:
+    if raw_prompt is None:
         return None
-    prompt = args.prompt.strip()
+    prompt = raw_prompt.strip()
     if not prompt:
         parser.error("el prompt está vacío")
     return prompt
 
 
-def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) -> tuple[str | None, dict | None]:
-    """La conversación de --conversation: existe y, sin --prompt, tiene un turno que continuar."""
-    if args.conversation is None:
-        return None, None
-    raw_conv = args.conversation.strip()
+def _run_conversation(parser: ZeroChatArgumentParser, raw_id: str | None, prompt: str | None,
+                      allow_new: bool = False) -> tuple[str | None, dict | None, str | None]:
+    """La conversación de la ejecución: (id, conversación) si existe y, sin prompt, tiene un turno que continuar.
+    Con allow_new (--run-file), un id que no existe es el de la conversación nueva que empieza el prompt: (None, None, id)."""
+    if raw_id is None:
+        return None, None, None
+    raw_conv = raw_id.strip()
     if not raw_conv:
         parser.error("el identificador de la conversación no puede estar vacío")
     try:
@@ -10722,20 +10773,39 @@ def _run_conversation(parser: ZeroChatArgumentParser, args, prompt: str | None) 
         parser.error(str(exc))
     conv = get_conversation(conversation_id)
     if conv is None:
-        parser.error(f"no existe la conversación '{conversation_id}'")
+        if not allow_new:
+            parser.error(f"no existe la conversación '{conversation_id}'")
+        if prompt is None:
+            parser.error(f"la conversación '{conversation_id}' no existe y no hay prompt para empezarla")
+        return None, None, conversation_id
     if prompt is None and not any(m.get("role") in ("user", "tool") for m in conv.get("history") or []):
         parser.error(f"la conversación '{conversation_id}' no tiene turnos para continuar")
-    return conversation_id, conv
+    return conversation_id, conv, None
 
 
-def _run_profile(parser: ZeroChatArgumentParser, args, conv: dict | None) -> tuple[str, dict | None]:
+def _run_file_request(parser: ZeroChatArgumentParser, path: str) -> dict:
+    """La petición de --run-file, leída del fichero o de stdin (-) sin pasar del tope y validada."""
+    try:
+        if path == "-":
+            raw = sys.stdin.buffer.read(RUN_FILE_MAX_BYTES + 1)
+        else:
+            with open(Path(path).expanduser(), "rb") as handle:
+                raw = handle.read(RUN_FILE_MAX_BYTES + 1)
+        return parse_run_request(raw)
+    except OSError as exc:
+        parser.error(f"--run-file: no se pudo leer {path}: {exc}")
+    except ValueError as exc:
+        parser.error(f"--run-file: {exc}")
+
+
+def _run_profile(parser: ZeroChatArgumentParser, raw_profile: str | None, conv: dict | None) -> tuple[str, dict | None]:
     """El perfil de la ejecución (su nombre y, si existe en el servidor, el perfil con su API key, que el runner recibe
     en profile_data): el de --profile, el de la conversación o DEFAULT_RUN_PROFILE.
 
     Un --profile que no existe en el servidor se pasa por su nombre; el de la conversación y el por defecto tienen que existir.
     """
-    if args.profile is not None:
-        clean_profile = args.profile.strip()
+    if raw_profile is not None:
+        clean_profile = raw_profile.strip()
         if not clean_profile:
             parser.error("--profile no puede estar vacío")
         match = get_general_profile_by_name(clean_profile) or get_general_profile(clean_profile)
@@ -10764,19 +10834,30 @@ def _run_export_path(parser: ZeroChatArgumentParser, args) -> Path | None:
 
 
 def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | None:
-    """Valida las combinaciones de opciones y devuelve la sesión de --prompt o --conversation, si la hay."""
-    if args.prompt is None and args.conversation is None:
+    """Valida las combinaciones de opciones y devuelve la sesión de --prompt, --conversation o --run-file, si la hay."""
+    request: dict = {}
+    if args.run_file is not None:
+        if args.prompt is not None or args.conversation is not None or args.profile is not None:
+            parser.error("--run-file ya lleva el prompt, la conversación y el perfil: no se combina con --prompt, --conversation ni --profile")
+        request = _run_file_request(parser, args.run_file)
+        if "prompt" not in request and "conversation_id" not in request:
+            parser.error("--run-file necesita prompt o conversation_id")
+        raw_prompt, raw_conversation, raw_profile = request.get("prompt"), request.get("conversation_id"), request.get("profile")
+    elif args.prompt is None and args.conversation is None:
         if args.browser or args.headless or args.keep_page or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --profile y --export solo se usan con --prompt o --conversation")
+            parser.error("--browser, --headless, --keep-page, --profile y --export solo se usan con --prompt, --conversation o --run-file")
         return None
-    prompt = _run_prompt(parser, args)
-    conversation_id, conv = _run_conversation(parser, args, prompt)
+    else:
+        raw_prompt, raw_conversation, raw_profile = args.prompt, args.conversation, args.profile
+    prompt = _run_prompt(parser, raw_prompt)
+    conversation_id, conv, new_conversation_id = _run_conversation(parser, raw_conversation, prompt, allow_new=args.run_file is not None)
     _check_run_flags(parser, args)
-    profile_name, profile_data = _run_profile(parser, args, conv)
+    profile_name, profile_data = _run_profile(parser, raw_profile, conv)
     export_path = _run_export_path(parser, args)
     if conversation_id:
         mark_conversation_server_run(conversation_id, profile_name)
-    return RunSession(prompt, profile_name, export_path, args.keep_page, conversation_id=conversation_id, profile_data=profile_data)
+    return RunSession(prompt, profile_name, export_path, args.keep_page, conversation_id=conversation_id, profile_data=profile_data,
+                      new_conversation_id=new_conversation_id, system_data_prompt=request.get("systemDataPrompt"))
 
 
 def redirect_log(args):
@@ -11030,6 +11111,20 @@ def _apply_conversation_project(parser: ZeroChatArgumentParser, session: RunSess
         set_default_project_dir(get_no_project_dir())
 
 
+def require_saved_environment():
+    """--run-file solo se ejecuta en un proyecto con entorno guardado: sus herramientas, servicios MCP y permisos
+    salen siempre de él, nunca del fichero, así que sin él la ejecución usaría valores que nadie ha decidido."""
+    ctx = project_context()
+    try:
+        saved = get_project_environment(ctx.key)["saved"]
+    except RuntimeError as exc:
+        run_error(str(exc))
+        sys.exit(RUN_EXIT_SETUP)
+    if not saved:
+        run_error(f"El proyecto {ctx.workspace_dir} no tiene entorno guardado: guarda sus herramientas y permisos en la interfaz antes de usarlo con --run-file.")
+        sys.exit(RUN_EXIT_SETUP)
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
@@ -11038,6 +11133,8 @@ def main():
     session = run_session_from_args(parser, args)
     set_run_session(session)
     _apply_conversation_project(parser, session)
+    if args.run_file is not None:
+        require_saved_environment()
     result_out = redirect_log(args)
 
     if getattr(args, "list_profiles", False):

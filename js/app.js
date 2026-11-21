@@ -946,7 +946,8 @@
         exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,
         submitComposerText,
         stopGeneration: GenerationController.handleStopGeneration,
-        switchToSession
+        switchToSession,
+        startNewSession: sessionId => ConversationService.createNewSession({ ...getConversationServiceOptions(), saveCurrent: false, sessionId })
       });
     } else {
       // Registro del Service Worker para aceleración de arranque y soporte offline en móvil; el modo
