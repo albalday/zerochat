@@ -229,9 +229,20 @@ class BackgroundCommandTest(unittest.TestCase):
 
     def test_jobs_log_long_poll_despierta_al_llegar_salida_nueva(self):
         ctx = zerochat.project_context()
-        job = run("printf 'uno\\n'; sleep 0.15; printf 'dos\\n'", background=True)
-        first, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {"id": job["job_id"], "tail": 1024}, ctx)
-        self.assertIsNone(err)
+        gate = self.project / "log-gate"
+        job = run(f"printf 'uno\\n'; while [ ! -e '{gate}' ]; do sleep 0.02; done; printf 'dos\\n'; exec sleep 100", background=True)
+        deadline = time.monotonic() + 5
+        first = None
+        while time.monotonic() < deadline:
+            first, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {"id": job["job_id"], "tail": 1024}, ctx)
+            self.assertIsNone(err)
+            if "uno" in first["text"]:
+                break
+            time.sleep(0.02)
+        self.assertIn("uno", first["text"])
+        timer = threading.Timer(0.1, lambda: gate.write_text("go", encoding="utf-8"))
+        timer.start()
+        self.addCleanup(timer.cancel)
         started = time.monotonic()
         second, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {
             "id": job["job_id"],
