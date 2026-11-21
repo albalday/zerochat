@@ -244,12 +244,10 @@ describe('Servidor local zerochat.py', () => {
   test('un comando en marcha se publica en el latido y se sigue y se detiene con zerochat/jobs/*', async () => {
     // En primer plano y con la clave de su tarjeta, el comando figura en marcha mientras se espera su respuesta.
     const pending = callTool('run_command', { command: 'echo listo; exec sleep 100' }, { zerochatJobKey: 'tarjeta-prueba-1' });
-    let details;
-    for (const deadline = Date.now() + 5000; Date.now() < deadline; await new Promise(resolve => setTimeout(resolve, 20))) {
-      details = (await rpc('zerochat/jobs/get', { key: 'tarjeta-prueba-1' })).result;
-      if (details?.tail === 'listo\n') break;
-    }
-    assert.equal(details?.tail, 'listo\n');
+    // Como la tarjeta: por la clave, el log espera a que se lance el comando y a su primera salida.
+    const first = (await rpc('zerochat/jobs/log', { key: 'tarjeta-prueba-1', offset: 0, wait_ms: 5000 })).result;
+    assert.equal(first?.text, 'listo\n');
+    const details = first.details;
     assert.ok((await heartbeat()).jobs.some(job => job.id === details.id && job.status === 'running'), 'El latido publica los comandos en marcha');
     const page = await rpc('zerochat/jobs/log', { id: details.id, offset: 2, limit: 3 });
     assert.deepEqual([page.result.text, page.result.offset, page.result.next, page.result.done, page.result.details.id], ['sto', 2, 5, false, details.id]);

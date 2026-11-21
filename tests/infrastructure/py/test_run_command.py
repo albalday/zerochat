@@ -155,6 +155,17 @@ class BackgroundCommandTest(unittest.TestCase):
         self.addCleanup(os.close, fd)
         os.write(fd, b"go\n")
 
+    def _follow_log(self, job_id: int, size: int, offset: int = 0) -> tuple[str, int]:
+        """Sigue el log por long-poll, como la tarjeta, hasta tener size bytes; devuelve el texto y el siguiente offset."""
+        text = ""
+        while len(text) < size:
+            page, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {"id": job_id, "offset": offset, "wait_ms": 5000},
+                                                  zerochat.project_context())
+            self.assertIsNone(err)
+            self.assertTrue(page["text"], f"El log no avanzó en 5 s: {text!r}")
+            text, offset = text + page["text"], page["next"]
+        return text, offset
+
     def test_check_command_sigue_la_salida_nueva_y_detiene_el_comando(self):
         failed = run("echo ocupado; exit 4", background=True)
         self.assertEqual((failed["status"], failed["exit_code"], failed["output"]), ("exited", 4, "ocupado\n"))
@@ -224,14 +235,21 @@ class BackgroundCommandTest(unittest.TestCase):
         for arguments in ({"job_id": server["job_id"], "wait_seconds": 30}, {"job_id": server["job_id"], "wait_seconds": 30, "pattern": "nunca"}):
             with self.subTest(arguments=arguments):
                 key = "espera-por-tools-call-1"
-                results = []
+                results, opened = [], threading.Event()
+                real_open = zerochat.WAITS.open
+
+                def tracked_open(*args):
+                    event = real_open(*args)
+                    opened.set()
+                    return event
+
                 call = {"name": "check_command", "arguments": arguments, "_meta": {"zerochatJobKey": key}}
                 waiter = threading.Thread(target=lambda: results.append(zerochat.dispatch_local("tools/call", call, ctx)))
                 started = time.monotonic()
-                waiter.start()
-                deadline = time.monotonic() + 5
-                while not end_wait(key)["ended"] and time.monotonic() < deadline:
-                    time.sleep(0.05)
+                with patch.object(zerochat.WAITS, "open", side_effect=tracked_open):
+                    waiter.start()
+                    self.assertTrue(opened.wait(5), "check_command no llegó a esperar")
+                self.assertIs(end_wait(key)["ended"], True)
                 waiter.join(5)
                 self.assertLess(time.monotonic() - started, 5, "La espera no se cortó")
                 result, error, _ = results[0]
@@ -245,22 +263,20 @@ class BackgroundCommandTest(unittest.TestCase):
         ctx = zerochat.project_context()
         gate = self._gate("log-gate")
         job = run(f"printf 'uno\\n'; read _ < '{gate}'; printf 'dos\\n'; exec sleep 100", background=True)
-        deadline = time.monotonic() + 5
-        first = None
-        while time.monotonic() < deadline:
-            first, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {"id": job["job_id"], "tail": 1024}, ctx)
-            self.assertIsNone(err)
-            if "uno" in first["text"]:
-                break
-            time.sleep(0.02)
-        self.assertIn("uno", first["text"])
-        self._open_gate(gate)
+        first, offset = self._follow_log(job["job_id"], len("uno\n"))
+        self.assertEqual(first, "uno\n")
+        # La puerta se abre cuando la petición ya espera salida nueva: es la salida la que la despierta.
+        command_job = zerochat.JOBS.get(str(self.project), job_id=job["job_id"])
+        real_wait = command_job.wait_change
+
+        def open_then_wait(*args):
+            self._open_gate(gate)
+            return real_wait(*args)
+
         started = time.monotonic()
-        second, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {
-            "id": job["job_id"],
-            "offset": first["next"],
-            "wait_ms": 5000,
-        }, ctx)
+        with patch.object(command_job, "wait_change", side_effect=open_then_wait) as waited:
+            second, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {"id": job["job_id"], "offset": offset, "wait_ms": 5000}, ctx)
+        self.assertEqual(waited.call_count, 1)
         self.assertIsNone(err)
         self.assertLess(time.monotonic() - started, 3)
         self.assertIn("dos", second["text"])
@@ -316,24 +332,22 @@ class BackgroundCommandTest(unittest.TestCase):
 
     def test_el_latido_publica_la_ultima_linea_de_cada_comando_en_marcha_recortada_en_el_borde(self):
         limit = zerochat.LAST_LINE_MAX_CHARS
+        # (comando, su salida, la última línea publicada)
         cases = [
-            ("printf 'uno\\ndos\\n\\n'", "dos"),
+            ("printf 'uno\\ndos\\n\\n'", "uno\ndos\n\n", "dos"),
             # Una barra de progreso que se reescribe con \r: su último tramo.
-            ("printf 'descargando 10%%\\rdescargando 55%%\\r'", "descargando 55%"),
-            (f"head -c {limit} /dev/zero | tr '\\0' a; echo", "a" * limit),
-            (f"head -c {limit + 1} /dev/zero | tr '\\0' a; echo", "a" * (limit - 1) + "…"),
+            ("printf 'descargando 10%%\\rdescargando 55%%\\r'", "descargando 10%\rdescargando 55%\r", "descargando 55%"),
+            (f"head -c {limit} /dev/zero | tr '\\0' a; echo", "a" * limit + "\n", "a" * limit),
+            (f"head -c {limit + 1} /dev/zero | tr '\\0' a; echo", "a" * (limit + 1) + "\n", "a" * (limit - 1) + "…"),
         ]
         ctx = zerochat.project_context()
-        for command, expected in cases:
+        for command, output, expected in cases:
             with self.subTest(command=command):
                 job = run(f"{command}; exec sleep 100", background=True)
-                deadline = time.monotonic() + 5
-                published = None
-                while time.monotonic() < deadline:
-                    published = next(item for item in zerochat.live_state(ctx)["jobs"] if item["id"] == job["job_id"])
-                    if published["last_line"]:
-                        break
-                    time.sleep(0.05)
+                # La salida no cambia la firma rev (no despierta los latidos en espera): se espera por el log y
+                # el latido, que calcula last_line al leer, se pide una vez con la salida completa.
+                self.assertEqual(self._follow_log(job["job_id"], len(output))[0], output)
+                published = next(item for item in zerochat.live_state(ctx)["jobs"] if item["id"] == job["job_id"])
                 self.assertEqual(published["last_line"], expected)
                 check(job["job_id"], stop=True)
 
