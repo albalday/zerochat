@@ -18,8 +18,8 @@
 
   const { resolveDep, escapeHtml, openTextInNewTab, delay, runLongPoll, LONG_POLL_WAIT_MS, LONG_POLL_MARGIN_MS } = Utils;
 
-  // Solo una tarjeta desplegada sigue su log, con long-poll (wait_ms); antes de la primera lectura y
-  // entre reintentos, esta pausa deja al servidor registrar el comando.
+  // Solo una tarjeta desplegada sigue su log, con long-poll (wait_ms); si una lectura falla o vuelve
+  // enseguida sin nada nuevo, esta pausa evita repetirla en vacío.
   const LOG_RETRY_DELAY_MS = 500;
   // La tarjeta enseña el final del log, como una terminal pequeña; el log entero se abre aparte.
   const CARD_LOG_LINES = 40;
@@ -388,6 +388,8 @@
     /** Aplica el resultado de la herramienta: final, o el comando sigue en segundo plano. */
     applyResult(data, fallbackError = '') {
       this.state = withResult(this.state, data, fallbackError);
+      // Sin id, la herramienta volvió sin lanzar el comando: nadie registrará ya su clave.
+      if (!Number.isInteger(this.state.id)) this.stopLogStream();
       if (!data) {
         untrack(this);
         this.render();
@@ -408,13 +410,14 @@
     }
 
     /** Sigue el log por long-poll mientras la tarjeta esté desplegada y el comando en marcha. */
-    startLogStream({ initialDelayMs = 0 } = {}) {
+    startLogStream() {
       if (this.logAbort || this.isFinal()) return;
       const controller = new AbortController();
       this.logAbort = controller;
       const { signal } = controller;
       (async () => {
-        await delay(initialDelayMs, signal);
+        // La tarjeta en vivo se crea antes de añadirse al chat, en el mismo turno: se sigue cuando ya está.
+        await delay(0, signal);
         await runLongPoll({ signal, idleDelayMs: LOG_RETRY_DELAY_MS, poll: () => this.followLogStep(signal) });
       })().finally(() => {
         if (this.logAbort === controller) this.logAbort = null;
@@ -436,7 +439,7 @@
       await whenVisible(signal);
       if (signal.aborted) return { stop: true };
       const initial = !this.log.loaded;
-      const result = await this.loadLog({ waitMs: initial ? 0 : LONG_POLL_WAIT_MS, signal });
+      const result = await this.loadLog({ waitMs: LONG_POLL_WAIT_MS, signal });
       if (signal.aborted) return { stop: true };
       if (result.done && this.state.toolReturned) {
         untrack(this);
@@ -541,8 +544,9 @@
       const initial = !this.log.loaded;
       try {
         const atBottom = logEl.hidden || logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 24;
+        // Por la clave, el servidor espera a que se lance el comando; el final del log se lee sin esperar salida.
         const query = initial
-          ? { ...ref, tail: FIRST_LOG_BYTES, limit: LOG_PAGE_BYTES }
+          ? { ...ref, tail: FIRST_LOG_BYTES, limit: LOG_PAGE_BYTES, ...(waitMs > 0 && ref.key ? { wait_ms: waitMs } : {}) }
           : { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES, ...(waitMs > 0 ? { wait_ms: waitMs } : {}) };
         const options = { ...(signal ? { signal } : {}), ...(waitMs > 0 ? { timeoutMs: waitMs + LONG_POLL_MARGIN_MS } : {}) };
         const page = await mcp.requestExternalControl('zerochat/jobs/log', query, options);
@@ -564,7 +568,7 @@
         if (atBottom) logEl.scrollTop = logEl.scrollHeight;
         return { ok: true, done: page?.done === true, changed: text.length > 0 || this.log.next !== prevNext };
       } catch (_) {
-        // Antes de registrarse el comando se reintentará; si ya no existe, queda la salida guardada.
+        // Si aún no se ha lanzado el comando se vuelve a esperar; si ya no existe, queda la salida guardada.
         if (initial) this.showFallback();
         return { ok: false, done: false, changed: false };
       } finally {
@@ -580,7 +584,7 @@
         const controller = new CommandCardController(card);
         controller.render();
         track(controller);
-        controller.startLogStream({ initialDelayMs: LOG_RETRY_DELAY_MS });
+        controller.startLogStream();
         return card;
       },
       updateLiveCard: (card, args, result) => {
@@ -732,7 +736,8 @@
       const controller = new AbortController();
       this.logAbort = controller;
       const { signal } = controller;
-      await delay(LOG_RETRY_DELAY_MS, signal);
+      // Como la de run_command, se crea antes de añadirse al chat.
+      await delay(0, signal);
       await runLongPoll({ signal, idleDelayMs: LOG_RETRY_DELAY_MS, poll: () => this.followLogStep(signal) });
     }
 

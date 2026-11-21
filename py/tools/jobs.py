@@ -421,6 +421,9 @@ class JobManager:
         self._jobs: dict[int, CommandJob] = {}
         self._next_id = 1
         self._lock = threading.Lock()
+        # Avisa de cada comando lanzado a quien espera uno por la clave de su invocación (wait_registered).
+        self._registered = threading.Condition(self._lock)
+        self._closing = False
         self._dir: Path | None = None
         self._windows_job: _WindowsKillOnCloseJob | None = None
         atexit.register(self.shutdown)
@@ -491,6 +494,8 @@ class JobManager:
             job._log.close()
             job.log_path.unlink(missing_ok=True)
             raise
+        with self._registered:
+            self._registered.notify_all()
         notify_live_change()
         return job
 
@@ -564,12 +569,24 @@ class JobManager:
         notify_live_change()
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
-        jobs = self.list(project)
+        with self._lock:
+            return self._find(project, job_id, key)
+
+    def _find(self, project: str, job_id, key) -> CommandJob | None:
+        """Comando del proyecto por su id o, sin id, por la clave de su invocación; con self._lock tomado."""
+        jobs = [job for job in self._jobs.values() if job.project == project]
         if isinstance(job_id, int) and not isinstance(job_id, bool):
             return next((job for job in jobs if job.id == job_id), None)
         if isinstance(key, str) and key:
             return next((job for job in jobs if job.key == key), None)
         return None
+
+    def wait_registered(self, project: str, key: str, timeout: float) -> CommandJob | None:
+        """Espera como mucho timeout segundos a que se lance el comando de esa invocación (la tarjeta de la
+        interfaz se crea antes de que llegue tools/call, que además puede esperar la autorización del usuario)."""
+        with self._registered:
+            self._registered.wait_for(lambda: self._closing or self._find(project, None, key) is not None, timeout)
+            return self._find(project, None, key)
 
     def list(self, project: str | None) -> list[CommandJob]:
         """Comandos del proyecto con esa clave (SecurityContext.key); None, los de todos."""
@@ -622,6 +639,9 @@ class JobManager:
         return [{**job.summary(), "last_line": job.last_line()} for job in self.running(project)]
 
     def stop_all(self, reason: str = "shutdown"):
+        with self._registered:
+            self._closing = True
+            self._registered.notify_all()
         threads = [threading.Thread(target=self.stop, args=(job, reason), daemon=True) for job in self.running(None)]
         for thread in threads:
             thread.start()

@@ -266,6 +266,54 @@ class BackgroundCommandTest(unittest.TestCase):
         self.assertIn("dos", second["text"])
         check(job["job_id"], stop=True)
 
+    def test_jobs_log_por_clave_espera_a_que_se_lance_el_comando(self):
+        # La tarjeta pide el log por la clave de su invocación antes de que tools/call lance el comando.
+        ctx = zerochat.project_context()
+        log = lambda key, wait_ms: zerochat.dispatch_jobs("zerochat/jobs/log", {"key": key, "tail": 1024, "wait_ms": wait_ms}, ctx)
+
+        def wait_in_background(key, wait_ms):
+            entered, results = threading.Event(), []
+            real = zerochat.JOBS.wait_registered
+
+            def tracked(*args):
+                entered.set()
+                return real(*args)
+
+            patcher = patch.object(zerochat.JOBS, "wait_registered", side_effect=tracked)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+            waiter = threading.Thread(target=lambda: results.append(log(key, wait_ms)))
+            waiter.start()
+            self.assertTrue(entered.wait(5))
+            return waiter, results
+
+        waiter, results = wait_in_background("tarjeta-antes-de-lanzar", 10000)
+        started = time.monotonic()
+        job = run("exec sleep 100", background=True, job_key="tarjeta-antes-de-lanzar")
+        waiter.join(5)
+        self.assertLess(time.monotonic() - started, 5)
+        page, err, _ = results[0]
+        self.assertIsNone(err)
+        self.assertEqual(page["details"]["id"], job["job_id"])
+
+        # Una clave que nadie lanza vuelve al vencer la espera, y sin espera enseguida.
+        for wait_ms in (0, 200):
+            with self.subTest(wait_ms=wait_ms):
+                started = time.monotonic()
+                _, err, _ = log("nunca-lanzada", wait_ms)
+                elapsed = time.monotonic() - started
+                self.assertIn("Comando no encontrado", err["message"])
+                self.assertGreaterEqual(elapsed, wait_ms / 1000)
+                self.assertLess(elapsed, wait_ms / 1000 + 2)
+
+        # Al apagar se cortan las esperas pendientes.
+        waiter, results = wait_in_background("nunca-lanzada", 30000)
+        started = time.monotonic()
+        zerochat.JOBS.stop_all()
+        waiter.join(5)
+        self.assertLess(time.monotonic() - started, 5)
+        self.assertIn("Comando no encontrado", results[0][1]["message"])
+
     def test_el_latido_publica_la_ultima_linea_de_cada_comando_en_marcha_recortada_en_el_borde(self):
         limit = zerochat.LAST_LINE_MAX_CHARS
         cases = [

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, parse_nonneg_int, rpc_error, rpc_not_supported, rpc_result
 from security.context import SecurityContext
@@ -68,6 +70,16 @@ def dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome
     if method not in SINGLE_JOB_METHODS:
         return rpc_not_supported(method)
     job = JOBS.get(ctx.key, job_id=params.get("id"), key=params.get("key"))
+    if job is None and method == "zerochat/jobs/log" and isinstance(params.get("key"), str):
+        # La tarjeta pide el log por la clave antes de que se lance el comando: con wait_ms espera a que se lance.
+        try:
+            wait_ms = min(parse_nonneg_int(params.get("wait_ms"), "wait_ms"), LONG_POLL_MAX_WAIT_MS)
+        except ValueError as exc:
+            return rpc_error(INVALID_PARAMS, str(exc))
+        started = time.monotonic()
+        job = JOBS.wait_registered(ctx.key, params["key"], wait_ms / 1000.0) if wait_ms > 0 else None
+        # Lo que queda de la espera es para la salida nueva.
+        params = {**params, "wait_ms": max(0, wait_ms - int((time.monotonic() - started) * 1000))}
     if job is None:
         return rpc_error(INVALID_PARAMS, "Comando no encontrado: puede pertenecer a una sesión anterior de ZeroChat.")
     return dispatch_table(SINGLE_JOB_METHODS, method, params, job)
