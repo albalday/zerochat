@@ -279,6 +279,9 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
           return true;
         };
         // Sin visor configurado el backend propone uno; tras confirmarlo y configurarlo se reabre el diff.
+        // El flujo acaba al abrir el diff del último commit.
+        let commitDiffOpened;
+        const flowDone = new Promise(resolve => { commitDiffOpened = resolve; });
         mcpManager.configureDiffTool = async (tool) => { configureCalls.push(tool); };
         mcpManager.openFileDiff = async (path, commitFallback) => {
           diffCalls.push({ path, commitFallback });
@@ -286,6 +289,7 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
             return { success: false, setup: { tool: 'meld', install: false, commands: ['git config --global diff.guitool meld'] } };
           }
           if (commitFallback) {
+            commitDiffOpened();
             return { success: true, has_diff: true, mode: 'commit' };
           }
           return { success: true, has_diff: false, has_commit_history: true };
@@ -306,7 +310,7 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
 
         const writeDiffBtn = writeCard.querySelector('.btn-file-diff');
         writeDiffBtn?.click();
-        await new Promise(resolve => setTimeout(resolve, 10));
+        await flowDone;
 
         mcpManager.openFileDiff = origOpenDiff;
         mcpManager.configureDiffTool = origConfigureDiff;

@@ -67,10 +67,27 @@ for line in sys.stdin:
 '''
 
 
-def capture_console(test) -> list:
+class Traces(list):
+    """Lo que el backend escribe en la consola; wait_for espera una traza que escribe otro hilo."""
+
+    def __init__(self):
+        super().__init__()
+        self._added = threading.Condition()
+
+    def add(self, message, **_kwargs):
+        with self._added:
+            self.append(message)
+            self._added.notify_all()
+
+    def wait_for(self, text: str, timeout: float = 5.0) -> bool:
+        with self._added:
+            return self._added.wait_for(lambda: any(text in message for message in self), timeout)
+
+
+def capture_console(test) -> Traces:
     """Recoge lo que el backend escribe en la consola durante la prueba."""
-    traces = []
-    patcher = patch.object(zerochat, "console_log", lambda message, **_kwargs: traces.append(message))
+    traces = Traces()
+    patcher = patch.object(zerochat, "console_log", traces.add)
     patcher.start()
     test.addCleanup(patcher.stop)
     return traces
@@ -413,7 +430,8 @@ class McpStartTest(unittest.TestCase):
         self.addCleanup(manager.close)
         self.assertEqual(next(item for item in manager.start("healthy") if item["id"] == "healthy")["status"], "running")
         self.assertEqual(next(item for item in manager.start("broken") if item["id"] == "broken")["status"], "error")
-        time.sleep(0.1)
+        # El stderr del servicio lo traza su propio hilo lector.
+        self.assertTrue(self.traces.wait_for("[MCP broken] stderr: intentional MCP startup failure"))
         manager.close()
         joined = "\n".join(self.traces)
         for trace in ("[MCP healthy] start requested", "[MCP healthy] launching:", "[MCP healthy] handshake completed",

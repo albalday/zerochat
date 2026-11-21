@@ -161,10 +161,18 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
 test('MCP Tools - run_command del servidor local envía la clave de la invocación y se detiene al abortar', async () => {
   const originalFetch = global.fetch;
   const calls = [];
+  // La primera petición con ese método, ya llegada o cuando llegue.
+  const arrivals = new Map();
+  const arrived = method => {
+    const call = calls.find(item => item.method === method);
+    return call ? Promise.resolve(call) : new Promise(resolve => arrivals.set(method, resolve));
+  };
   try {
     global.fetch = async (url, options) => {
       const body = JSON.parse(options.body || '{}');
       calls.push(body);
+      arrivals.get(body.method)?.(body);
+      arrivals.delete(body.method);
       const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: body.id, result }) });
       if (body.method === 'initialize') {
         return reply({ protocolVersion: '2024-11-05', serverInfo: { name: 'ZeroChat Local Server', version: '1.0.0' }, capabilities: { tools: {} } });
@@ -196,14 +204,12 @@ test('MCP Tools - run_command del servidor local envía la clave de la invocaci�
 
     const controller = new AbortController();
     const pending = runTool.execute({ command: 'sleep 100' }, { invocationId: 'inv-clave-1234', signal: controller.signal });
-    await new Promise(resolve => setTimeout(resolve, 10));
-    const toolCall = calls.find(call => call.method === 'tools/call');
+    const toolCall = await arrived('tools/call');
     assert.deepEqual(toolCall.params._meta, { zerochatJobKey: 'inv-clave-1234' }, 'Solo los navegadores llevan la conversación');
     controller.abort();
     await assert.rejects(pending, error => error.name === 'AbortError');
-    await new Promise(resolve => setTimeout(resolve, 10));
-    const stop = calls.find(call => call.method === 'zerochat/jobs/stop');
-    assert.deepEqual(stop?.params, { key: 'inv-clave-1234' });
+    const stop = await arrived('zerochat/jobs/stop');
+    assert.deepEqual(stop.params, { key: 'inv-clave-1234' });
 
     // Las demás herramientas no llevan clave ni provocan paradas.
     calls.length = 0;

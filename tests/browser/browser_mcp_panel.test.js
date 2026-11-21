@@ -200,7 +200,7 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       }, tools);
       assert.match(projectAll, /\(Proyecto\)/);
 
-      const revoke = await page.evaluate(async () => {
+      const revoke = await page.evaluate(() => {
         window.ChatToolSecurity.manager.applyPolicies({
           tools: { mcp_compact_revoke_test: { policy: 'allow', scope: 'permanent', originalName: 'compact revoke test' } },
           servers: { srv_session: { policy: 'allow', scope: 'session', serverName: 'srv_session' } }
@@ -210,11 +210,11 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
         const button = document.querySelector('#mcp-saved-auths-list .btn-revoke-auth');
         const shape = { title: button.title, aria: button.getAttribute('aria-label'), icon: Boolean(button.querySelector('.ui-icon')), text: button.textContent.trim() };
         button.click();
-        await new Promise(r => setTimeout(r, 20));
-        await window.ChatToolSecurity.manager.revokeServerPolicy('srv_session');
-        return { ...shape, scopes, policy: window.ChatToolSecurity.manager.getToolPolicy('mcp_compact_revoke_test') };
+        return { ...shape, scopes };
       });
-      assert.deepEqual(revoke, { title: 'Revocar', aria: 'Revocar', icon: true, text: '', scopes: ['Sesión', 'Global'], policy: null });
+      assert.deepEqual(revoke, { title: 'Revocar', aria: 'Revocar', icon: true, text: '', scopes: ['Sesión', 'Global'] });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolPolicy('mcp_compact_revoke_test') === null);
+      await page.evaluate(() => window.ChatToolSecurity.manager.revokeServerPolicy('srv_session'));
     });
   });
 
@@ -252,21 +252,23 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // Un rechazo del backend se muestra junto al editor sin cambiar nada
-      const shown = await page.evaluate(async () => {
+      const enterKept = await page.evaluate(() => {
         const manager = window.ChatToolSecurity.manager;
-        const original = manager.mcpClient.request;
+        window.__originalRequest = manager.mcpClient.request;
         manager.mcpClient.request = async () => { throw new Error('Patrón de comando no válido'); };
         const input = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-input');
         input.value = 'git; rm';
         const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
         input.dispatchEvent(enter);
-        if (!enter.defaultPrevented) throw new Error('Enter debe quedarse en el editor y no enviar los ajustes');
-        await new Promise(r => setTimeout(r, 20));
-        manager.mcpClient.request = original;
-        const error = document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-error');
-        return { hidden: error.hidden, text: error.textContent };
+        return enter.defaultPrevented;
       });
-      assert.deepEqual(shown, { hidden: false, text: 'Patrón de comando no válido' });
+      assert.equal(enterKept, true, 'Enter debe quedarse en el editor y no enviar los ajustes');
+      await page.waitForFunction(() => !document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-error').hidden);
+      const shown = await page.evaluate(() => {
+        window.ChatToolSecurity.manager.mcpClient.request = window.__originalRequest;
+        return document.querySelector('#mcp-saved-auths-list .mcp-auth-cmd-error').textContent;
+      });
+      assert.equal(shown, 'Patrón de comando no válido');
       assert.deepEqual(await patterns(), ['git status *', 'git log *']);
 
       // El alta elige el alcance: el proyecto actual guarda el patrón en project

@@ -21,6 +21,21 @@ def dispatch_run(method, params):
     return zerochat.dispatch_run(method, params, CTX)
 
 
+def waiting_on(test, condition) -> threading.Event:
+    """Event que se activa cuando un hilo entra a esperar en condition: el cambio llega con la espera ya en curso."""
+    waiting = threading.Event()
+    real_wait = condition.wait
+
+    def wait(*args, **kwargs):
+        waiting.set()
+        return real_wait(*args, **kwargs)
+
+    patcher = mock.patch.object(condition, "wait", side_effect=wait)
+    patcher.start()
+    test.addCleanup(patcher.stop)
+    return waiting
+
+
 def upsert_run(fields):
     """Guarda un estado de ejecución completo con los campos que importan a cada prueba."""
     now = int(time.time() * 1000)
@@ -476,8 +491,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.HEARTBEAT_INITIALIZED = True
         zerochat.HEARTBEAT_LAST_SEEN = time.monotonic() - 100.0
 
-        def stop_after_delay():
-            time.sleep(0.15)
+        waiting = waiting_on(self, zerochat._WATCHDOG_COND)
+
+        def finish_once_waiting():
+            # El latido ya venció: el vigilante solo espera porque la ejecución sigue en marcha.
+            self.assertTrue(waiting.wait(5))
             upsert_run({
                 "run_id": "run_wd",
                 "conversation_id": "conv_watchdog",
@@ -485,7 +503,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 "status": "completed"
             })
 
-        threading.Thread(target=stop_after_delay, daemon=True).start()
+        threading.Thread(target=finish_once_waiting, daemon=True).start()
 
         with mock.patch.object(zerochat, "stop_zerochat_server") as mock_stop:
             zerochat.heartbeat_watchdog(mock_server, inactivity_timeout_seconds=0.05)
@@ -504,8 +522,10 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         initial = zerochat.live_state(ctx)
         self.assertEqual(initial["rev"], zerochat.live_state(ctx)["rev"])
 
+        waiting = waiting_on(self, zerochat._LIVE_STATE_COND)
+
         def trigger_change():
-            time.sleep(0.08)
+            self.assertTrue(waiting.wait(5))
             upsert_run({
                 "run_id": "run_lp",
                 "conversation_id": "conv_lp",
