@@ -795,3 +795,18 @@ class FinishRunOutputTest(unittest.TestCase):
         self.assertEqual(answer.getvalue(), "respuesta\n")
         self.assertIn("Ejecución terminada", log.getvalue())
         self.assertNotIn("tardía", log.getvalue())
+
+    def test_la_conversacion_nueva_de_run_file_queda_como_ejecucion_en_servidor_con_su_perfil(self):
+        use_data_dir(self)
+        orchestrated = zerochat.RunSession("Hola", "oficina", new_conversation_id="session_nueva_orquestada")
+        from_server = zerochat.RunSession("Hola", "oficina")
+        for session in (orchestrated, from_server):
+            zerochat.save_conversation({"id": session.new_conversation_id, "title": "Agente"}, [{"id": "u1", "role": "user", "content": "Hola"}])
+            session.result = {"text": "hecho"}
+            with mock.patch.object(zerochat, "RUN_SESSION", session), mock.patch.object(zerochat, "_MUTED", False), \
+                 mock.patch.object(sys, "stdout", io.StringIO()), self.assertRaises(SystemExit):
+                zerochat.finish_run(None, io.StringIO())
+        marked = zerochat.get_conversation("session_nueva_orquestada")
+        self.assertEqual((marked.get("serverRun"), marked.get("profileId")), (True, "oficina"))
+        # Una nueva con id del servidor no la sigue nadie: queda como la dejó la interfaz.
+        self.assertNotIn("serverRun", zerochat.get_conversation(from_server.new_conversation_id))

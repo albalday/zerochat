@@ -11197,7 +11197,12 @@ def finish_run(headless_browser, result_out):
     # Firefox sin ventana sigue vivo al cerrar la página; uno ya abierto solo recibió la pestaña.
     if headless_browser is not None and headless_browser.poll() is None:
         _kill_process_tree(headless_browser)
-    code, text = run_outcome(current_run_session())
+    session = current_run_session()
+    # Una conversación nueva de --run-file (ya guardada por el runner) la continúa la interfaz en el servidor con su
+    # perfil, como las de --conversation, que se marcan al empezar porque ya existen.
+    if session.new_conversation_id == session.state_conversation_id:
+        mark_conversation_server_run(session.new_conversation_id, session.profile)
+    code, text = run_outcome(session)
     # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
     mute_console()
     if text is not None:
