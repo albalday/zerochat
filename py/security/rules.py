@@ -44,7 +44,13 @@ CD_UNSAFE_TARGET = re.compile(r"[$~*?\[{]")
 WORKSPACE_TRUST_PIPE_FILTERS = frozenset([
     "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "cut", "tr", "column", "nl", "cat", "jq"
 ])
-WORKSPACE_TRUST_GLOBAL_COMMANDS = re.compile(r"(?:^|\s)(?:sudo|su|doas|mkfs|reboot|shutdown|systemctl)\b")
+# Órdenes que actúan sobre todo el sistema (privilegios, discos, energía, servicios): nunca son locales
+# al proyecto aunque no lleven rutas. mkfs incluye su familia (mkfs.ext4, mkfs.vfat...).
+WORKSPACE_TRUST_GLOBAL_COMMANDS = frozenset([
+    "sudo", "su", "doas", "pkexec", "run0", "mkfs", "reboot", "shutdown", "poweroff", "halt", "systemctl"
+])
+# Lo que separa palabras dentro de un argumento que otra shell volvería a interpretar (sh -c '...').
+_NESTED_WORD_SEPARATORS = re.compile(r"[\s;&|()<>`'\"]+")
 WORKSPACE_TRUST_OUTSIDE_REFERENCE = re.compile(r"(?:^|[\s=:'\"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'\"\\/])\.\.(?=[\s\\/'\"]|$)")
 _COMMAND_PATH_START = re.compile(r"^(?:[/\\]|(?:\.\.(?:$|[/\\]))|[A-Za-z]:[\\/])")
 _COMMAND_INTERNAL_OUTSIDE_REF = re.compile(r"[\s:'\"](?:[\\/~]|[A-Za-z]:[\\/]|\.\.(?:$|[\s\\/]))")
@@ -167,9 +173,33 @@ def get_integrated_path_access(tool_name: str) -> str:
     return ""
 
 
+def invokes_global_command(segment: str) -> bool:
+    """
+    Si el subcomando nombra una orden global en cualquier palabra, tal como la verá la shell: sin comillas
+    ni escapes, por su nombre aunque vaya con ruta, y también dentro de un argumento que otra shell
+    reinterpretaría (sh -c 'sudo ls'), sin distinguir mayúsculas ni .exe. Cualquier posición cuenta, así que
+    también las que van tras env, command, nice o xargs. Un subcomando que no se puede partir cuenta como global.
+    """
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        return True
+    # Las palabras tal como las deja shlex (une "su""do") y las del texto sin partir, porque shlex en modo
+    # POSIX se come las \ de una ruta de Windows (C:\Windows\sudo.exe).
+    for token in [*tokens, segment]:
+        for word in _NESTED_WORD_SEPARATORS.split(token):
+            base = word.rsplit("/", 1)[-1]
+            # Una \ es un escape para la shell anidada (s\udo) o un separador de ruta en Windows.
+            for name in (base.replace("\\", ""), base.rsplit("\\", 1)[-1]):
+                name = name.lower().removesuffix(".exe")
+                if name in WORKSPACE_TRUST_GLOBAL_COMMANDS or name.startswith("mkfs."):
+                    return True
+    return False
+
+
 def is_workspace_local_command(segment: str) -> bool:
     """Filtro de Workspace Trust para un subcomando: sin órdenes globales ni referencias fuera del proyecto."""
-    return not WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
+    return not invokes_global_command(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
 
 
 def command_outside_references(segment: str) -> list[str] | None:
@@ -180,7 +210,7 @@ def command_outside_references(segment: str) -> list[str] | None:
     """
     if is_workspace_local_command(segment):
         return []
-    if WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) or "$" in segment or "~" in segment:
+    if invokes_global_command(segment) or "$" in segment or "~" in segment:
         return None
     try:
         tokens = shlex.split(segment)

@@ -35,6 +35,7 @@
 - [x] M81-T24 A discutir con el usuario: cambiar el comportamiento de los borrados de mensajes — hoy la papelera aparece en todos los mensajes y borra por turno (pregunta+respuesta juntas); valorar mostrarla solo en el último turno. La sincronización con el backend no es un problema (reemplazo completo de la conversación en IndexedDB y SQLite, con limpieza de blobs huérfanos en ambos lados) (2026-11-20)
 - [x] M81-T25 Auditoría de calidad de M81: latido sin output_bytes/last_line en rev, código muerto, avisos y long-poll unificados (2026-11-21)
 - [x] M81-T26 Pruebas de seguridad: no ejecutar sudo real al aprobar retos de run_command (2026-11-21)
+- [x] M81-T27 Seguridad: órdenes globales de run_command por ejecutable real (comillas, escapes, rutas) y pkexec/run0 (2026-11-21)
 
 ## M82 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-20
 

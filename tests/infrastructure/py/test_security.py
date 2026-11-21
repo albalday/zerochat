@@ -274,6 +274,13 @@ class PolicyEvaluationTest(ControllerTestCase):
         for path in ("/etc/passwd", "~/.ssh/id_rsa", "$HOME/.bashrc", "../outside.txt", "/workspace/../etc/passwd"):
             self.assertEqual(self.evaluate("read_file", {"path": path}).status, "ask", path)
         self.assertEqual(self.evaluate("run_command", {"command": "sudo apt update"}).status, "ask")
+        # Una orden global se reconoce por el ejecutable que verá la shell, no por el texto del comando
+        for command in ("'sudo' ls", '"sudo" ls', "s\\udo ls", "/usr/bin/sudo ls", "env -i sudo ls", "x=1 command sudo ls",
+                        "nice -n 5 doas ls", "pkexec ls", "run0 ls", "mkfs.ext4 disk.img", "sh -c 'sudo ls'",
+                        "sh -c 's\\udo ls'", "SUDO ls", "C:\\Windows\\sudo.exe ls", '"su""do" ls', "sudo"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).status, "ask", command)
+        for command in ("npm run sudoku", "grep -r pseudo src", "cat mkfs-notes.txt", "ls systemctl-backup"):
+            self.assertTrue(self.evaluate("run_command", {"command": command}).allowed, command)
         # Un patrón guardado es una vía más de permitir: no hace más estrictas las reglas RWX del proyecto
         set_patterns(self.controller, "git status *")
         self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "directory_rule_allow")
