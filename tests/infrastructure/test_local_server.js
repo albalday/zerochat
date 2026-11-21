@@ -454,7 +454,19 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
     const hb = await controlRpc(17, 'zerochat/heartbeat', {});
     assert.equal(hb.result.exit_on_close, false, 'Con --keep-server cerrar la pestaña no detendrá el servidor');
 
-    await new Promise(resolve => setTimeout(resolve, 150));
+    // Cada respuesta se registra después de enviarla: se espera a la línea de la última que se registra.
+    await new Promise((resolve, reject) => {
+      const lastLogged = /<--\s+200 OK\s+\S*\s*\[rpc: zerochat\/jobs\/stop\]/;
+      const timer = setTimeout(() => reject(new Error(`Sin registro de zerochat/jobs/stop: ${serverOutput}`)), 5000);
+      const check = () => {
+        if (!lastLogged.test(serverOutput)) return;
+        clearTimeout(timer);
+        serverProc.stdout.off('data', check);
+        resolve();
+      };
+      serverProc.stdout.on('data', check);
+      check();
+    });
 
     assert.match(serverOutput, /Auto-cierre\s*:\s*Desactivado/);
     assert.ok(!/zerochat\/(heartbeat|jobs\/(list|get|log))/.test(serverOutput), 'Las consultas periódicas de la interfaz no deben llenar la consola');

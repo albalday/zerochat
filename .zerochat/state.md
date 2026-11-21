@@ -1,4 +1,4 @@
 # Current state
 - Milestone: M83 Esperas síncronas en lugar de sondeo (restos tras M81)
-- Next task: M83-T7 Arranque en pruebas: waitForServer (tests/helpers/backend-env.js, sondeo de latido cada 100 ms) y el smoke de empaquetado (tests/packaging_smoke_test.py ~86) esperan en stdout la línea 'Servidor HTTP' de print_header (ya se imprime tras el bind) y hacen un único latido de confirmación; test_local_server.js ~459 espera la marca de la última RPC en serverOutput en lugar de setTimeout(150). En producción solo se vuelca la cabecera con flush (útil con la salida redirigida); no se añade ninguna marca exclusiva de pruebas
+- Next task: M83-T8 Backend: _kill_process_tree con solo PID (core/process.py:46) espera la salida con pidfd/kqueue hasta grace_seconds en lugar de time.sleep(grace_seconds) completo, con la misma comprobación _pid_alive de reserva donde no exista; y estudiar sustituir serve_forever(poll_interval=0.05) por un bucle selectors con socketpair de parada (descartar con --drop si el coste no compensa 20 despertares/s en reposo)
 - Last updated: 2026-11-21

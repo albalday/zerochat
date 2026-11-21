@@ -15,15 +15,47 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import urllib.request
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+STARTUP_WAIT_SECONDS = 15
 # El catálogo se descarga en un hilo tras el arranque: margen para que termine.
 CATALOG_WAIT_SECONDS = 15
+
+
+class ConsoleLines:
+    """Lee en su propio hilo las líneas que el servidor escribe en un flujo; wait_for espera una que contenga un texto."""
+
+    def __init__(self, stream):
+        self.lines: list[str] = []
+        self._closed = False
+        self._changed = threading.Condition()
+        threading.Thread(target=self._read, args=(stream,), daemon=True).start()
+
+    def _read(self, stream):
+        for line in stream:
+            with self._changed:
+                self.lines.append(line.rstrip("\n"))
+                self._changed.notify_all()
+        with self._changed:
+            self._closed = True
+            self._changed.notify_all()
+
+    def wait_for(self, *texts: str, timeout: float) -> str | None:
+        """La primera línea con alguno de los textos; None si el flujo se cierra o vence el plazo sin ella."""
+        def found():
+            return next((line for line in self.lines if any(text in line for text in texts)), None)
+
+        with self._changed:
+            self._changed.wait_for(lambda: self._closed or found() is not None, timeout)
+            return found()
+
+    def text(self) -> str:
+        with self._changed:
+            return "\n".join(self.lines)
 
 
 class QuietFiles(SimpleHTTPRequestHandler):
@@ -82,41 +114,30 @@ def main() -> None:
             stderr=subprocess.PIPE,
             text=True,
         )
+        stdout, stderr = ConsoleLines(process.stdout), ConsoleLines(process.stderr)
+        server_url = f"http://127.0.0.1:{port}"
         try:
-            deadline = time.monotonic() + 15
-            while time.monotonic() < deadline:
-                try:
-                    request = urllib.request.Request(
-                        f"http://127.0.0.1:{port}/",
-                        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "zerochat/heartbeat", "params": {}}).encode(),
-                        headers={"Content-Type": "application/json", "X-ZeroChat-Token": session_token},
-                    )
-                    with urllib.request.urlopen(request, timeout=1) as response:
-                        if response.status == 200:
-                            break
-                except OSError:
-                    if process.poll() is not None:
-                        output, errors = process.communicate()
-                        raise SystemExit(f"El paquete no inició el servidor local: {output} {errors}")
-                    time.sleep(0.1)
-            else:
-                process.terminate()
-                try:
-                    output, errors = process.communicate(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    output, errors = process.communicate()
-                raise SystemExit(f"El paquete no inició el servidor local: {output} {errors}")
+            # La cabecera anuncia el puerto ya abierto; un latido confirma que responde con el token del día.
+            announced = stdout.wait_for("Servidor HTTP", timeout=STARTUP_WAIT_SECONDS)
+            if announced is None or not announced.rstrip().endswith(server_url):
+                raise SystemExit(f"El paquete no inició el servidor local: {stdout.text()} {stderr.text()}")
+            request = urllib.request.Request(
+                f"{server_url}/",
+                data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "zerochat/heartbeat", "params": {}}).encode(),
+                headers={"Content-Type": "application/json", "X-ZeroChat-Token": session_token},
+            )
+            with urllib.request.urlopen(request, timeout=5) as response:
+                if response.status != 200:
+                    raise SystemExit(f"El latido del paquete respondió {response.status}")
             data_dir = home_dir / "zerochat"
             venv_python = data_dir / ".venv" / ("Scripts/python.exe" if sys.platform.startswith("win") else "bin/python")
             if not venv_python.is_file():
                 raise SystemExit("El paquete no creó ~/zerochat/.venv para los MCP")
-            example_service = data_dir / "services" / "ejemplo" / "service.json"
-            catalog_deadline = time.monotonic() + CATALOG_WAIT_SECONDS
-            while not example_service.is_file() and time.monotonic() < catalog_deadline:
-                time.sleep(0.1)
-            if not example_service.is_file():
-                raise SystemExit("El paquete no instaló los servicios MCP del catálogo en ~/zerochat")
+            # El servidor anuncia cada servicio del catálogo después de instalarlo, o que el catálogo no está disponible.
+            catalog = stdout.wait_for("[MCP catalog] ejemplo ", "no disponible; se usan los servicios instalados",
+                                      timeout=CATALOG_WAIT_SECONDS)
+            if not (data_dir / "services" / "ejemplo" / "service.json").is_file():
+                raise SystemExit(f"El paquete no instaló los servicios MCP del catálogo en ~/zerochat: {catalog}")
             if not (data_dir / "services" / "ejemplo" / "README.md").is_file():
                 raise SystemExit("El paquete no instaló la guía del MCP de ejemplo")
             example_readme = (data_dir / "services" / "ejemplo" / "README.md").read_text(encoding="utf-8")

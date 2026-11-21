@@ -37,25 +37,46 @@ function freePort() {
   });
 }
 
+/**
+ * Espera a que `serverProc` anuncie en su cabecera que escucha en `baseUrl` (la imprime tras abrir el
+ * puerto y la vuelca con flush) y lo confirma con un latido: sin sondear el puerto.
+ */
 async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) {
-  const start = Date.now();
-  let serverError = '';
-  if (serverProc) {
-    serverProc.stderr?.on('data', chunk => { serverError += chunk.toString(); });
-    serverProc.stdout?.on('data', chunk => { serverError += chunk.toString(); });
+  let output = '';
+  let cleanup = () => {};
+  const listening = new Promise((resolve, reject) => {
+    const onData = chunk => {
+      output += chunk.toString();
+      const announced = output.match(/Servidor HTTP\s*:\s*(\S+)/);
+      if (announced?.[1] === baseUrl) resolve();
+      else if (announced) reject(new Error(`escucha en ${announced[1]}`));
+    };
+    const onErr = chunk => { output += chunk.toString(); };
+    const onExit = code => reject(new Error(`terminó con código ${code}`));
+    const timer = setTimeout(() => reject(new Error(`no arrancó en ${maxWaitMs} ms`)), maxWaitMs);
+    serverProc.stdout.on('data', onData);
+    serverProc.stderr.on('data', onErr);
+    serverProc.once('exit', onExit);
+    cleanup = () => {
+      clearTimeout(timer);
+      serverProc.stdout.off('data', onData);
+      serverProc.stderr.off('data', onErr);
+      serverProc.off('exit', onExit);
+    };
+  });
+  try {
+    await listening;
+  } catch (error) {
+    assert.fail(`El servidor zerochat.py no está disponible en ${baseUrl}: ${error.message}. Salida: ${output}`);
+  } finally {
+    cleanup();
   }
-  while (Date.now() - start < maxWaitMs) {
-    try {
-      const probeRes = await fetch(baseUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(testToken ? { 'X-ZeroChat-Token': testToken } : {}) },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/heartbeat', params: {} })
-      });
-      if (probeRes.ok) return;
-    } catch (_) {}
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  assert.fail(`El servidor zerochat.py no arrancó en ${baseUrl} tras ${maxWaitMs}ms. Error: ${serverError}`);
+  const probe = await fetch(baseUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(testToken ? { 'X-ZeroChat-Token': testToken } : {}) },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/heartbeat', params: {} })
+  });
+  assert.ok(probe.ok, `El latido de arranque respondió ${probe.status}`);
 }
 
 module.exports = { createTokenDataDir, tokenDataDir, waitForServer, freePort };
