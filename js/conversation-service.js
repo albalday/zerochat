@@ -399,11 +399,12 @@
   /**
    * Borra las conversaciones del conjunto seleccionado en el filtro del historial: todas si
    * `getSelectedProject()` devuelve `null`, las de la carpeta general si devuelve `''`, o las de ese
-   * proyecto.
+   * proyecto. La vista de tareas pendientes (`undefined`) no se borra en bloque.
    */
   async function deleteAllSessions(options) {
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
     const targetProject = options.getSelectedProject ? options.getSelectedProject() : options.getProject();
+    if (targetProject === undefined) return;
     const sessions = getSavedSessions();
     const targetSessions = targetProject === null
       ? sessions

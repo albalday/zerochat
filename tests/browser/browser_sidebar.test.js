@@ -21,7 +21,8 @@ test('Browser UI - en móvil la barra ocupa toda la pantalla, deja el chat inert
 
     const activeSessionId = await page.evaluate(() => {
       ChatState.saveSessionMetadata({ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() });
-      const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input'), sidebarProjectFilter: document.getElementById('sidebar-project-filter') };
+      const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input'), sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
+        btnDeleteAllChats: document.getElementById('btn-delete-all-chats') };
       ChatUISidebar.renderSidebarChats(elements, ChatState.get('sessions').list.filter(session => session.id === 'chat-options'), '', [], '');
       return ChatState.get('sessions').activeId;
     });
@@ -99,13 +100,14 @@ test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa
   });
 });
 
-test('Browser UI - el selector muestra el proyecto actual, general o todos agrupados por proyecto', async () => {
+test('Browser UI - el selector muestra el proyecto actual, general, todos agrupados por proyecto o las tareas pendientes', async () => {
   await withTestApp(async page => {
-    const render = project => page.evaluate(project => {
+    const render = (project, runs = []) => page.evaluate(({ project, runs }) => {
       const elements = {
         sidebarChatsList: document.getElementById('sidebar-chats-list'),
         sidebarSearchInput: document.getElementById('sidebar-search-input'),
-        sidebarProjectFilter: document.getElementById('sidebar-project-filter')
+        sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
+        btnDeleteAllChats: document.getElementById('btn-delete-all-chats')
       };
       const now = Date.now();
       const sessions = [
@@ -114,8 +116,8 @@ test('Browser UI - el selector muestra el proyecto actual, general o todos agrup
         { id: 'b1', title: 'B', project: '/repo/lib/', updatedAt: now - 2000 },
         { id: 'a2', title: 'A antigua', project: '/repo/app', updatedAt: now - 3000 }
       ];
-      window.ChatUISidebar.renderSidebarChats(elements, sessions, '', [], project);
-    }, project);
+      window.ChatUISidebar.renderSidebarChats(elements, sessions, '', runs, project);
+    }, { project, runs });
     const currentLabel = () => page.$eval('#sidebar-project-filter option[value="current"]', option => option.textContent);
     // Sin evento change: la aplicación repintaría con su propio estado, sin servidor.
     const choose = value => page.$eval('#sidebar-project-filter', (select, value) => { select.value = value; }, value);
@@ -147,6 +149,29 @@ test('Browser UI - el selector muestra el proyecto actual, general o todos agrup
     await choose('current');
     await render('/repo/vacio');
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
+
+    // Tareas pendientes: las conversaciones con ejecución sin completar de todos los proyectos, desplegadas,
+    // con un icono por estado; no se borran en bloque y, sin ninguna, la vista vuelve al proyecto actual.
+    const runs = [
+      { conversationId: 'a2', runId: 'r1', status: 'limit' },
+      { conversationId: 'n1', runId: 'r2', status: 'error' },
+      { conversationId: 'b1', runId: 'r3', status: 'needs_input' },
+      { conversationId: 'otra', runId: 'r4', status: 'running' }
+    ];
+    const pendingOption = () => page.$eval('#sidebar-project-filter option[value="pending"]', option => ({ hidden: option.hidden, text: option.textContent }));
+    await render('/repo/app', runs);
+    assert.deepEqual(await pendingOption(), { hidden: false, text: await page.evaluate(() => window.ChatI18n.t('sidebar_project_pending', { count: 3 })) });
+    await choose('pending');
+    await render('/repo/app', runs);
+    const pendingItems = () => page.$$eval('#sidebar-chats-list .sidebar-chat-item', items => items.map(item => [
+      item.dataset.sessionId, item.querySelector('.sidebar-chat-status-icon').getAttribute('class').split(' ').at(-1)]));
+    assert.deepEqual(await pendingItems(), [['b1', 'needs-input'], ['a2', 'limit'], ['n1', 'error']]);
+    assert.deepEqual(await sidebarHeaders(page), ['lib', 'app', 'general']);
+    assert.equal(await page.isDisabled('#btn-delete-all-chats'), true);
+    await render('/repo/app');
+    assert.equal((await pendingOption()).hidden, true);
+    assert.equal(await page.$eval('#sidebar-project-filter', select => select.value), 'current');
+    assert.equal(await page.isDisabled('#btn-delete-all-chats'), false);
 
     // Sin servidor el proyecto actual es general: el selector sigue a la vista, sin repetirlo
     await choose('none');
@@ -433,7 +458,8 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
       window.ChatUISidebar.renderSidebarChats({
         sidebarChatsList: document.getElementById('sidebar-chats-list'),
         sidebarSearchInput: document.getElementById('sidebar-search-input'),
-        sidebarProjectFilter: document.getElementById('sidebar-project-filter')
+        sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
+        btnDeleteAllChats: document.getElementById('btn-delete-all-chats')
       }, list, 'chat_local_1', [], '');
     });
 

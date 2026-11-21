@@ -568,11 +568,12 @@
    * Lo que va haciendo se ve en los mensajes de la conversación grabada, que la página recarga.
    */
   function renderLiveServerRun(messagesList, welcomeBanner, activeRun, focusRun) {
-    if (!activeRun || (activeRun.status !== 'running' && activeRun.status !== 'error')) {
+    if (!activeRun || !['running', 'error', 'limit'].includes(activeRun.status)) {
       messagesList.querySelector('.server-run-live-wrapper')?.remove();
       return null;
     }
-    const isError = activeRun.status === 'error';
+    // Error y límite terminan la ejecución: su banner lleva el motivo en lugar del paso en curso.
+    const ended = activeRun.status !== 'running';
     welcomeBanner.hidden = true;
     let wrapper = messagesList.querySelector('.server-run-live-wrapper');
     if (!wrapper) {
@@ -587,17 +588,19 @@
 
     const focus = focusRun && focusRun.conversation_id === activeRun.conversationId ? focusRun : null;
     const bannerEl = wrapper.querySelector('.server-run-banner');
-    bannerEl.classList.toggle('is-error', isError);
-    if (isError) {
-      const errorText = typeof focus?.error === 'string' && focus.error.trim() ? focus.error.trim() : t('notice_error');
-      wrapper.querySelector('.server-run-banner-title').textContent = t('server_run_error_banner', { error: errorText });
+    bannerEl.classList.toggle('is-error', ended);
+    if (ended) {
+      const reason = typeof focus?.error === 'string' && focus.error.trim() ? focus.error.trim() : t('notice_error');
+      wrapper.querySelector('.server-run-banner-title').textContent = activeRun.status === 'limit'
+        ? t('server_run_limit_banner', { reason })
+        : t('server_run_error_banner', { error: reason });
     } else {
       const runId = focus?.run_id || activeRun.runId || '';
       wrapper.querySelector('.server-run-banner-title').textContent = t('server_run_active_banner', { id: runId });
     }
 
     const stepEl = wrapper.querySelector('.server-run-step');
-    const stepText = !isError && typeof focus?.step_text === 'string' ? focus.step_text.trim() : '';
+    const stepText = !ended && typeof focus?.step_text === 'string' ? focus.step_text.trim() : '';
     stepEl.textContent = stepText;
     stepEl.hidden = !stepText;
     scrollToBottom(messagesList);

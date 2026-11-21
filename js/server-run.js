@@ -34,10 +34,10 @@
     return getRuns().some(run => run.conversationId === conversation.id);
   }
 
-  /** Ejecución en curso o con error de la conversación activa, o null. */
+  /** Ejecución en curso, con error o detenida por un límite de la conversación activa, o null. */
   function getActiveRun() {
     const activeId = getActiveId();
-    return getRuns().find(run => run.conversationId === activeId && (run.status === 'running' || run.status === 'error')) || null;
+    return getRuns().find(run => run.conversationId === activeId && ['running', 'error', 'limit'].includes(run.status)) || null;
   }
 
   function isActiveSessionRunning() {

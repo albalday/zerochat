@@ -321,6 +321,10 @@ test('ConversationService - borrar el historial borra solo el conjunto seleccion
 
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/empty' });
   assert.equal(confirms.length, 0, 'Sin conversaciones en el conjunto seleccionado no pide confirmación');
+  // La vista de tareas pendientes no es un conjunto de proyecto: no borra nada, tampoco el proyecto actual.
+  await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => undefined });
+  assert.equal(confirms.length, 0);
+  assert.deepEqual(await storedIds(), ['del_a', 'del_b', 'del_n']);
 
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/a' });
   assert.deepEqual(await storedIds(), ['del_a', 'del_b', 'del_n'], 'Cancelar no borra nada');

@@ -85,6 +85,14 @@
     return 'older';
   }
 
+  // Icono de cada estado de una ejecución en servidor que sigue en la lista del latido (las completadas no están).
+  const RUN_STATUS_ICONS = {
+    running: { icon: 'clock', className: 'running', titleKey: 'sidebar_run_running_title' },
+    needs_input: { icon: 'help-circle', className: 'needs-input', titleKey: 'sidebar_run_needs_input_title' },
+    error: { icon: 'alert-circle', className: 'error', titleKey: 'sidebar_run_error_title' },
+    limit: { icon: 'pause-circle', className: 'limit', titleKey: 'sidebar_run_limit_title' }
+  };
+
   function renderChatItem(session, date, isActive, runStatus = null) {
     const title = escapeHtml(session.title || t('chat_untitled'));
     const time = `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
@@ -93,12 +101,10 @@
       return `<button type="button" role="menuitem" class="btn-chat-action ${className}" title="${label}">${Icons.get(icon, { size: 13 })}<span>${label}</span></button>`;
     };
     const optionsLabel = escapeHtml(t('sidebar_chat_options_title'));
-    let statusIcon = '';
-    if (runStatus === 'running') {
-      statusIcon = Icons.get('clock', { size: 13, className: 'sidebar-chat-status-icon running', title: t('sidebar_run_running_title') });
-    } else if (runStatus === 'needs_input' || runStatus === 'error') {
-      statusIcon = Icons.get('help-circle', { size: 13, className: 'sidebar-chat-status-icon needs-input', title: t('sidebar_run_needs_input_title') });
-    }
+    const status = RUN_STATUS_ICONS[runStatus];
+    const statusIcon = status
+      ? Icons.get(status.icon, { size: 13, className: `sidebar-chat-status-icon ${status.className}`, title: t(status.titleKey) })
+      : '';
     return `<div class="sidebar-chat-item${isActive ? ' active' : ''}" data-session-id="${escapeHtml(session.id)}"${runStatus ? ` data-run-status="${escapeHtml(runStatus)}"` : ''}>
         <div class="sidebar-chat-info">
           <span class="sidebar-chat-title" title="${title}">${statusIcon}${title}</span>
@@ -120,24 +126,31 @@
 
   /**
    * Proyecto seleccionado en el filtro del historial: `null` para todos los proyectos, `''` para la
-   * carpeta general, o la ruta del proyecto actual.
+   * carpeta general, la ruta del proyecto actual, o `undefined` en la vista de tareas pendientes, que no es
+   * un conjunto de proyecto y no se borra en bloque.
    */
   function getSelectedProject(select, project) {
+    if (select.value === 'pending') return undefined;
     if (select.value === 'all') return null;
     return select.value === 'none' || !project ? '' : project;
   }
 
   /**
    * Selector de proyecto, siempre visible: el actual (la carpeta general sin servidor), general si el actual es
-   * otro, y todos. Devuelve el proyecto de la vista, o null para la de todos.
+   * otro, todos y, si hay `pendingCount` conversaciones con ejecución en servidor sin completar, la vista de
+   * tareas pendientes. Devuelve lo que da getSelectedProject.
    */
-  function renderProjectFilter(select, project) {
+  function renderProjectFilter(select, project, pendingCount) {
     const current = select.querySelector('option[value="current"]');
     current.textContent = t('sidebar_project_current', { name: project ? projectName(project) : NO_PROJECT_NAME });
     current.title = project;
     const none = select.querySelector('option[value="none"]');
     none.hidden = !project;
     if (none.hidden && select.value === 'none') select.value = 'current';
+    const pending = select.querySelector('option[value="pending"]');
+    pending.textContent = t('sidebar_project_pending', { count: pendingCount });
+    pending.hidden = pendingCount === 0;
+    if (pending.hidden && select.value === 'pending') select.value = 'current';
     return getSelectedProject(select, project);
   }
 
@@ -202,9 +215,14 @@
    */
   function renderSidebarChats(elements, sessions, currentSessionId, serverRuns, project) {
     const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
-    const viewProject = renderProjectFilter(elements.sidebarProjectFilter, project);
+    const runStatusMap = new Map(serverRuns.map(run => [run.conversationId, run.status]));
+    const pendingSessions = sessions.filter(session => runStatusMap.has(session.id));
+    const viewProject = renderProjectFilter(elements.sidebarProjectFilter, project, pendingSessions.length);
+    const pendingView = viewProject === undefined;
+    elements.btnDeleteAllChats.disabled = pendingView;
     const showAll = viewProject === null;
-    const visible = groupSessions(sessions, viewProject);
+    // Tareas pendientes: las de todos los proyectos, agrupadas por proyecto y siempre desplegadas.
+    const visible = pendingView ? groupSessions(pendingSessions, null) : groupSessions(sessions, viewProject);
     const contentIds = filter && searchState.query === filter ? searchState.ids : null;
     const matching = filter
       ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter) || contentIds?.has(session.id))
@@ -214,7 +232,6 @@
       elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t(emptyKey))}</div>`;
       return;
     }
-    const runStatusMap = new Map(serverRuns.map(run => [run.conversationId, run.status]));
     const renderItem = session => renderChatItem(session, sessionDate(session), session.id === currentSessionId, runStatusMap.get(session.id) || null);
     const renderChats = (group, items) => {
       const shown = items.slice(0, groupLimits[group.key] || GROUP_PAGE_SIZE);

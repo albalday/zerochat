@@ -631,8 +631,13 @@
   color: var(--primary);
 }
 
-.sidebar-chat-status-icon.needs-input {
+.sidebar-chat-status-icon.needs-input,
+.sidebar-chat-status-icon.limit {
   color: var(--warning);
+}
+
+.sidebar-chat-status-icon.error {
+  color: var(--danger);
 }
 
 .sidebar-chat-time {
