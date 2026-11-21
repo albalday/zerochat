@@ -1008,7 +1008,10 @@ def wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
         if sys.platform == "linux":
             fd = os.pidfd_open(pid)
             try:
-                return bool(select.select([fd], [], [], timeout)[0])
+                # poll y no select: select no admite descriptores por encima de FD_SETSIZE (1024).
+                poller = select.poll()
+                poller.register(fd, select.POLLIN)
+                return bool(poller.poll(None if timeout is None else max(0, int(timeout * 1000))))
             finally:
                 os.close(fd)
         if sys.platform == "darwin":

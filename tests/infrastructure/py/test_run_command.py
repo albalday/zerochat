@@ -2,6 +2,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -533,6 +534,33 @@ class KillProcessTreeTest(unittest.TestCase):
                     self.assertLess(elapsed, 5, "Debe volver en cuanto termina, no al vencer el plazo")
                 else:
                     self.assertGreaterEqual(elapsed, grace)
+
+
+@unittest.skipUnless(sys.platform == "linux", "pidfd de Linux")
+class PidExitWaitTest(unittest.TestCase):
+    def test_espera_aunque_el_descriptor_del_proceso_pase_de_fd_setsize(self):
+        import resource
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        needed = 1100
+        if soft < needed:
+            if hard != resource.RLIM_INFINITY and hard < needed:
+                self.skipTest(f"RLIMIT_NOFILE no llega a {needed}")
+            resource.setrlimit(resource.RLIMIT_NOFILE, (needed, hard))
+            self.addCleanup(resource.setrlimit, resource.RLIMIT_NOFILE, (soft, hard))
+        # Se ocupan los descriptores libres hasta pasar de 1024 y se suelta el último: el pidfd lo recibe.
+        read_end, write_end = os.pipe()
+        held = [read_end, write_end]
+        self.addCleanup(lambda: [os.close(fd) for fd in held])
+        while held[-1] <= 1024:
+            held.append(os.dup(read_end))
+        os.close(held.pop())
+
+        worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
+        self.addCleanup(worker.wait)
+        self.addCleanup(worker.kill)
+        self.assertIs(zerochat.wait_pid_exit(worker.pid, 0.1), False)
+        worker.terminate()
+        self.assertIs(zerochat.wait_pid_exit(worker.pid, 5), True)
 
 
 @unittest.skipUnless(os.name == "nt", "Job Object de Windows")
