@@ -143,16 +143,25 @@ class BackgroundCommandTest(unittest.TestCase):
         self.project.mkdir()
         use_project(self, self.project)
         use_fresh_jobs(self)
-        patcher = patch.object(zerochat, "BACKGROUND_STARTUP_WAIT", 0.1)
+        patcher = patch.object(zerochat, "BACKGROUND_STARTUP_WAIT", 0.25)
         patcher.start()
         self.addCleanup(patcher.stop)
+
+    def _gate_cmd(self, name: str) -> Path:
+        return self.project / name
+
+    def _release_gate_soon(self, gate: Path, delay: float = 0.05):
+        timer = threading.Timer(delay, lambda: gate.write_text("go", encoding="utf-8"))
+        timer.start()
+        self.addCleanup(timer.cancel)
 
     def test_check_command_sigue_la_salida_nueva_y_detiene_el_comando(self):
         failed = run("echo ocupado; exit 4", background=True)
         self.assertEqual((failed["status"], failed["exit_code"], failed["output"]), ("exited", 4, "ocupado\n"))
 
+        gate = self._gate_cmd("gate-follow")
         started = time.monotonic()
-        first = run("echo uno; sleep 0.3; echo dos; sleep 0.1; echo tres", background=True, job_key="clave-de-prueba")
+        first = run(f"echo uno; while [ ! -e '{gate}' ]; do sleep 0.02; done; echo dos; echo tres", background=True, job_key="clave-de-prueba")
         self.assertLess(time.monotonic() - started, 2)
         self.assertEqual((first["status"], first["output"]), ("running", "uno\n"))
         self.assertIn("check_command", first["note"])
@@ -162,6 +171,7 @@ class BackgroundCommandTest(unittest.TestCase):
         # Solo devuelve lo que el modelo aún no ha visto, y wait_seconds vuelve en cuanto termina el comando.
         nothing = check(job_id)
         self.assertEqual((nothing["status"], nothing["new_output"]), ("running", ""))
+        self._release_gate_soon(gate)
         finished = check(job_id, wait_seconds=10)
         self.assertEqual((finished["returned_because"], finished["status"], finished["exit_code"], finished["new_output"]),
                          ("command_finished", "exited", 0, "dos\ntres\n"))
@@ -174,7 +184,9 @@ class BackgroundCommandTest(unittest.TestCase):
 
     def test_check_command_vuelve_en_cuanto_una_linea_nueva_cumple_el_patron(self):
         # Texto literal con | (no regex: (a+)+$ contra 40 «a» y «!» no bloquea ni casa) y sin distinguir mayúsculas.
-        server = run("echo arrancando; sleep 0.25; printf 'a%.0s' $(seq 40); printf '!\\nServer listening(8080)\\n'; exec sleep 100", background=True)
+        gate = self._gate_cmd("gate-pattern")
+        server = run(f"echo arrancando; while [ ! -e '{gate}' ]; do sleep 0.02; done; printf 'a%.0s' $(seq 40); printf '!\\nServer listening(8080)\\n'; exec sleep 100", background=True)
+        self._release_gate_soon(gate)
         started = time.monotonic()
         matched = check(server["job_id"], wait_seconds=30, pattern="(a+)+$|LISTENING(")
         self.assertLess(time.monotonic() - started, 5)
@@ -198,7 +210,9 @@ class BackgroundCommandTest(unittest.TestCase):
         check(server["job_id"], stop=True)
 
         # Al terminar el comando se compara también una última línea sin salto de línea.
-        unterminated = run("sleep 0.2; printf 'fatal error: disk full'", background=True)
+        unterminated_gate = self._gate_cmd("gate-unterminated")
+        unterminated = run(f"while [ ! -e '{unterminated_gate}' ]; do sleep 0.02; done; printf 'fatal error: disk full'", background=True)
+        self._release_gate_soon(unterminated_gate)
         result = check(unterminated["job_id"], wait_seconds=10, pattern="fatal")
         self.assertEqual((result["returned_because"], result["matched_line"]), ("pattern_matched", "fatal error: disk full"))
 
@@ -229,7 +243,7 @@ class BackgroundCommandTest(unittest.TestCase):
 
     def test_jobs_log_long_poll_despierta_al_llegar_salida_nueva(self):
         ctx = zerochat.project_context()
-        gate = self.project / "log-gate"
+        gate = self._gate_cmd("log-gate")
         job = run(f"printf 'uno\\n'; while [ ! -e '{gate}' ]; do sleep 0.02; done; printf 'dos\\n'; exec sleep 100", background=True)
         deadline = time.monotonic() + 5
         first = None
@@ -240,9 +254,7 @@ class BackgroundCommandTest(unittest.TestCase):
                 break
             time.sleep(0.02)
         self.assertIn("uno", first["text"])
-        timer = threading.Timer(0.1, lambda: gate.write_text("go", encoding="utf-8"))
-        timer.start()
-        self.addCleanup(timer.cancel)
+        self._release_gate_soon(gate, 0.1)
         started = time.monotonic()
         second, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {
             "id": job["job_id"],
@@ -309,7 +321,9 @@ class BackgroundCommandTest(unittest.TestCase):
         seen = run("echo visto", background=True)
         zerochat.JOBS.get(str(self.project), job_id=seen["job_id"]).done.wait(5)
         check(seen["job_id"])
-        unseen = run("echo a; sleep 0.3; echo fin; exit 3", background=True)
+        unseen_gate = self._gate_cmd("gate-unseen")
+        unseen = run(f"echo a; while [ ! -e '{unseen_gate}' ]; do sleep 0.02; done; echo fin; exit 3", background=True)
+        unseen_gate.write_text("go", encoding="utf-8")
         zerochat.JOBS.get(str(self.project), job_id=unseen["job_id"]).done.wait(5)
         alive = run("exec sleep 100", background=True)
         reports = zerochat.JOBS.report_finished([unseen["job_id"], seen["job_id"], alive["job_id"], 9999, unseen["job_id"]], str(self.project))
