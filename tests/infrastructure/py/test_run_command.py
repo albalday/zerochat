@@ -1,5 +1,6 @@
 import json
 import os
+import signal
 import subprocess
 import tempfile
 import threading
@@ -8,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from backend import use_data_dir, use_project, wait_pid_exit, zerochat
+from backend import use_data_dir, use_project, zerochat
 
 
 def use_fresh_jobs(test):
@@ -21,7 +22,7 @@ def use_fresh_jobs(test):
 
 
 def wait_dead(pid):
-    if not wait_pid_exit(pid):
+    if not zerochat.wait_pid_exit(pid, 5):
         raise AssertionError(f"El proceso {pid} sigue vivo")
 
 
@@ -500,6 +501,30 @@ class ProcessAliveTest(unittest.TestCase):
             kill.assert_not_called()
         for invalid in (0, -1, True, "1", None):
             self.assertFalse(zerochat._pid_alive(invalid), invalid)
+
+
+@unittest.skipIf(os.name == "nt", "Señales POSIX")
+class KillProcessTreeTest(unittest.TestCase):
+    def test_con_solo_el_pid_espera_la_salida_tras_sigterm_hasta_el_plazo_y_despues_lo_fuerza(self):
+        # Como la ejecución en servidor de otra instancia: no es un Popen de quien lo termina.
+        for on_term, grace, returncode in (("sys.exit(0)", 10, 0), ("None", 0.2, -signal.SIGKILL)):
+            with self.subTest(on_term=on_term):
+                script = (f"import signal, sys, time\nsignal.signal(signal.SIGTERM, lambda *_: {on_term})\n"
+                          "print('listo', flush=True)\ntime.sleep(100)\n")
+                proc = subprocess.Popen([zerochat.sys.executable, "-c", script], stdout=subprocess.PIPE, text=True,
+                                        start_new_session=True)
+                self.addCleanup(proc.wait)
+                self.addCleanup(lambda p=proc: p.poll() is None and p.kill())
+                self.assertEqual(proc.stdout.readline(), "listo\n")
+                proc.stdout.close()
+                started = time.monotonic()
+                zerochat._kill_process_tree(proc.pid, grace_seconds=grace)
+                elapsed = time.monotonic() - started
+                self.assertEqual(proc.wait(5), returncode)
+                if returncode == 0:
+                    self.assertLess(elapsed, 5, "Debe volver en cuanto termina, no al vencer el plazo")
+                else:
+                    self.assertGreaterEqual(elapsed, grace)
 
 
 @unittest.skipUnless(os.name == "nt", "Job Object de Windows")

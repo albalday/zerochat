@@ -37,6 +37,7 @@ import os
 import queue
 import re
 import secrets
+import select
 import shlex
 import shutil
 import signal
@@ -893,10 +894,8 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
                         return
                     except subprocess.TimeoutExpired:
                         pass
-                else:
-                    time.sleep(grace_seconds)
-                    if not _pid_alive(pid):
-                        return
+                elif wait_pid_exit(pid, grace_seconds):
+                    return
             send(pid, signal.SIGKILL)
         else:
             os.kill(pid, signal.SIGKILL)
@@ -970,6 +969,35 @@ def _windows_pid_alive(pid: int) -> bool:
         return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))) and exit_code.value == 259  # STILL_ACTIVE
     finally:
         kernel32.CloseHandle(handle)
+
+
+def wait_pid_exit(pid: int, timeout: float) -> bool:
+    """
+    Espera como mucho timeout segundos a que termine un proceso del que solo se tiene el PID (de un Popen
+    propio basta Popen.wait): sin sondeo, con pidfd en Linux y kqueue en macOS; en otro sistema, o con un
+    núcleo sin pidfd, duerme el plazo y lo comprueba al final. Devuelve si terminó.
+    """
+    try:
+        if sys.platform == "linux":
+            fd = os.pidfd_open(pid)
+            try:
+                return bool(select.select([fd], [], [], timeout)[0])
+            finally:
+                os.close(fd)
+        elif sys.platform == "darwin":
+            queue = select.kqueue()
+            try:
+                event = select.kevent(pid, filter=select.KQ_FILTER_PROC, flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+                                      fflags=select.KQ_NOTE_EXIT)
+                return bool(queue.control([event], 1, timeout))
+            finally:
+                queue.close()
+    except ProcessLookupError:
+        return True
+    except OSError:
+        pass
+    time.sleep(timeout)
+    return not _pid_alive(pid)
 
 
 def _pid_alive(pid: int) -> bool:
