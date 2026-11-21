@@ -36,6 +36,7 @@
 - [x] M81-T25 Auditoría de calidad de M81: latido sin output_bytes/last_line en rev, código muerto, avisos y long-poll unificados (2026-11-21)
 - [x] M81-T26 Pruebas de seguridad: no ejecutar sudo real al aprobar retos de run_command (2026-11-21)
 - [x] M81-T27 Seguridad: órdenes globales de run_command por ejecutable real (comillas, escapes, rutas) y pkexec/run0 (2026-11-21)
+- [ ] M81-T28 Seguridad en Windows: partir y validar los comandos de run_command según la shell real (cmd/PowerShell) en vez de shlex POSIX, que se come las \ de las rutas (C:\x queda C:x) en split_command, cd_target, command_outside_references y patrones
 
 ## M82 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-20
 
