@@ -9,6 +9,7 @@ Este documento especifica las decisiones tácticas y contratos del motor agénti
 Cada herramienta nativa vive en `js/tools/builtin/<nombre>.tool.js` y exporta la especificación con la que `ChatAgentCore` crea su instancia `Tool`. La lista canónica está en `BUILTIN_TOOL_MODULES` (`js/agent-core.js`); `zerochat.html` y `sw.js` cargan los mismos ficheros.
 
 ### 1.1. Contrato de especificación de un módulo `.tool.js`
+
 - `definition` (obligatoria): nombre canónico, descripción y JSON Schema de Function Calling.
 - `execute(args, context)` (obligatoria): lógica de ejecución; consume dependencias a través de `context.services` (resueltas perezosamente desde `TOOL_SERVICES` en `js/agent-core.js`).
 - `aliases`: otros nombres con que los modelos invocan la herramienta. El registro los resuelve con o sin guiones bajos y sin distinguir mayúsculas, y el runtime persiste la llamada con el nombre canónico registrado. Las herramientas MCP solo se resuelven por su nombre exacto.
