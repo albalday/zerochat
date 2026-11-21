@@ -69,7 +69,7 @@ class StorageEngineTest(unittest.TestCase):
             stored_key = conn.execute("SELECT api_key FROM profiles WHERE id = 'profile:viejo';").fetchone()["api_key"]
         for expected_table in ("schema_migrations", "profiles", "conversations", "messages", "blobs", "conversation_blobs", "security_policies", "project_environments", "settings", "runs"):
             self.assertIn(expected_table, tables)
-        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12})
+        self.assertEqual(migrations, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13})
         self.assertIn("extra_json", columns)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(self.storage_dir.stat().st_mode), 0o700)

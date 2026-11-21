@@ -89,7 +89,11 @@ def with_job_key(args: dict, job_key: str | None) -> dict:
     return {**args, "job_key": job_key} if job_key else args
 
 
-def _security_deny_result(reason: str, detail: str = "") -> tuple[dict, None, str]:
+def _denied(tool_name: str, reason: str, detail: str = "") -> tuple[dict, None, str]:
+    """Denegación por política; en una ejecución desatendida queda además en sus avisos."""
+    session = current_run_session()
+    if session is not None:
+        session.add_warning(f"{tool_name}: {detail or reason}")
     err_msg = f"Bloqueado por política de seguridad: {detail or reason}"
     return {
         "content": [{"type": "text", "text": f"Error: {err_msg}"}],
@@ -112,7 +116,7 @@ def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: Securit
         tool_name, args, context=ctx, server_name=server_name, server_id=server_id
     )
     if decision.status == POLICY_DENY:
-        return _security_deny_result(decision.reason)
+        return _denied(tool_name, decision.reason)
     if decision.status == POLICY_ASK:
         session = current_run_session()
         if session is not None:
@@ -121,7 +125,7 @@ def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: Securit
                 return None
             if origin == "external":
                 return None
-            return _security_deny_result(decision.reason, decision.details)
+            return _denied(tool_name, decision.reason, decision.details)
         ch =ACCESS_CONTROLLER.create_challenge(
             tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
             context=ctx, job_key=job_key, conversation_id=conversation_id

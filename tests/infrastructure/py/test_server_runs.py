@@ -113,10 +113,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual((err, prog_res), (None, {"ok": True}))
         self.assertEqual(zerochat.get_run_state(conv_id)["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
 
-        # zerochat/run/result con needs_input guarda estado needs_input y pending
+        # needs_input necesita un kind conocido y su texto; el válido guarda la pausa y su fin.
+        for invalid in ({"kind": "ask_user"}, {"kind": "otro", "text": "x"}, {"kind": "ask_user", "question": "¿Seguir?"}):
+            _, err, _ = dispatch_run("zerochat/run/result", {"run_id": session.run_id, "needs_input": invalid})
+            self.assertEqual(err["code"], zerochat.INVALID_PARAMS)
         res_outcome, err, _ = dispatch_run("zerochat/run/result", {
             "run_id": session.run_id,
-            "needs_input": {"kind": "ask_user", "question": "¿Deseas continuar?"}
+            "needs_input": {"kind": "ask_user", "text": "¿Deseas continuar?"}
         })
         self.assertIsNone(err)
         self.assertEqual(res_outcome, {"ok": True})
@@ -124,12 +127,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         data = zerochat.get_run_state(conv_id)
         self.assertEqual(data["status"], "needs_input")
-        self.assertEqual(data["pending"], {"kind": "ask_user", "question": "¿Deseas continuar?"})
+        self.assertEqual(data["pending"], {"kind": "ask_user", "text": "¿Deseas continuar?"})
+        self.assertIsNotNone(data["finished_at"])
 
-        # run_outcome con needs_input devuelve código 0 y JSON en text
-        code, text = zerochat.run_outcome(session)
-        self.assertEqual(code, zerochat.RUN_EXIT_DONE)
-        self.assertEqual(json.loads(text), {"kind": "ask_user", "question": "¿Deseas continuar?"})
+        # La pausa sale con código 5 y, en stdout, lo que espera del usuario en texto.
+        with mock.patch("sys.stderr", io.StringIO()):
+            self.assertEqual(zerochat.run_outcome(session), (zerochat.RUN_EXIT_NEEDS_INPUT, "¿Deseas continuar?"))
+            session.result = {"needs_input": {"kind": "tool_approval", "text": "write_file"}}
+            self.assertEqual(zerochat.run_outcome(session), (zerochat.RUN_EXIT_NEEDS_INPUT, "Pendiente de aprobar la herramienta write_file."))
 
         # Nueva sesión con resultado error actualiza el estado en SQLite
         session_err = zerochat.RunSession(conversation_id=conv_id)
@@ -142,15 +147,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data_err["status"], "error")
         self.assertEqual(data_err["error"], "Modelo no disponible")
 
-        # Nueva sesión con resultado text elimina el estado al completarse
+        # Al completarse, la fila sigue con la respuesta para quien lanzó la ejecución; el error anterior ya no está.
         session2 = zerochat.RunSession(conversation_id=conv_id)
-        self.assertIsNotNone(zerochat.get_run_state(conv_id))
+        self.assertIsNone(zerochat.get_run_state(conv_id)["finished_at"])
         zerochat.RUN_SESSION = session2
         dispatch_run("zerochat/run/result", {
             "run_id": session2.run_id,
             "text": "Respuesta final completa."
         })
-        self.assertIsNone(zerochat.get_run_state(conv_id))
+        data_done = zerochat.get_run_state(conv_id)
+        self.assertEqual((data_done["status"], data_done["result_text"], data_done["error"]), ("completed", "Respuesta final completa.", None))
+        self.assertIsNotNone(data_done["finished_at"])
 
     def test_cli_argumentos_conversation(self):
         # Crear perfil por defecto local para pruebas CLI
@@ -276,6 +283,31 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(initialized["projectEnvironment"]["systemDataPrompt"], "Eres el agente de informes.")
         self.assertEqual(zerochat.get_project_environment(ctx.key)["systemDataPrompt"], "Prompt del proyecto")
 
+    def test_los_permisos_denegados_quedan_en_los_avisos_de_la_ejecucion_con_tope(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()))
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        # Una ejecución nueva con id del servidor no la sigue nadie: no deja fila.
+        zerochat.RunSession("Hola")
+        self.assertEqual(zerochat.list_run_states(), [])
+        session = zerochat.RunSession("Hola", new_conversation_id="session_avisos")
+        zerochat.RUN_SESSION = session
+        ask = zerochat.ACCESS_CONTROLLER.evaluate_authorization("run_command", {"command": "rm -rf /"}, context=ctx,
+                                                                   server_name="mcp-proxy", server_id="")
+        self.assertEqual(ask.status, zerochat.POLICY_ASK)
+        with mock.patch("sys.stderr", io.StringIO()) as stderr:
+            result, _, message = zerochat.authorize_or_challenge("local", "run_command", {"command": "rm -rf /"}, ctx)
+            self.assertEqual(result["securityStatus"], "deny")
+            self.assertIn("Permiso denegado: run_command", stderr.getvalue())
+            # Tope en el borde exacto: RUN_WARNINGS_MAX avisos se guardan y del siguiente solo se cuenta.
+            for index in range(1, zerochat.RUN_WARNINGS_MAX):
+                session.add_warning(f"aviso {index}")
+            self.assertEqual(len(zerochat.get_run_state("session_avisos")["warnings"]), zerochat.RUN_WARNINGS_MAX)
+            session.add_warning("uno de más")
+        warnings = zerochat.get_run_state("session_avisos")["warnings"]
+        self.assertEqual(len(warnings), zerochat.RUN_WARNINGS_MAX + 1)
+        self.assertTrue(warnings[0].startswith("run_command: ") and message.endswith(warnings[0].removeprefix("run_command: ")))
+        self.assertEqual(warnings[-1], "… y 1 permiso(s) denegado(s) más")
+
     def test_supervisor_detiene_y_registra_error_si_cierra_sin_resultado(self):
         conv_id = "session_supervisor_test"
         session = zerochat.RunSession(conversation_id=conv_id)
@@ -375,6 +407,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         upsert_run(state1)
         upsert_run(state2)
         upsert_run(state_dead)
+        # Una completada no va en la lista ligera del latido, pero quien sigue su conversación la lee entera.
+        upsert_run({"run_id": "run_ok", "conversation_id": "conv_ok", "status": "completed", "finished_at": now,
+                    "result_text": "Hecho.", "warnings": ["run_command: denegado"]})
+        _, focus_ok = zerochat.list_server_runs(focus_conversation_id="conv_ok")
+        self.assertEqual((focus_ok["status"], focus_ok["result_text"], focus_ok["warnings"]), ("completed", "Hecho.", ["run_command: denegado"]))
 
         runs, focus = zerochat.list_server_runs(focus_conversation_id="conv_1")
         self.assertEqual(len(runs), 3)

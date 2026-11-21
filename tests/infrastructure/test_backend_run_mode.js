@@ -91,6 +91,8 @@ if scenario == "ok":
     rpc("zerochat/run/result", text=f"Respuesta a: {prompt}")
 elif scenario == "error":
     rpc("zerochat/run/result", error="model failed")
+elif scenario == "needs_input":
+    rpc("zerochat/run/result", needs_input={"kind": "ask_user", "text": "¿A o B?"})
 `;
 
 /**
@@ -202,7 +204,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   try {
     const busyPort = String(busy.address().port);
     const [
-      ok, userHeadless, failed, unexported, browserGone,
+      ok, userHeadless, failed, unexported, browserGone, paused,
       emptyPrompt, missingDefaultProfile, noNode, portInUse, devDefaultInUse, devBrowserDefaultInUse, productionDefaultInUse
     ] = await Promise.all([
       runZerochat('hola mundo', { args: ['--browser', '--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page'] }),
@@ -210,6 +212,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
       runZerochat('hola', { scenario: 'exit' }),
+      runZerochat('hola', { scenario: 'needs_input' }),
       runZerochat('   '),
       runZerochat('hola', { seedDefaultProfile: false }),
       runZerochat('hola', { withNode: false }),
@@ -242,7 +245,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(failed.info.profile, 'local', 'sin --profile usa el perfil por defecto local del servidor');
     assert.equal(ok.info.wrong_run_id, 'run_id no válido.');
     assert.equal(ok.info.second_prompt, 'El prompt ya se entregó.');
-    assert.equal(ok.info.bad_result, 'El resultado lleva text o error.');
+    assert.equal(ok.info.bad_result, 'El resultado lleva text, error o needs_input con kind y text.');
     // La conversación exportada se escribe una sola vez en el fichero, con el formato de su extensión.
     assert.equal(ok.info.export, 'markdown');
     assert.equal(ok.info.keep_page, true);
@@ -273,6 +276,10 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(browserGone.code, 2, browserGone.stderr);
     assert.match(browserGone.stderr, /sin resultado/);
     for (const run of [failed, browserGone]) assert.equal(run.stdout, '');
+    // La pausa sale con su código y, en stdout, la pregunta en texto; el aviso, para una persona, en stderr.
+    assert.equal(paused.code, 5, paused.stderr);
+    assert.equal(paused.stdout, '¿A o B?\n');
+    assert.match(paused.stderr, /\[run\] Ejecución pausada a la espera del usuario\./);
 
     assert.equal(emptyPrompt.code, 4, emptyPrompt.stderr);
     assert.match(emptyPrompt.stderr, /error: el prompt está vacío/);

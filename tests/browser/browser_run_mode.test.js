@@ -249,7 +249,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     assert.deepEqual(view, { theme: expected.theme, user: 'Hola', background: expected.background, overflow: 'visible', actions: 0, iconResolved: true });
   });
 
-  test('Browser UI - el modo ejecución termina con error cuando un diálogo o ask_user preguntan al usuario', async () => {
+  test('Browser UI - el modo ejecución termina con error ante un diálogo y se pausa en needs_input con ask_user en una conversación nueva', async () => {
     const dialog = await openRun(browser, server, 'Hola');
     await dialog.page.evaluate(() => {
       window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
@@ -273,7 +273,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     });
     ask.backend.release();
     await ask.page.waitForFunction(() => window.__closed === true);
-    assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, error: 'The run needs the user: ¿A o B?' });
+    assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, needs_input: { kind: 'ask_user', text: '¿A o B?' } });
   });
 
   test('Browser UI - el modo ejecución con conversation_id retira el paso pausado, vuelve a llamar al modelo y devuelve needs_input al pedir permiso', async () => {

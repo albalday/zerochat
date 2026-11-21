@@ -75,7 +75,7 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
     finally:
         unregister_shutdown_event(wake)
         session.set_wake_event(None)
-    if session.result is None and session.conversation_id:
+    if session.result is None:
         with session.lock:
             session.status = "error"
             session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")

@@ -41,6 +41,8 @@ from storage.db import (
 
 
 RUN_PROGRESS_TEXT_MAX = 500
+# Permisos denegados que guarda una ejecución en sus avisos (cada uno recortado como el progreso); del resto, solo cuántos.
+RUN_WARNINGS_MAX = 20
 RUN_PROGRESS_KIND_PATTERN = re.compile(r"[a-z_]{1,32}")
 RUN_EXIT_DONE = 0
 RUN_EXIT_ERROR = 1
@@ -48,6 +50,9 @@ RUN_EXIT_NO_RESULT = 2
 RUN_EXIT_SETUP = 3
 # Argumentos no válidos, en cualquier modo: argparse usaría 2, que con --prompt es plazo agotado.
 RUN_EXIT_ARGS = 4
+# Pausada a la espera del usuario (ask_user o una herramienta por aprobar): se reanuda con la conversación.
+RUN_EXIT_NEEDS_INPUT = 5
+RUN_NEEDS_INPUT_KINDS = ("ask_user", "tool_approval")
 # Perfil por defecto de --prompt cuando no se indica --profile.
 DEFAULT_RUN_PROFILE = "local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
@@ -143,14 +148,17 @@ def watch_run_exit(pid: int, pid_start: str | None, proc: subprocess.Popen | Non
 
 
 def write_run_state(session: RunSession) -> None:
-    """Guarda atómicamente el estado en vivo de la ejecución en SQLite."""
-    if not session.conversation_id:
+    """Guarda atómicamente en SQLite el estado de la ejecución, si alguien la sigue (state_conversation_id)."""
+    if not session.state_conversation_id:
         return
     now = int(time.time() * 1000)
     session.updated_at = now
+    warnings = list(session.warnings)
+    if session.warnings_omitted:
+        warnings.append(f"… y {session.warnings_omitted} permiso(s) denegado(s) más")
     payload = {
         "run_id": session.run_id,
-        "conversation_id": session.conversation_id,
+        "conversation_id": session.state_conversation_id,
         "pid": session.pid,
         "pid_start": session.pid_start,
         "started_at": session.started_at,
@@ -158,13 +166,16 @@ def write_run_state(session: RunSession) -> None:
         "status": session.status,
         "step_text": session.step_text,
         "pending": session.pending,
-        "error": session.error
+        "error": session.error,
+        "finished_at": None if session.status == "running" else now,
+        "result_text": session.result_text,
+        "warnings": warnings,
     }
     upsert_run_state(payload)
 
 
 def remove_run_state(conversation_id: str | None) -> None:
-    """Elimina de SQLite el estado de la ejecución de la conversación al completarse con éxito."""
+    """Elimina de SQLite el estado de la ejecución de la conversación al cancelarla."""
     if not conversation_id:
         return
     try:
@@ -178,8 +189,9 @@ def remove_run_state(conversation_id: str | None) -> None:
 def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
     """
     Lee las ejecuciones en la tabla `runs` de SQLite. Si un proceso 'running' ya murió,
-    lo marca como 'error'. Devuelve (runs, focus_run), donde runs es una lista ligera
-    ordenada por started_at, y focus_run es el detalle completo si coincide con focus_conversation_id.
+    lo marca como 'error'. Devuelve (runs, focus_run), donde runs es una lista ligera de las que no han
+    terminado bien, ordenada por started_at, y focus_run es el detalle completo (también de una 'completed',
+    con su respuesta y sus avisos) si coincide con focus_conversation_id.
     En un servidor de ejecución (--prompt o --conversation) devuelve ([], None) para que el propio
     worker no se bloquee ni omita el guardado de su conversación.
     """
@@ -216,7 +228,8 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
         entries.append((started_at, light, data))
 
     entries.sort(key=lambda item: item[0])
-    runs = [item[1] for item in entries]
+    # Las completadas solo interesan a quien sigue su conversación: el latido no las arrastra todas.
+    runs = [item[1] for item in entries if item[1]["status"] != "completed"]
 
     focus_run = None
     if clean_focus_id:
@@ -365,6 +378,9 @@ class RunSession:
         # servidor (mismo formato que createId('session')). A ella se ata la credencial del runner, que no puede escribir
         # en ninguna otra.
         self.new_conversation_id = None if conversation_id else (new_conversation_id or f"session_{uuid.uuid4()}")
+        # Conversación cuyo estado se guarda en la tabla runs: la que indicó quien lanzó la ejecución (--conversation o
+        # --run-file), que es quien la sigue; una nueva con id del servidor no la sigue nadie.
+        self.state_conversation_id = conversation_id or new_conversation_id
         self.prompt = prompt
         # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
         self.system_data_prompt = system_data_prompt
@@ -401,9 +417,11 @@ class RunSession:
         self.step_text = ""
         self.pending: dict | None = None
         self.error: str | None = None
+        self.result_text: str | None = None
+        self.warnings: list[str] = []
+        self.warnings_omitted = 0
         self.runner_token: str | None = None
-        if self.conversation_id:
-            write_run_state(self)
+        write_run_state(self)
 
     def set_wake_event(self, event: threading.Event | None) -> None:
         """Asocia un evento compartido al que despertar cuando llegue el resultado."""
@@ -411,6 +429,16 @@ class RunSession:
             self._wake = event
             if event is not None and self.finished.is_set():
                 event.set()
+
+    def add_warning(self, text: str) -> None:
+        """Anota un permiso denegado: en la fila de runs, para quien sigue la ejecución, y en stderr, para una persona."""
+        console_error(timestamp_message(f"[run] Permiso denegado: {text}"))
+        with self.lock:
+            if len(self.warnings) < RUN_WARNINGS_MAX:
+                self.warnings.append(_capped(text, RUN_PROGRESS_TEXT_MAX))
+            else:
+                self.warnings_omitted += 1
+            write_run_state(self)
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -543,16 +571,18 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
     needs_input = params.get("needs_input")
     is_text = isinstance(text, str) and error is None and needs_input is None
     is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
-    is_needs_input = isinstance(needs_input, dict) and text is None and error is None
+    is_needs_input = (isinstance(needs_input, dict) and needs_input.get("kind") in RUN_NEEDS_INPUT_KINDS
+                      and isinstance(needs_input.get("text"), str) and text is None and error is None)
     if not (is_text or is_error or is_needs_input):
-        return rpc_error(INVALID_PARAMS, "El resultado lleva text o error.")
+        return rpc_error(INVALID_PARAMS, "El resultado lleva text, error o needs_input con kind y text.")
     with session.lock:
         if session.result is not None:
             return rpc_error(INVALID_PARAMS, "El resultado ya se recibió.")
         if is_text:
             session.result = {"text": text}
             session.status = "completed"
-            remove_run_state(session.conversation_id)
+            session.result_text = text
+            write_run_state(session)
         elif is_needs_input:
             session.result = {"needs_input": needs_input}
             session.status = "needs_input"
@@ -599,7 +629,7 @@ def dispatch_run(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome:
 def run_error(message: str):
     """Motivo de un final sin respuesta: va a stderr aunque el registro esté desactivado (--log off)."""
     session = RUN_SESSION
-    if session is not None and session.conversation_id and session.result is None:
+    if session is not None and session.result is None:
         with session.lock:
             session.status = "error"
             session.error = message
@@ -609,8 +639,8 @@ def run_error(message: str):
 
 def run_outcome(session: RunSession) -> tuple[int, str | None]:
     """
-    Código de salida y respuesta final (solo si terminó bien), con el motivo de un fallo en stderr;
-    una exportación pedida que no se escribió convierte un final correcto en error sin quitar la respuesta.
+    Código de salida y texto para stdout: la respuesta final o, si se pausó, lo que espera del usuario; el motivo de un
+    fallo va a stderr. Una exportación pedida que no se escribió convierte un final correcto en error sin quitar la respuesta.
     """
     if session.export_path and not session.exported:
         run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
@@ -621,8 +651,11 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
         run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None
     if "needs_input" in session.result:
-        log_event("[run] Ejecución pausada a la espera del usuario.")
-        return RUN_EXIT_DONE, json.dumps(session.result["needs_input"], ensure_ascii=False)
+        pending = session.result["needs_input"]
+        console_error(timestamp_message("[run] Ejecución pausada a la espera del usuario."))
+        if pending["kind"] == "tool_approval":
+            return RUN_EXIT_NEEDS_INPUT, f"Pendiente de aprobar la herramienta {pending['text']}."
+        return RUN_EXIT_NEEDS_INPUT, pending["text"]
     log_event("[run] Ejecución terminada.")
     if session.export_path and not session.exported:
         return RUN_EXIT_ERROR, session.result["text"]

@@ -2,7 +2,7 @@
  * Modo ejecución desatendida (zerochat.py --prompt y --conversation). El backend abre la interfaz
  * con `run=<id>` en el fragmento de arranque: la página pide el prompt o carga la conversación
  * existente, informa del paso en curso, gestiona las autorizaciones
- * de herramientas (permitiendo, denegando o pausando según el modo), exporta si se pidió (--export),
+ * de herramientas (permitiendo, denegando o pausando), exporta si se pidió (--export),
  * devuelve el resultado o el estado de espera al usuario (needs_input) y se cierra salvo con --keep-page.
  * Todo viaja por JSON-RPC zerochat/run/*.
  */
@@ -235,22 +235,18 @@
       const pendingAuth = userRequest.text ? null : pendingToolApproval(getState().get('messages'));
       if (question) report({ kind: 'user_request', text: question });
 
+      // La conversación queda guardada con la pausa, nueva o no: se reanuda por su id.
       let result;
       if (userRequest.text) {
         result = { error: `The run needs the user: ${userRequest.text}` };
       } else if (generated?.error) {
         result = { error: generated.error };
-      } else if (isConversationMode) {
-        if (question) {
-          result = { needs_input: { kind: 'ask_user', text: question } };
-        } else if (pendingAuth) {
-          result = { needs_input: { kind: 'tool_approval', text: pendingAuth } };
-        } else {
-          result = { text: generated?.text || '' };
-        }
+      } else if (question) {
+        result = { needs_input: { kind: 'ask_user', text: question } };
+      } else if (pendingAuth) {
+        result = { needs_input: { kind: 'tool_approval', text: pendingAuth } };
       } else {
-        const needsUser = question || pendingAuth;
-        result = needsUser ? { error: `The run needs the user: ${needsUser}` } : generated;
+        result = { text: generated?.text || '' };
       }
 
       if (exportFormat) {

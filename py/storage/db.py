@@ -179,6 +179,12 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
     (12, "012_split_security_policies_by_project", """
         DELETE FROM security_policies WHERE id = 'default';
     """),
+    # La fila de una ejecución sigue al terminar bien: quien la lanzó lee en ella el final, la respuesta y los avisos.
+    (13, "013_add_run_outcome_columns", """
+        ALTER TABLE runs ADD COLUMN finished_at INTEGER;
+        ALTER TABLE runs ADD COLUMN result_text TEXT;
+        ALTER TABLE runs ADD COLUMN warnings_json TEXT;
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
@@ -1128,13 +1134,16 @@ def set_setting(key: str, value, *, secret_name: str | None = None, secret: str 
             raise
 
 
+def _json_column(raw):
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
+
 def _row_to_run_state(row: sqlite3.Row) -> dict:
-    pending = None
-    if row["pending_json"]:
-        try:
-            pending = json.loads(row["pending_json"])
-        except (ValueError, TypeError):
-            pending = None
     return {
         "run_id": row["run_id"],
         "conversation_id": row["conversation_id"],
@@ -1144,20 +1153,26 @@ def _row_to_run_state(row: sqlite3.Row) -> dict:
         "updated_at": row["updated_at"],
         "status": row["status"],
         "step_text": row["step_text"] or "",
-        "pending": pending,
+        "pending": _json_column(row["pending_json"]),
         "error": row["error"],
+        "finished_at": row["finished_at"],
+        "result_text": row["result_text"],
+        "warnings": _json_column(row["warnings_json"]) or [],
     }
 
 
 def upsert_run_state(payload: dict) -> None:
-    """Guarda o actualiza en SQLite el estado en vivo de una ejecución en servidor."""
+    """Guarda o actualiza en SQLite el estado de una ejecución; los campos de su final son opcionales (una que empieza)."""
     conv_id = _validate_conversation_id(payload["conversation_id"])
     pending = payload["pending"]
     pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
+    warnings = payload.get("warnings")
+    warnings_json = json.dumps(warnings, ensure_ascii=False) if warnings else None
     with open_storage() as conn:
         conn.execute("""
-            INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error,
+                              finished_at, result_text, warnings_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 run_id = excluded.run_id,
                 pid = excluded.pid,
@@ -1167,7 +1182,10 @@ def upsert_run_state(payload: dict) -> None:
                 status = excluded.status,
                 step_text = excluded.step_text,
                 pending_json = excluded.pending_json,
-                error = excluded.error;
+                error = excluded.error,
+                finished_at = excluded.finished_at,
+                result_text = excluded.result_text,
+                warnings_json = excluded.warnings_json;
         """, (
             conv_id,
             payload["run_id"],
@@ -1179,6 +1197,9 @@ def upsert_run_state(payload: dict) -> None:
             payload["step_text"] or "",
             pending_json,
             payload["error"],
+            payload.get("finished_at"),
+            payload.get("result_text"),
+            warnings_json,
         ))
         conn.commit()
     notify_live_change()
