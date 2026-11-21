@@ -11,10 +11,10 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, McpStatus) {
   'use strict';
 
-  const { resolveDep } = Utils;
+  const { resolveDep, LONG_POLL_WAIT_MS, LONG_POLL_MARGIN_MS } = Utils;
 
-  const EXTERNAL_START_WAIT_MS = 25000;
-  const EXTERNAL_START_TIMEOUT_MS = 30000;
+  const EXTERNAL_START_WAIT_MS = LONG_POLL_WAIT_MS;
+  const EXTERNAL_START_TIMEOUT_MS = LONG_POLL_WAIT_MS + LONG_POLL_MARGIN_MS;
   const EXTERNAL_START_MAX_MS = 150000;
   // Cubre los límites del backend (npm install y descarga del navegador, 600 s cada uno)
   // y la espera de la autorización OAuth.

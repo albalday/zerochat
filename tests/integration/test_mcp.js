@@ -264,7 +264,7 @@ test('MCP - probeConnection, degradación por salud fallida y conexión silencio
     assert.equal(resActive.tools[0].metadata.originalName, 'auto_tool');
   } finally {
     global.fetch = originalFetch;
-    MCP.manager.setHeartbeatTimer(false);
+    MCP.manager.setLiveStateWatch(false);
     await MCP.manager.disconnectProxy();
     ChatState.set('mcp', previousState);
   }
@@ -440,7 +440,7 @@ test('MCP - connectProxy publica el estado vivo de initialize y registra las her
     assert.ok(state.beats > beatsBefore);
     await manager.disconnectProxy();
   } finally {
-    manager.setHeartbeatTimer(false);
+    manager.setLiveStateWatch(false);
   }
 });
 
@@ -453,7 +453,7 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
     const failed = await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' });
     assert.equal(failed.success, false);
     assert.equal(ChatState.get('mcp').status, 'error');
-    assert.equal(manager.heartbeatActive, true, 'el seguimiento vigila el destino aunque la conexión falle');
+    assert.notEqual(manager.liveWatchAbort, null, 'el seguimiento vigila el destino aunque la conexión falle');
 
     // Mientras sigue caído, el latido no cambia el estado.
     const downState = ChatState.get('mcp');
@@ -470,7 +470,7 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
     await manager.sendHeartbeat();
     assert.equal(ChatState.get('mcp').status, 'error');
     assert.equal(manager.isProxyConnected(), false);
-    assert.equal(manager.heartbeatActive, true);
+    assert.notEqual(manager.liveWatchAbort, null);
 
     // Vuelve con otro token diario: se pide identificarse en lugar de mostrar el fallo de red anterior.
     state.server = 'newToken';
@@ -484,7 +484,7 @@ test('MCP - con sesión, el latido conecta cuando el servidor local arranca o vu
     assert.equal(ChatState.get('mcp').status, 'connected');
     assert.equal(manager.isProxyConnected(), true);
   } finally {
-    manager.setHeartbeatTimer(false);
+    manager.setLiveStateWatch(false);
   }
 });
 
@@ -538,7 +538,7 @@ test('MCP - un 401 pide identificarse y zerochat/login da el token con el que se
     await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'mañana' });
     assert.equal(requests[0].headers['X-ZeroChat-Proxy'], undefined);
   } finally {
-    manager.setHeartbeatTimer(false);
+    manager.setLiveStateWatch(false);
     await manager.disconnectProxy();
   }
 });
@@ -549,7 +549,7 @@ test('MCP - el latido periódico y la vuelta a la pestaña funcionan igual con y
   const manager = new MCP.McpManager();
   try {
     assert.equal((await manager.connectProxy({ url: 'http://127.0.0.1:6388', token: 'tok' })).success, true);
-    assert.equal(manager.heartbeatActive, true, 'sin auto-cierre también hay seguimiento activo');
+    assert.notEqual(manager.liveWatchAbort, null, 'sin auto-cierre también hay seguimiento activo');
 
     // Otra pestaña cambia el directorio: se ve al volver a esta sin esperar al siguiente tick.
     state.live = { ...state.live, cwd: '/otro' };
@@ -562,7 +562,7 @@ test('MCP - el latido periódico y la vuelta a la pestaña funcionan igual con y
     state.server = 'down';
     await manager.onPageVisible();
     assert.equal(ChatState.get('mcp').status, 'error');
-    assert.equal(manager.heartbeatActive, true);
+    assert.notEqual(manager.liveWatchAbort, null);
     state.server = 'up';
     await manager.onPageVisible();
     assert.equal(ChatState.get('mcp').status, 'connected');
@@ -570,12 +570,12 @@ test('MCP - el latido periódico y la vuelta a la pestaña funcionan igual con y
     // Con auto-cierre también relee enseguida al volver a la pestaña.
     state.live = { ...state.live, exit_on_close: true };
     await manager.connectProxy({ url: 'http://127.0.0.1:6388' });
-    assert.equal(manager.heartbeatActive, true);
+    assert.notEqual(manager.liveWatchAbort, null);
     const beats = state.beats || 0;
     await manager.onPageVisible();
     assert.ok(state.beats > beats);
   } finally {
-    manager.setHeartbeatTimer(false);
+    manager.setLiveStateWatch(false);
     await manager.disconnectProxy();
   }
 });
@@ -981,7 +981,7 @@ test('MCP - startServerRun, cancelServerRun y readLiveState con focus_conversati
     assert.deepEqual(ChatState.get('mcp').serverRuns, [
       { conversationId: 'conv_srv_1', runId: 'run_srv_1', status: 'running' }
     ]);
-    assert.equal(manager.heartbeatActive, true);
+    assert.notEqual(manager.liveWatchAbort, null);
 
     // 2. readLiveState envía focus_conversation_id y publica focusRun y liveStateRev
     await manager.readLiveState();
@@ -995,10 +995,10 @@ test('MCP - startServerRun, cancelServerRun y readLiveState con focus_conversati
     // Al cambiar de conversación y volver, sigue manteniendo el seguimiento activo único.
     ChatState.set('sessions', { activeId: 'conv_otra', list: [] });
     await manager.readLiveState();
-    assert.equal(manager.heartbeatActive, true);
+    assert.notEqual(manager.liveWatchAbort, null);
     ChatState.set('sessions', { activeId: 'conv_srv_1', list: [] });
     await manager.readLiveState();
-    assert.equal(manager.heartbeatActive, true);
+    assert.notEqual(manager.liveWatchAbort, null);
 
     // 3. Cuando la tarea pasa a needs_input y exit_on_close es true, actualiza rev y estado
     heartbeatResponse = {
@@ -1021,10 +1021,10 @@ test('MCP - startServerRun, cancelServerRun y readLiveState con focus_conversati
     assert.deepEqual(ChatState.get('mcp').serverRuns, []);
     assert.equal(ChatState.get('mcp').focusRun, null);
     assert.equal(manager.liveStateRev, 'rev_3');
-    assert.equal(manager.heartbeatActive, true);
+    assert.notEqual(manager.liveWatchAbort, null);
   } finally {
-    manager.setHeartbeatTimer(false);
-    assert.equal(manager.heartbeatActive, false);
+    manager.setLiveStateWatch(false);
+    assert.equal(manager.liveWatchAbort, null);
     ChatState.set('mcp', previousMcp);
     ChatState.set('sessions', previousSessions);
   }

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from core.environment import get_data_dir
 from core.logging import log_event
-from storage.db import get_secret, get_setting, save_browser_config_storage
+from storage.db import get_secret, get_setting, set_setting
 
 
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
@@ -59,10 +59,9 @@ def load_browser_config() -> dict:
         token = get_secret(BROWSER_EXTENSION_TOKEN_KEY) or ""
         if stored is None and not token:
             return dict(BROWSER_CONFIG_DEFAULTS)
-        raw = stored if isinstance(stored, dict) else {}
         if stored is not None and not isinstance(stored, dict):
             raise ValueError("La configuración del navegador debe ser un objeto")
-        return validate_browser_config({**raw, "extensionToken": token})
+        return validate_browser_config({**(stored or {}), "extensionToken": token})
     except (OSError, ValueError, TypeError) as err:
         log_event(f"[zerochat] Configuración del navegador no válida en SQLite, se usan los valores por defecto: {err}")
         return dict(BROWSER_CONFIG_DEFAULTS)
@@ -71,7 +70,7 @@ def load_browser_config() -> dict:
 def save_browser_config(raw) -> dict:
     config = validate_browser_config(raw)
     public_config = {key: value for key, value in config.items() if key != "extensionToken"}
-    save_browser_config_storage(public_config, config["extensionToken"], BROWSER_CONFIG_KEY, BROWSER_EXTENSION_TOKEN_KEY)
+    set_setting(BROWSER_CONFIG_KEY, public_config, secret_name=BROWSER_EXTENSION_TOKEN_KEY, secret=config["extensionToken"])
     return config
 
 

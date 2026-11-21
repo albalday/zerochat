@@ -21,6 +21,15 @@ def dispatch_run(method, params):
     return zerochat.dispatch_run(method, params, CTX)
 
 
+def upsert_run(fields):
+    """Guarda un estado de ejecución completo con los campos que importan a cada prueba."""
+    now = int(time.time() * 1000)
+    zerochat.upsert_run_state({
+        "pid": None, "pid_start": None, "started_at": now, "updated_at": now,
+        "step_text": "", "pending": None, "error": None, **fields,
+    })
+
+
 class ServerRunsInfrastructureTest(unittest.TestCase):
     def setUp(self):
         self.data_dir = use_data_dir(self)
@@ -270,9 +279,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "pending": None,
             "error": None
         }
-        zerochat.upsert_run_state(state1)
-        zerochat.upsert_run_state(state2)
-        zerochat.upsert_run_state(state_dead)
+        upsert_run(state1)
+        upsert_run(state2)
+        upsert_run(state_dead)
 
         runs, focus = zerochat.list_server_runs(focus_conversation_id="conv_1")
         self.assertEqual(len(runs), 3)
@@ -391,7 +400,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIsNone(zerochat.get_run_state("conv_val"))
 
         # Si el estado está en needs_input o pid_start no coincide (PID reutilizado), cancel_server_run borra el estado sin matar el PID
-        zerochat.upsert_run_state({
+        upsert_run({
             "run_id": "run_paused",
             "conversation_id": "conv_val",
             "pid": os.getpid(),
@@ -402,7 +411,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             mock_kill_paused.assert_not_called()
             self.assertIsNone(zerochat.get_run_state("conv_val"))
 
-        zerochat.upsert_run_state({
+        upsert_run({
             "run_id": "run_reused_pid",
             "conversation_id": "conv_val",
             "pid": os.getpid(),
@@ -456,7 +465,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         stop.assert_called_once_with(server)
 
     def test_heartbeat_watchdog_no_apaga_si_hay_run_activo(self):
-        zerochat.upsert_run_state({
+        upsert_run({
             "run_id": "run_wd",
             "conversation_id": "conv_watchdog",
             "pid": os.getpid(),
@@ -469,7 +478,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         def stop_after_delay():
             time.sleep(0.15)
-            zerochat.upsert_run_state({
+            upsert_run({
                 "run_id": "run_wd",
                 "conversation_id": "conv_watchdog",
                 "pid": os.getpid(),
@@ -482,6 +491,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             zerochat.heartbeat_watchdog(mock_server, inactivity_timeout_seconds=0.05)
             mock_stop.assert_called_once_with(mock_server)
 
+    def test_la_firma_del_estado_vivo_ignora_la_salida_de_los_comandos(self):
+        job = {"id": 1, "status": "running", "elapsed_s": 1, "output_bytes": 10, "last_line": "a"}
+        state = {"jobs": [job], "runs": []}
+        rev = zerochat._live_state_rev(state)
+        chatty = {**job, "elapsed_s": 9, "output_bytes": 9000, "last_line": "z"}
+        self.assertEqual(zerochat._live_state_rev({**state, "jobs": [chatty]}), rev)
+        self.assertNotEqual(zerochat._live_state_rev({**state, "jobs": [{**job, "status": "done"}]}), rev)
+
     def test_heartbeat_long_poll_despierta_con_cambio(self):
         ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)
         initial = zerochat.live_state(ctx)
@@ -489,7 +506,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         def trigger_change():
             time.sleep(0.08)
-            zerochat.upsert_run_state({
+            upsert_run({
                 "run_id": "run_lp",
                 "conversation_id": "conv_lp",
                 "pid": os.getpid(),
@@ -506,13 +523,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(err["code"], -32602)
 
     def test_borrar_conversaciones_limpia_runs(self):
-        zerochat.upsert_run_state({
+        upsert_run({
             "run_id": "run_1",
             "conversation_id": "conv_del_1",
             "pid": 33333,
             "status": "needs_input"
         })
-        zerochat.upsert_run_state({
+        upsert_run({
             "run_id": "run_2",
             "conversation_id": "conv_del_2",
             "pid": 33334,

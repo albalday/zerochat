@@ -3,31 +3,32 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
+    module.exports = factory(require('./utils.js'), require('./i18n.js'));
   } else {
-    root.ChatTabAlert = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
+    root.ChatTabAlert = factory(root.ChatUtils, root.ChatI18n);
   }
-}(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
+}(typeof self !== 'undefined' ? self : this, function (Utils, I18n) {
   'use strict';
 
   const { t } = I18n;
   const listeners = Utils.createListenerGroup();
   const { listen, onDispose } = listeners;
 
+  const SVG_DATA_PREFIX = 'data:image/svg+xml,';
   let activeKind = null; // null | 'done' | 'permission'
+  // El favicon de zerochat.html es la única fuente del icono: el aviso le añade un punto de color.
+  let baseFavicon = null;
 
   function readToken(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }
 
   function buildFaviconHref(kind) {
-    const primary = readToken('--primary');
-    const dotColor = kind === 'permission' ? readToken('--warning') : kind === 'done' ? readToken('--success') : '';
-    const dot = dotColor
-      ? `<circle cx="19" cy="5" r="4.5" fill="${dotColor}" stroke="${readToken('--bg-app')}" stroke-width="1.5"/>`
-      : '';
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="${primary}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${Icons.GLYPHS.terminal}${dot}</svg>`;
-    return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+    if (kind === null) return baseFavicon;
+    const dotColor = readToken(kind === 'permission' ? '--warning' : '--success');
+    const dot = `<circle cx="19" cy="5" r="4.5" fill="${dotColor}" stroke="${readToken('--bg-app')}" stroke-width="1.5"/>`;
+    const svg = decodeURIComponent(baseFavicon.slice(SVG_DATA_PREFIX.length)).replace('</svg>', `${dot}</svg>`);
+    return SVG_DATA_PREFIX + encodeURIComponent(svg);
   }
 
   function render() {
@@ -65,6 +66,7 @@
 
   function mount() {
     listeners.dispose();
+    baseFavicon ??= document.getElementById('app-favicon').getAttribute('href');
     listen(document, 'visibilitychange', () => {
       if (!document.hidden) clear();
     });

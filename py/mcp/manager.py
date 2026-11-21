@@ -19,6 +19,7 @@ from browser.config import PLAYWRIGHT_SERVER_ID, SERVICE_LAUNCH
 from browser.engines import on_playwright_status
 from core.environment import get_data_dir, get_venv_dir, get_venv_python
 from core.limits import LONG_POLL_MAX_WAIT_MS
+from core.live_events import notify_live_change
 from core.logging import log_event
 from core.rate_limit import RATE_LIMITER, parse_rate_policy
 from mcp.catalog import (
@@ -36,7 +37,7 @@ from mcp.stdio_client import (
     _mcp_trace_text,
     _positive_seconds,
 )
-from storage.db import delete_secret, get_secret, get_setting, get_storage_db_path, save_secret, secret_names, set_setting
+from storage.db import delete_secret, get_secret, get_setting, save_secret, secret_names, set_setting
 
 
 def public_tool_name(server_id: str, original: str) -> str:
@@ -111,13 +112,6 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
 
 # Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
 CATALOG_REFRESH_SECONDS = 3600
-_MCP_STATE_HOOKS: list = []
-
-
-def on_mcp_state_change(hook):
-    """Registra una función sin argumentos que se avisa cuando cambia el estado de los servicios MCP."""
-    _MCP_STATE_HOOKS.append(hook)
-    return hook
 
 
 def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
@@ -145,6 +139,10 @@ class McpServiceManager:
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
         self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
         self.records: dict[str, McpServiceRecord] = {}
+        # _lock serializa arrancar, parar y configurar (un arranque puede durar minutos instalando).
+        # _state_changed guarda _state_rev y _starting, y es el único que toma start_async para marcar
+        # en "starting" el registro antes de que su hilo de arranque llegue a _lock: por eso tools() y
+        # list_servers() leen records sin tomar _lock.
         self._lock = threading.Lock()
         self._state_changed = threading.Condition()
         self._state_rev = 0
@@ -152,14 +150,12 @@ class McpServiceManager:
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
-        self._preferences_db: Path | None = None
 
     def _notify_state_changed(self):
         with self._state_changed:
             self._state_rev += 1
             self._state_changed.notify_all()
-        for hook in _MCP_STATE_HOOKS:
-            hook()
+        notify_live_change()
 
     @property
     def services(self) -> dict[str, dict]:
@@ -173,10 +169,8 @@ class McpServiceManager:
 
     @property
     def preferences(self) -> dict:
-        db_path = get_storage_db_path()
-        if self._preferences is None or self._preferences_db != db_path:
+        if self._preferences is None:
             self._preferences = self._load_preferences()
-            self._preferences_db = db_path
         return self._preferences
 
     @staticmethod
@@ -362,12 +356,11 @@ class McpServiceManager:
                 self._state_changed.notify_all()
             rev = self._state_rev
         if should_launch:
-            for hook in _MCP_STATE_HOOKS:
-                hook()
+            notify_live_change()
             threading.Thread(target=self.start, args=(server_id,), name=f"mcp-start-{server_id}", daemon=True).start()
         return rev
 
-    def wait_server(self, server_id: str, since_rev: int | None = None, wait_ms: int = 25000) -> dict:
+    def wait_server(self, server_id: str, wait_ms: int, since_rev: int | None = None) -> dict:
         """Espera cambios de fase, aparición de oauthUrl o fin del arranque de un servicio MCP."""
         if server_id not in self.services:
             self.services = self._load_services()
@@ -380,7 +373,10 @@ class McpServiceManager:
                 phase = record.phase if record else "stopped"
                 oauth_url = record.client.oauth_url if record and record.client else None
                 terminal = phase not in ("installing", "starting")
-                changed = (since_rev is not None and self._state_rev != since_rev) or (since_rev is None and (terminal or bool(oauth_url) or phase == "installing"))
+                if since_rev is None:
+                    changed = bool(oauth_url) or phase == "installing"
+                else:
+                    changed = self._state_rev != since_rev
                 if terminal or changed:
                     break
                 remaining = deadline - time.monotonic()

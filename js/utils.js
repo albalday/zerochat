@@ -591,6 +591,49 @@
     }
   }
 
+  // Long-poll con el servidor local: lo que el servidor retiene cada petición, margen de red sobre esa
+  // espera y por debajo de qué duración una respuesta sin cambios no ha esperado nada en el servidor.
+  const LONG_POLL_WAIT_MS = 25000;
+  const LONG_POLL_MARGIN_MS = 5000;
+  const LONG_POLL_FAST_MS = 500;
+
+  /** Resuelve tras `ms` milisegundos, o antes si se aborta `signal`. */
+  function delay(ms, signal = null) {
+    if (signal?.aborted) return Promise.resolve();
+    return new Promise(resolve => {
+      const onAbort = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+      signal?.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  /**
+   * Repite `poll()` hasta que se aborte `signal` o devuelva `{ stop: true }`. Cada vuelta es una petición
+   * que el servidor retiene hasta que algo cambia o vence su espera: si vuelve enseguida sin cambios
+   * (`changed` falso) o falla, espera `idleDelayMs` antes de la siguiente para no girar en vacío. Un fallo
+   * con `signal` abortada termina el bucle; los demás se pasan a `onError`, que devuelve true para parar.
+   */
+  async function runLongPoll({ signal, poll, idleDelayMs, onError = null }) {
+    while (!signal.aborted) {
+      const startedAt = Date.now();
+      let outcome = null;
+      try {
+        outcome = await poll();
+      } catch (error) {
+        if (signal.aborted) return;
+        if (onError && await onError(error)) return;
+      }
+      if (signal.aborted || outcome?.stop) return;
+      if (!outcome?.changed && Date.now() - startedAt < LONG_POLL_FAST_MS) await delay(idleDelayMs, signal);
+    }
+  }
+
   /**
    * Serializa el contenido de un mensaje para la API: el texto se conserva y el resto pasa a JSON.
    * @param {*} content
@@ -727,6 +770,10 @@
     showTimedStatus,
     createListenerGroup,
     fetchWithTimeout,
+    LONG_POLL_WAIT_MS,
+    LONG_POLL_MARGIN_MS,
+    delay,
+    runLongPoll,
     serializeContent,
     clone,
     createId,

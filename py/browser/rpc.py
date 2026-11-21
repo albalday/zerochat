@@ -6,11 +6,12 @@ import subprocess
 
 from browser.config import save_browser_config
 from browser.engines import BROWSER_ENGINES, clear_own_browser_data
-from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, parse_nonneg_int, rpc_error, rpc_result
+from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, parse_nonneg_int, parse_optional_nonneg_int, rpc_error, rpc_result
+
 
 def _engines_list(params: dict) -> RpcOutcome:
-    since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
-    wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+    since_rev = parse_optional_nonneg_int(params.get("since_rev"), "since_rev")
+    wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
     engines_only = params.get("engines_only", False)
     if not isinstance(engines_only, bool):
         raise ValueError("engines_only debe ser un booleano")

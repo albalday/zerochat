@@ -269,7 +269,7 @@ def clean_pattern_list(raw, label: str) -> list[str]:
     return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
-def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int = 0) -> None:
+def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int) -> None:
     """Comprueba que el total de patrones globales y de todos los proyectos no supere MAX_COMMAND_PATTERNS."""
     total = len(global_patterns) + len(project_patterns) + other_project_count
     if total > MAX_COMMAND_PATTERNS:

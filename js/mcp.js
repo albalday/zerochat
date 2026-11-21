@@ -82,8 +82,10 @@
   const playwrightInstalled = () => getState().get('mcp').playwright?.installed ?? null;
   /** browser_action se puede usar ahora: Playwright instalado y un Chromium con el que navegar. */
   const browserActionAvailable = () => getState().get('mcp').playwright?.browserAction?.available === true;
-  const HEARTBEAT_WAIT_MS = 25000;
-  const HEARTBEAT_TIMEOUT_MS = 30000;
+  // Lo que el servidor retiene cada latido sin cambios. La firma `rev` no cuenta lo que cambia sin parar
+  // (tiempo y última línea de cada comando), así que esta espera es también cada cuánto se refresca.
+  const HEARTBEAT_WAIT_MS = 10000;
+  const HEARTBEAT_TIMEOUT_MS = HEARTBEAT_WAIT_MS + Utils.LONG_POLL_MARGIN_MS;
   const RECONNECT_INTERVAL_MS = 10000;
   // Código con el que el servidor avisa de que la carpeta del proyecto de la pestaña ya no existe.
   const PROJECT_GONE_CODE = -32003;
@@ -437,10 +439,11 @@
       this.projectRecovery = null;
       // Destino de la conexión ({ url, proxyKey }), que se vigila aunque la conexión falle.
       this.target = null;
-      this.heartbeatActive = false;
+      // Seguimiento del servidor: su señal corta el bucle de latidos, y la de la petición en curso
+      // solo esa espera, para releer enseguida (cambio de proyecto o desconexión).
+      this.liveWatchAbort = null;
       this.heartbeatLoop = null;
-      this.heartbeatAbort = null;
-      this.heartbeatStartTimer = null;
+      this.heartbeatRequestAbort = null;
       this.reconnectTimer = null;
       this.heartbeatCheckInFlight = false;
       this.liveStateSeq = 0;
@@ -624,108 +627,86 @@
      * Activa o detiene el seguimiento del servidor local: long-poll (`since_rev`, `wait_ms`) mientras
      * está conectado y reintentos de reconexión cada 10 s mientras está caído.
      */
-    setHeartbeatTimer(enabled) {
+    setLiveStateWatch(enabled) {
       if (!enabled) {
-        this.heartbeatActive = false;
+        this.liveWatchAbort?.abort();
+        this.liveWatchAbort = null;
         this.liveStateRev = '';
-        this.heartbeatAbort?.abort();
-        this.heartbeatAbort = null;
-        if (this.heartbeatStartTimer) {
-          clearTimeout(this.heartbeatStartTimer);
-          this.heartbeatStartTimer = null;
-        }
-        if (this.reconnectTimer) {
-          clearTimeout(this.reconnectTimer);
-          this.reconnectTimer = null;
-        }
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
         return;
       }
-      if (!this.heartbeatActive) {
-        this.heartbeatActive = true;
-        this._scheduleNextHeartbeat();
+      if (!this.liveWatchAbort) {
+        this.liveWatchAbort = new AbortController();
+        this.scheduleLiveWatch();
       }
     }
 
-    _sleepHeartbeat(ms, signal) {
-      if (signal?.aborted) return Promise.resolve();
-      return new Promise(resolve => {
-        const onAbort = () => { clearTimeout(timer); resolve(); };
-        const timer = setTimeout(() => {
-          signal?.removeEventListener('abort', onAbort);
-          resolve();
-        }, ms);
-        signal?.addEventListener('abort', onAbort, { once: true });
-      });
+    /** Corta la espera del latido en curso para que la siguiente lectura empiece sin `since_rev`. */
+    restartLiveWait() {
+      this.liveStateRev = '';
+      this.heartbeatRequestAbort?.abort();
     }
 
-    _scheduleNextHeartbeat() {
-      if (!this.heartbeatActive) return;
+    scheduleLiveWatch() {
+      const watch = this.liveWatchAbort;
+      if (!watch) return;
       if (this.isProxyConnected()) {
-        if (this.reconnectTimer) {
-          clearTimeout(this.reconnectTimer);
-          this.reconnectTimer = null;
-        }
-        if (!this.heartbeatLoop && !this.heartbeatStartTimer) {
-          this.heartbeatStartTimer = setTimeout(() => {
-            this.heartbeatStartTimer = null;
-            if (this.heartbeatActive && this.isProxyConnected() && !this.heartbeatLoop) {
-              this._runHeartbeatLoop();
-            }
-          }, 0);
+        clearTimeout(this.reconnectTimer);
+        this.reconnectTimer = null;
+        if (!this.heartbeatLoop) {
+          this.heartbeatLoop = this.runHeartbeatLoop(watch.signal).finally(() => {
+            this.heartbeatLoop = null;
+            this.scheduleLiveWatch();
+          });
         }
         return;
       }
       if (this.target && !this.reconnectTimer) {
         this.reconnectTimer = setTimeout(() => {
           this.reconnectTimer = null;
-          this.sendHeartbeat().finally(() => this._scheduleNextHeartbeat());
+          this.sendHeartbeat().finally(() => this.scheduleLiveWatch());
         }, RECONNECT_INTERVAL_MS);
       }
     }
 
-    async _runHeartbeatLoop() {
-      const loop = (async () => {
-        while (this.heartbeatActive && this.isProxyConnected()) {
-          const controller = new AbortController();
-          this.heartbeatAbort = controller;
-          const startedAt = Date.now();
-          const prevRev = this.liveStateRev;
-          try {
-            const seq = ++this.liveStateSeq;
-            const focusId = getState().get('sessions')?.activeId || null;
-            const params = {
-              ...(focusId ? { focus_conversation_id: focusId } : {}),
-              ...(prevRev ? { since_rev: prevRev, wait_ms: HEARTBEAT_WAIT_MS } : {})
-            };
-            const payload = await this.requestExternalControl('zerochat/heartbeat', params, {
-              timeoutMs: HEARTBEAT_TIMEOUT_MS,
-              signal: controller.signal
-            });
-            if (!this.heartbeatActive) break;
-            if (seq === this.liveStateSeq && !controller.signal.aborted) {
-              await this.applyLiveState(payload);
-            }
-            const elapsedMs = Date.now() - startedAt;
-            const nextRev = typeof payload?.rev === 'string' ? payload.rev : '';
-            if (!nextRev || (nextRev === prevRev && elapsedMs < 500)) {
-              await this._sleepHeartbeat(RECONNECT_INTERVAL_MS, controller.signal);
-            }
-          } catch (error) {
-            if (!this.heartbeatActive) break;
-            if (controller.signal.aborted) continue;
-            await this.verifyProxyConnection();
-            if (!this.isProxyConnected()) break;
-          } finally {
-            if (this.heartbeatAbort === controller) this.heartbeatAbort = null;
-          }
+    async runHeartbeatLoop(signal) {
+      await Utils.delay(0, signal);
+      await Utils.runLongPoll({
+        signal,
+        idleDelayMs: RECONNECT_INTERVAL_MS,
+        poll: () => this.heartbeatStep(signal),
+        // Un latido fallido comprueba la conexión: si se perdió, toca reconectar.
+        onError: async () => {
+          await this.verifyProxyConnection();
+          return !this.isProxyConnected();
         }
-      })();
-      this.heartbeatLoop = loop;
+      });
+    }
+
+    async heartbeatStep(signal) {
+      if (!this.isProxyConnected()) return { stop: true };
+      const request = new AbortController();
+      this.heartbeatRequestAbort = request;
+      const prevRev = this.liveStateRev;
+      const seq = ++this.liveStateSeq;
+      const focusId = getState().get('sessions')?.activeId || null;
+      const params = {
+        ...(focusId ? { focus_conversation_id: focusId } : {}),
+        ...(prevRev ? { since_rev: prevRev, wait_ms: HEARTBEAT_WAIT_MS } : {})
+      };
       try {
-        await loop;
+        const payload = await this.requestExternalControl('zerochat/heartbeat', params, {
+          timeoutMs: HEARTBEAT_TIMEOUT_MS,
+          signal: AbortSignal.any([signal, request.signal])
+        });
+        if (seq === this.liveStateSeq && !request.signal.aborted && !signal.aborted) await this.applyLiveState(payload);
+        return { changed: typeof payload?.rev === 'string' && payload.rev !== prevRev };
+      } catch (error) {
+        if (request.signal.aborted && !signal.aborted) return { changed: true };
+        throw error;
       } finally {
-        if (this.heartbeatLoop === loop) this.heartbeatLoop = null;
-        if (this.heartbeatActive && !this.isProxyConnected()) this._scheduleNextHeartbeat();
+        if (this.heartbeatRequestAbort === request) this.heartbeatRequestAbort = null;
       }
     }
 
@@ -759,7 +740,7 @@
     async connectProxy({ url, proxyKey = null, timeoutMs = PROBE_TIMEOUT_MS, silentOnFailure = false, token = null, reconcile = false }) {
       if (token) this.setSessionToken(token);
       this.target = { url, proxyKey };
-      this.setHeartbeatTimer(true);
+      this.setLiveStateWatch(true);
       const State = getState();
       if (!silentOnFailure) State.set('mcp', { status: 'connecting', endpoint: url, error: null });
 
@@ -809,7 +790,7 @@
       this.liveServers = null;
       this.liveRunning = null;
       await this.applyLiveState(probe.liveState);
-      this._scheduleNextHeartbeat();
+      this.scheduleLiveWatch();
       if (reconcile) await this.reconcileProjectServers();
       if (this.profileSyncHandler && probe.liveState?.serverId) {
         await this.profileSyncHandler(probe.liveState.serverId);
@@ -822,8 +803,7 @@
      */
     async disconnectProxy() {
       this.dropClient(PROXY_ID);
-      this.liveStateRev = '';
-      this.heartbeatAbort?.abort();
+      this.restartLiveWait();
       this.projectSnapshot = null;
       getProfiles().clearSessionProfile();
       getState().set('mcp', { status: 'disconnected', latencyMs: null, error: null, ...LIVE_RESET });
@@ -973,8 +953,7 @@
       this.liveStateSeq += 1;
       const result = await this.requestExternalControl('zerochat/project/set_directory', { path });
       this.liveStateSeq += 1;
-      this.liveStateRev = '';
-      this.heartbeatAbort?.abort();
+      this.restartLiveWait();
       this.recordProjectContext(result?.cwd, result?.projectContext);
       this.applyProjectEnvironment(result?.cwd, result?.projectEnvironment);
       await this.applyLiveState({ cwd: result?.cwd, policies: result?.policies });
@@ -1016,7 +995,7 @@
         };
       }
       State.set('mcp', nextState);
-      this.setHeartbeatTimer(Boolean(this.target));
+      this.setLiveStateWatch(Boolean(this.target));
       return result;
     }
 

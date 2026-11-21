@@ -21,6 +21,7 @@ from browser.config import (
 )
 from core.environment import get_data_dir
 from core.limits import LONG_POLL_MAX_WAIT_MS
+from core.live_events import notify_live_change
 from core.logging import format_log_error, log_event
 
 
@@ -141,20 +142,6 @@ def user_browser_extensions() -> dict[str, bool]:
     return found
 
 
-_ENGINES_CHANGE_HOOKS: list = []
-
-
-def on_browser_engines_change(hook):
-    """Registra una función sin argumentos que se avisa cuando cambian los motores de Playwright."""
-    _ENGINES_CHANGE_HOOKS.append(hook)
-    return hook
-
-
-def _notify_browser_engines_changed():
-    for hook in _ENGINES_CHANGE_HOOKS:
-        hook()
-
-
 class BrowserEngines:
     """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
 
@@ -235,7 +222,7 @@ class BrowserEngines:
             cli = self._check_engine(engine)
             self._jobs[engine] = {"status": "installing", "percent": 0}
             self._notify_locked()
-        _notify_browser_engines_changed()
+        notify_live_change()
         threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
         return self.list()
 
@@ -272,7 +259,7 @@ class BrowserEngines:
                 self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
                 self._notify_locked()
             log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
-        _notify_browser_engines_changed()
+        notify_live_change()
 
     def remove(self, engine) -> dict:
         with self._lock:
@@ -286,7 +273,7 @@ class BrowserEngines:
                     shutil.rmtree(locations[name][1], ignore_errors=True)
             self._jobs.pop(engine, None)
             self._notify_locked()
-        _notify_browser_engines_changed()
+        notify_live_change()
         result = self.list()
         # La configuración no se queda con un motor quitado si hay otro instalado.
         config = result["config"]

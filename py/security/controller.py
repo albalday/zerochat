@@ -135,12 +135,12 @@ class AccessController:
         raw_global, raw_project = get_security_policy_data(context.key)
         return self._normalize_global(raw_global), self._normalize_project(raw_project)
 
-    def _update_permanent(self, context: SecurityContext, mutator: typing.Callable[[dict, dict, int], None]) -> tuple[dict, dict | None]:
+    def _update_permanent(self, context: SecurityContext, mutator: typing.Callable[[dict, dict], None]) -> tuple[dict, dict | None]:
         """Lectura-modificación-escritura transaccional sobre las filas global y del proyecto."""
         def apply(raw_global: dict | None, raw_project: dict | None, other_pattern_count: int) -> tuple[dict, dict | None]:
             global_state = self._normalize_global(raw_global)
             project_state = self._normalize_project(raw_project)
-            mutator(global_state, project_state, other_pattern_count)
+            mutator(global_state, project_state)
             check_command_pattern_limit(global_state["commandPatterns"], project_state["commandPatterns"], other_pattern_count)
             self._check_entry_limit({
                 "directoryRules": project_state["directoryRules"] or [],
@@ -286,7 +286,7 @@ class AccessController:
         project = context.key
         default_rule = self.get_default_directory_rule(context)
 
-        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+        def mutator(global_state: dict, project_state: dict) -> None:
             self._apply_state_patch(global_state, project_state, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
         self._update_permanent(context, mutator)
         self._forget_session_overrides(project, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers)
@@ -536,7 +536,7 @@ class AccessController:
             return
         project = context.key
 
-        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+        def mutator(global_state: dict, project_state: dict) -> None:
             self._store_decision(global_state, project_state, decision, pattern, tool, server_name, server_id)
             if rules:
                 base_rules = project_state["directoryRules"] if project_state["directoryRules"] is not None else [self.get_default_directory_rule(context)]

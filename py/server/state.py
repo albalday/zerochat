@@ -8,19 +8,26 @@ import threading
 import time
 from http.server import ThreadingHTTPServer
 
-from browser.engines import BROWSER_ENGINES, on_browser_engines_change
+from browser.engines import BROWSER_ENGINES
 from core.limits import LONG_POLL_MAX_WAIT_MS
+from core.live_events import on_live_change
 from core.logging import console_log, log_event, timestamp_message
-from mcp.manager import GLOBAL_MCP_MANAGER, on_mcp_state_change
+from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.state import list_server_runs
 from security.context import SecurityContext
-from storage.db import conversations_revision, get_server_id, on_storage_live_change
+from storage.db import conversations_revision, get_server_id
 from tools.browser_action import playwright_status
-from tools.jobs import JOBS, on_jobs_live_change
+from tools.jobs import JOBS
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-_RUN_ACTIVE_CHECK_INTERVAL = 1.0
+# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite: con alguna en marcha,
+# el latido en espera vuelve a mirar cada tanto, y el vigilante, si ya terminaron para cerrar.
+_EXTERNAL_RUN_POLL_SECONDS = 1.0
+_WATCHDOG_RUN_RECHECK_SECONDS = 1.0
+# Campos de cada comando que cambian sin parar mientras corre: no cuentan en la firma `rev` (si no, cada
+# línea de salida despertaría a todos los latidos) y se refrescan al vencer cada espera.
+_VOLATILE_JOB_FIELDS = frozenset({"elapsed_s", "output_bytes", "last_line"})
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
@@ -93,10 +100,7 @@ def notify_live_state_changed() -> None:
         _WATCHDOG_COND.notify_all()
 
 
-on_storage_live_change(notify_live_state_changed)
-on_jobs_live_change(notify_live_state_changed)
-on_mcp_state_change(notify_live_state_changed)
-on_browser_engines_change(notify_live_state_changed)
+on_live_change(notify_live_state_changed)
 
 
 def mark_browser_active():
@@ -115,10 +119,9 @@ def heartbeat_initialized() -> bool:
 
 
 def _live_state_rev(state: dict) -> str:
-    # Excluir campos volátiles (elapsed_s) para no despertar al latido mientras nada real cambia.
     stable = {
         **state,
-        "jobs": [{k: v for k, v in job.items() if k != "elapsed_s"} for job in state["jobs"]],
+        "jobs": [{k: v for k, v in job.items() if k not in _VOLATILE_JOB_FIELDS} for job in state["jobs"]],
     }
     encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
@@ -156,23 +159,18 @@ def wait_live_state(
     since_rev: str | None = None,
     wait_ms: int = 0,
 ) -> dict:
-    """Devuelve el estado vivo; con since_rev y wait_ms espera cambios sin sondeo activo."""
-    state = live_state(ctx, focus_conversation_id)
-    clamped_ms = min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS)
-    if not since_rev or clamped_ms <= 0 or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
-        return state
-    deadline = time.monotonic() + clamped_ms / 1000.0
+    """Devuelve el estado vivo; con since_rev y wait_ms espera a que cambie su firma sin sondeo activo."""
+    deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
     while True:
         with _LIVE_STATE_COND:
             seq = _LIVE_STATE_SEQ
         state = live_state(ctx, focus_conversation_id)
-        if state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+        if not since_rev or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
             return state
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return state
-        # Las ejecuciones en segundo plano (--conversation) corren en otro proceso y actualizan SQLite.
-        slice_s = min(remaining, _RUN_ACTIVE_CHECK_INTERVAL) if any(r.get("status") == "running" for r in state["runs"]) else remaining
+        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if any(r.get("status") == "running" for r in state["runs"]) else remaining
         with _LIVE_STATE_COND:
             if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
                 _LIVE_STATE_COND.wait(slice_s)
@@ -229,7 +227,7 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
     Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
     """
     start_time = time.monotonic()
-    active_slice = min(_RUN_ACTIVE_CHECK_INTERVAL, max(0.05, inactivity_timeout_seconds))
+    run_recheck_seconds = min(_WATCHDOG_RUN_RECHECK_SECONDS, max(0.05, inactivity_timeout_seconds))
     while not HEARTBEAT_WATCHDOG_STOP.is_set():
         reason = _watchdog_wait_step(start_time, initial_grace_seconds, inactivity_timeout_seconds, require_initial_connection)
         if reason is None:
@@ -238,7 +236,7 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
             runs, _ = list_server_runs()
             if any(r.get("status") == "running" for r in runs):
                 with _WATCHDOG_COND:
-                    _WATCHDOG_COND.wait(active_slice)
+                    _WATCHDOG_COND.wait(run_recheck_seconds)
                 continue
         log_event(reason)
         stop_zerochat_server(server)
