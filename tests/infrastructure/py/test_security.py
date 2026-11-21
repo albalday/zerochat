@@ -743,7 +743,9 @@ class CommandPatternTest(HandlerTestCase):
             self.controller.import_state({"commandPatterns": {"global": [], "project": [f"a{i}" for i in range(limit - half + 1)]}}, ctx_a)
         self.assertEqual(len(saved_patterns()["projects"][ctx_b.key]), half)
 
-    def test_command_grants_need_a_pattern_that_covers_the_challenge(self):
+    # Aprobar un reto ejecuta el comando pendiente: aquí se sustituye la ejecución para no lanzar sudo de verdad.
+    @unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": [], "isError": False}, None, ""))
+    def test_command_grants_need_a_pattern_that_covers_the_challenge(self, execute_tool):
         gate = self.command_challenge("sudo echo hola mundo")
         cid = gate["challengeId"]
         self.assertEqual(gate["ruleOffer"]["command"], "sudo echo *")
@@ -773,10 +775,13 @@ class CommandPatternTest(HandlerTestCase):
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
         self.assertEqual(saved_patterns()["global"], ["sudo echo *"])
+        self.assertEqual(execute_tool.call_args.args[1:3], ("run_command", {"command": "sudo echo hola mundo"}))
         self.assertEqual(self.status("sudo echo otra cosa"), "allow")
         self.assertEqual(self.status("sudo rm -rf /"), "ask")
 
-    def test_command_pattern_scopes_session_project_and_global(self):
+    # Aprobar un reto ejecuta el comando pendiente: aquí se sustituye la ejecución para no lanzar sudo de verdad.
+    @unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": [], "isError": False}, None, ""))
+    def test_command_pattern_scopes_session_project_and_global(self, execute_tool):
         other_project = zerochat.SecurityContext(workspace_dir=self.base_dir.resolve())
         project = zerochat.normalize_directory_path(str(zerochat.PROJECT_DIR))
 
@@ -808,6 +813,7 @@ class CommandPatternTest(HandlerTestCase):
         self.assertEqual([self.status(c) for c in ("sudo echo uno dos", "sudo printf x", "sudo true x")], ["ask", "allow", "allow"])
         self.controller.apply_session_overlay(snapshot, cwd())
         self.assertEqual(self.status("sudo echo uno dos"), "allow")
+        self.assertEqual(execute_tool.call_count, 3)
 
 
 class SessionLifecycleTest(HandlerTestCase):
