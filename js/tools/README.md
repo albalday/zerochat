@@ -1,143 +1,118 @@
-# Tools de ZeroChat
+# Herramientas y ejecución agéntica (`js/tools/`)
 
-Cada tool nativa vive en `js/tools/builtin/<nombre>.tool.js` y exporta la especificación con la que `ChatAgentCore` crea su `Tool`. La lista de módulos está en `BUILTIN_TOOL_MODULES` (`js/agent-core.js`); `zerochat.html` y `sw.js` cargan los mismos ficheros.
+Este documento especifica las decisiones tácticas y contratos del motor agéntico (`js/agent-core.js`), las herramientas nativas (`js/tools/builtin/`), la integración de herramientas locales/MCP y sus tarjetas de interfaz. Cuelga de la visión global en [`docs/architecture.md`](../../docs/architecture.md) y complementa a [`AGENTS.md`](../../AGENTS.md) y [`js/README.md`](../README.md).
 
-- `definition` (obligatoria): nombre, descripción y JSON Schema de Function Calling.
-- `execute(args, context)` (obligatoria): ejecución; consume dependencias mediante `context.services`.
-- `aliases`: otros nombres con que los modelos llaman a la herramienta. El registro los resuelve con o sin guiones bajos y sin distinguir mayúsculas, y el runtime guarda la llamada con el nombre registrado. Las herramientas MCP solo se resuelven por su nombre exacto.
+---
+
+## 1. Arquitectura de herramientas nativas (`js/tools/builtin/`)
+
+Cada herramienta nativa vive en `js/tools/builtin/<nombre>.tool.js` y exporta la especificación con la que `ChatAgentCore` crea su instancia `Tool`. La lista canónica está en `BUILTIN_TOOL_MODULES` (`js/agent-core.js`); `zerochat.html` y `sw.js` cargan los mismos ficheros.
+
+### 1.1. Contrato de especificación de un módulo `.tool.js`
+- `definition` (obligatoria): nombre canónico, descripción y JSON Schema de Function Calling.
+- `execute(args, context)` (obligatoria): lógica de ejecución; consume dependencias a través de `context.services` (resueltas perezosamente desde `TOOL_SERVICES` en `js/agent-core.js`).
+- `aliases`: otros nombres con que los modelos invocan la herramienta. El registro los resuelve con o sin guiones bajos y sin distinguir mayúsculas, y el runtime persiste la llamada con el nombre canónico registrado. Las herramientas MCP solo se resuelven por su nombre exacto.
 - `category`, `metadata`, `isAvailable(config)` y `settings` (`titleKey`, `descKey`, `defaultEnabled`, `showInSettings`).
-- `promptGuide`: línea de la guía del prompt de sistema para modelos sin firmas de herramientas.
-- `result`: `toModel(args, result)` (contenido del mensaje `tool`) y `toMarkdown(args, result)` (bloque para copiar y exportar).
-- `displayMode`: `collapsed` (por defecto) o `expanded`. Una tarjeta `collapsed` nace plegada y no se despliega sola: solo para pedir autorización, tras la que vuelve a plegarse, o cuando su vista lo pide al terminar (una captura, un comando en segundo plano). Lo que despliega el usuario queda desplegado.
-- `view`: tarjeta opcional con `createLiveCard(args, ui)` y `updateLiveCard(card, args, result, elapsedMs, ui)`, que devuelve `true` para mantener la tarjeta abierta. Para el historial, `ChatToolCards` crea la tarjeta y le pasa a `updateLiveCard` el mensaje `tool` guardado: el JSON que recibió el modelo, o `{ content }` si era texto (`content` lleva siempre el texto original). Solo las vistas que necesitan otra cosa definen `renderHistoricalCard(args, message, ui)`.
+- `promptGuide`: línea de guía en el prompt de sistema para modelos sin soporte nativo de firmas de herramientas.
+- `result`: `toModel(args, result)` (contenido del mensaje `tool` enviado al modelo) y `toMarkdown(args, result)` (bloque para copiar y exportar).
+- `displayMode`: `collapsed` (por defecto) o `expanded`. Una tarjeta `collapsed` nace plegada y solo se despliega automáticamente para pedir autorización (volviendo a plegarse tras decidir) o cuando su vista lo solicita al terminar (capturas, comandos que siguen en segundo plano). Si el usuario la despliega manualmente, permanece desplegada.
+- `view`: tarjeta opcional con `createLiveCard(args, ui)` y `updateLiveCard(card, args, result, elapsedMs, ui)` (devuelve `true` para mantener la tarjeta abierta). Para reconstruir el historial, `ChatToolCards` crea la tarjeta y pasa a `updateLiveCard` el mensaje `tool` guardado (el JSON recibido por el modelo o `{ content }` si era texto); solo las vistas que requieren otro tratamiento definen `renderHistoricalCard(args, message, ui)`.
 
-`context.services` resuelve al usarlos los módulos de `TOOL_SERVICES` (`js/agent-core.js`); el contexto de la llamada puede sustituir cualquiera, y así lo hacen las pruebas. Una dependencia nueva se añade a esa tabla.
+### 1.2. Catálogo de herramientas nativas
 
-Las herramientas de conocimiento local usan cuatro operaciones canónicas: `list_documents`, `search_knowledge_base`, `read_knowledge_chunk` y `read_knowledge_image`. La última recupera bajo demanda una imagen ya extraída del documento; el modelo decide usarla únicamente si puede analizar imágenes. El registro y la ejecución del agente usan exclusivamente las definiciones declaradas por estos módulos.
+| Categoría | Herramienta (`js/tools/builtin/`) | Responsabilidad y alcance |
+|---|---|---|
+| **Web** | `search_web` (`search-web.tool.js`) | Búsqueda en DuckDuckGo HTML a través de `ChatWebBrowser.webFetch` (un único parser para backend local y Jina Reader). Puede ser reemplazada dinámicamente (`replaces`) por un servicio MCP activo como `brave`. |
+| **Web** | `fetch_web_page` (`fetch-web-page.tool.js`) | Lectura de páginas web y extracción a texto/Markdown limpio (o lectura local de documentos si la URL apunta a PDF/Office). |
+| **Web** | `download_doc` (`download-doc.tool.js`) | Descarga y extracción de texto/imágenes de documentos remotos (PDF, DOCX, XLSX, PPTX, ODT, ODS, ODP). |
+| **Web / Visión** | `download_image` (`download-image.tool.js`) | Descarga de imágenes para inspección visual multimodal (entrega `images` como evidencia visual). |
+| **Conocimiento (RAG)** | `list_documents`, `search_knowledge_base`, `read_knowledge_chunk`, `read_knowledge_image` | Las cuatro operaciones canónicas sobre la base de conocimiento local (Orama/IndexedDB). `read_knowledge_image` recupera bajo demanda imágenes extraídas de documentos solo cuando el modelo soporta visión. |
+| **Cálculo** | `execute_javascript` (`execute-javascript.tool.js`) | Ejecución de código JS en sandbox aislado de 3 capas (iframe/CSP/Worker en navegador; proceso hijo con `--permission` y sin generación de código desde cadenas en Node.js). |
+| **Visualización** | `render_chart` (`render-chart.tool.js`) | Renderizado de gráficos interactivos en el flujo de la conversación (tarjeta siempre abierta fuera de los grupos). |
+| **Control de turno** | `ask_user` (`ask-user.tool.js`) | Pausa el bucle agéntico (`endTurn: true`) para formular una pregunta al usuario (o detiene la ejecución en `needs_input` en modo `--conversation`). |
+| **Control de turno** | `wait` (`wait.tool.js`) | Espera optimista en navegador (`seconds` hasta 24 h o hora local `until`). Deshabilitada en el runner sin ventana (`--prompt` / servidor). |
+| **Control de turno** | `switch_model` (`switch-model.tool.js`) | Cambia de perfil y/o nivel de razonamiento a mitad de turno solo hacia perfiles nombrados explícitamente por el usuario en la conversación. |
+| **Agente** | `delegate_task` (`delegate-task.tool.js`) | Lanza un subagente secundario de solo lectura en el mismo turno y devuelve únicamente su informe final. |
 
-## Ejecución agéntica
+---
 
-`AgentRuntime` (`js/agent-core.js`) es el único bucle agéntico. `chat-engine.js` prepara el contexto y adapta sus eventos al DOM, pero no ejecuta iteraciones ni herramientas.
+## 2. Bucle de ejecución agéntica (`AgentRuntime`)
 
-Una herramienta puede ceder el turno al usuario devolviendo `endTurn: true` en un resultado correcto, como hace `ask_user`. El bucle termina tras ese paso y la respuesta del usuario llega como el siguiente mensaje.
+`AgentRuntime` (`js/agent-core.js`) es el único bucle agéntico del sistema. `chat-engine.js` prepara el contexto y adapta eventos a las vistas del DOM (`ChatUIConversation.createTurnView`), pero no ejecuta iteraciones ni herramientas.
 
-No hay límite de pasos: el bucle termina con una respuesta sin herramientas, una herramienta con `endTurn`, la protección de bucles, la cancelación del usuario o un error. El runtime nunca pide al modelo una síntesis o resumen final.
+* **Condiciones de parada:** no hay límite artificial de pasos. El bucle termina cuando el modelo responde sin llamadas a herramientas, cuando una herramienta devuelve `endTurn: true` (como `ask_user`), cuando salta la protección contra bucles, por cancelación del usuario (`signal`) o por error. El runtime nunca fuerza una llamada extra para pedir un resumen final.
+* **Protección contra bucles (`loop_detected`):**
+  * Guarda durante el turno la huella de los últimos 10 lotes de herramientas (nombre y argumentos con claves ordenadas).
+  * Antes de ejecutar un lote, comprueba si el historial termina en el mismo lote repetido 5 veces (`aaaaa`) o en dos lotes alternados 5 veces (`ababababab`). Si coincide, no lo ejecuta, cierra el turno añadiendo el aviso (`loopNotice`, en el idioma de la UI desde `ChatEngine` o en inglés desde `delegate_task`) y devuelve el estado `loop_detected`.
+  * Un texto para el usuario distinto del último que reinició el control vacía el historial de huellas (la misma frase repetida o bloques `<tool_call>` en texto no lo reinician). Ciclos legítimos de editar y verificar no cuentan como bucle porque cada edición cambia los argumentos.
+* **Reenvío de razonamiento dentro del turno (`reasoningReplay`):**
+  * Si el adaptador indica en `parseStreamChunk` que el razonamiento llegó en un campo dedicado (`reasoningField`: `reasoning_content`, `reasoning` o `thinking` con `reasoning_signature` en Claude), `AgentRuntime` lo conserva en el mensaje `assistant` con `tool_calls`.
+  * `buildEffectiveMessages` lo reenvía solo en los pasos posteriores al último mensaje del usuario dentro del turno activo, y lo omite del historial persistido. El razonamiento extraído de etiquetas `<think>` no se reenvía. Si el servidor rechaza el campo con HTTP 400, `handleHttpError` lo limpia y reintenta.
+* **Evidencia visual multimodal (`TOOL_EVIDENCE_FLAG`):**
+  * Cuando cualquier herramienta devuelve imágenes en `images` (`download_image`, `read_knowledge_image`, `browser_action`), `ChatEngine` y `buildEffectiveMessages` reúnen todas las imágenes de la racha de mensajes `tool` del lote y las inyectan en un único mensaje `user` inmediatamente posterior al lote (con sus metadatos: `imageRef`, documento, página, URL), sin partir el bloque `[assistant, tool...]`.
+  * `ContextManager` lo marca con `TOOL_EVIDENCE_FLAG` para que `groupIntoAtomicBlocks` lo mantenga unido al lote y no lo pode; Claude fusiona esa evidencia en el mismo turno `user` de sus `tool_result`.
+* **Despacho, permisos y aislamiento de contexto (`ToolExecutor`):**
+  * Toda llamada pasa por `ToolExecutor`: resuelve la herramienta en `ToolRegistry`, evalúa la política de `ChatToolSecurity` y solo entonces invoca `tool.execute`.
+  * Cada invocación recibe un `context.invocationId` único (reflejado en `data-invocation-id` de su tarjeta) y `context.signal`.
+  * `context.agent` (URL, API key, modelo, contexto y despacho del agente) se entrega **exclusivamente** a herramientas de categoría `agent` (`delegate_task`), de modo que las herramientas MCP y el resto no reciben jamás la API key ni el historial.
 
-La protección de bucles guarda, solo durante el turno, la huella de los últimos 10 lotes de herramientas (nombre y argumentos con las claves ordenadas, en el orden del lote). Antes de ejecutar un lote comprueba si el historial termina en el mismo lote repetido 5 veces (`aaaaa`) o en dos lotes alternados 5 veces (`ababababab`); en ese caso no lo ejecuta, cierra el turno con el texto del paso más el aviso que recibe de quien lo lanza (`loopNotice`: ChatEngine lo redacta en el idioma de la interfaz y `delegate_task` en inglés para el agente principal) y termina con el estado `loop_detected`. Un texto para el usuario distinto del último que reinició el control vacía el historial; la misma frase repetida en cada paso y las llamadas emitidas como texto (`<tool_call>`) no lo reinician. Ciclos como verificar, editar y volver a verificar no cuentan como bucle porque cada edición cambia los argumentos.
+---
 
-El razonamiento de cada paso con herramientas se devuelve al modelo dentro del mismo turno. Si el adaptador indica en `parseStreamChunk` que llegó en un campo propio (`reasoningField`: `reasoning_content` o `reasoning`), `streamChatCompletion` lo devuelve como `reasoningReplay` y `AgentRuntime` lo guarda en el mensaje `assistant` con `tool_calls`. `buildEffectiveMessages` lo vuelca en ese mismo campo solo en los mensajes posteriores al último mensaje del usuario, y el historial que devuelve el runtime lo omite, así que no se persiste. El razonamiento extraído de etiquetas `<think>` no se reenvía. Si el servidor rechaza el campo con un 400, `handleHttpError` lo quita de los mensajes y reintenta.
+## 3. Herramientas especiales y de control
 
-La imagen que una herramienta devuelve en `images` de su mensaje `tool` (`download_image`, `read_knowledge_image`, `browser_action`) llega al modelo como evidencia visual: `buildEffectiveMessages` reúne las de toda la racha de resultados de un lote y las envía en un único mensaje `user` tras el último `tool`, para no partir el bloque `[assistant, tool...]` de las llamadas paralelas. `ContextManager` trata ese mensaje como parte del bloque atómico del lote, y Claude lo une al turno `user` de sus `tool_result`.
+### 3.1. Subagente de solo lectura (`delegate_task`)
+* **Conexión y perfil opcional «Subagente»:** ejecuta otra instancia de `AgentRuntime` compartiendo por defecto proveedor, modelo, prompt de sistema, normas del proyecto y presupuesto de contexto del agente principal, y hereda su `signal`. Si existe un perfil llamado `Subagente` o `Subagent` (sin distinguir mayúsculas), lo carga con `services.profiles.loadUnlocked` y usa su conexión, modelo, razonamiento, límite de contexto y su propio resumidor de compactación (si el perfil existe pero está incompleto o bloqueado, falla explícitamente sin caer silenciosamente al modelo principal).
+* **Restricción estricta a solo lectura (`isReadOnlyTool`):** solo recibe las herramientas activas de lectura: las nativas `search_web`, `fetch_web_page`, `download_doc`, `download_image`, `execute_javascript` y las 4 de conocimiento, más las locales `read_file`, `list_directory`, `search_files` y `get_diagnostics`. Quedan excluidas todas las herramientas de escritura/consola, todas las MCP externas (no declaran si escriben), `ask_user`, `render_chart`, `switch_model` y la propia `delegate_task` (sin anidamiento). Cualquier intento de llamar a otra herramienta se rechaza en el despacho.
+* **Tarjeta y retorno:** sus pasos intermedios y tarjetas anidadas (`context.toolCard.nest(.subagent-steps)`) se muestran en vivo dentro de la tarjeta del subagente (fuera de los grupos de herramientas), pero al agente principal y al historial persistido solo vuelve el informe final en texto (truncado a 20.000 caracteres).
 
-Toda ejecución pasa por `ToolExecutor`. Este resuelve la herramienta en `ToolRegistry`, evalúa la política de `ChatToolSecurity` y solo después invoca `tool.execute`. Las herramientas MCP que requieren confirmación se bloquean si no existe una interfaz que pueda recoger una decisión explícita del usuario.
+### 3.2. Comandos locales (`run_command` y `check_command`)
+El host local expone una herramienta de ejecución (`run_command`) y una de seguimiento/control (`check_command`):
 
-Cada invocación recibe en `context.invocationId` un identificador único, que también lleva su tarjeta en `data-invocation-id`. Sirve para referirse a la ejecución antes de que termine. Del bucle solo recibe `context.signal`; la conexión del agente (`context.agent`: URL, API key, modelo, contexto y despacho) la entrega `ToolExecutor` únicamente a las herramientas de categoría `agent`, que lanzan otro agente. Cuando se ejecuta en el chat, recibe además su tarjeta en vivo en `context.toolCard` (`element`, `attachListeners(el)` y `nest(container)`, que abre una vista de tarjetas dentro de ella); fuera del chat `context.toolCard` es `null`. Las tarjetas las abre `AgentCore.dispatchToolCall` en la vista `cards` que recibe (`ChatToolCards.createCardView`), y ChatEngine no toca el DOM: pinta el turno con la vista de `ChatUIConversation.createTurnView`.
+* **Semántica de ejecución (`run_command`):**
+  * Cada llamada abre una shell limpia (`bash` en POSIX, `PowerShell` en Windows) en el directorio del proyecto (`ctx.workspace_dir`), con `PYTHONUNBUFFERED=1` y combinando `stdout` y `stderr`. No hereda `cd`, variables ni entornos virtuales de llamadas previas.
+  * *Paso automático a segundo plano:* sin `background: true`, espera hasta `timeout_seconds` (30 s por defecto, máx. 600 s). Si al agotarse sigue vivo, **no lo mata**: lo pasa a segundo plano y devuelve `status: running` con su `job_id` y una nota para no relanzarlo.
+  * *Prevención de duplicados:* un comando idéntico a otro que sigue en marcha en el mismo proyecto se rechaza con error indicando el `job_id` activo.
+* **Seguimiento sin regex (`check_command`):**
+  * `check_command(job_id, wait_seconds?, stop?, pattern?)` devuelve el estado y solo la salida nueva que el modelo aún no ha visto.
+  * Con `wait_seconds` (máx. `COMMAND_MAX_WAIT`) espera a que termine; con `pattern` (uno o varios textos fijos separados por `|`, sin distinguir mayúsculas, nunca regex para no bloquear el GIL de Python) vuelve en cuanto una línea nueva coincide (`returned_because`: `pattern_matched`, `command_finished`, `wait_elapsed` o `wait_ended_by_user`).
+* **Gestión de logs, tarjetas en vivo y cierre:**
+  * El log de cada comando guarda su inicio en un directorio temporal de sesión en disco y su tramo final en memoria (tope 5 MB).
+  * El cliente envía `context.invocationId` como `params._meta.zerochatJobKey`: abortar el turno detiene el comando con `zerochat/jobs/stop` (o corta solo la espera de `check_command` con `zerochat/jobs/end_wait` al pulsar «Dejar de esperar»).
+  * La tarjeta de `run_command` (`js/command-card.js`) plegada no lanza peticiones propias y muestra `last_line` del latido; desplegada pide las últimas 40 líneas con `zerochat/jobs/log` (`tail`, esperando con `wait_ms` a que el comando se registre si aún está en autorización) y sigue la salida por long-poll (`wait_ms`).
+  * Al terminar un turno con comandos aún en segundo plano, `js/ui-command-jobs.js` muestra un aviso al final del chat y, en el siguiente turno del usuario, `McpManager.buildCommandNotes` recoge con `zerochat/jobs/report` los comandos terminados y antepone una nota interna en inglés (`commandNotes`) al mensaje para informar al modelo una sola vez.
+  * Al cerrarse el servidor (o ante cierres abruptos, mediante Job Objects con `KILL_ON_JOB_CLOSE` en Windows y el registro de grupos de procesos `zerochat-jobs-<uid>` en POSIX limpiado al siguiente arranque) se terminan todos los árboles de procesos huérfanos.
 
-### Subagente (`delegate_task`)
+### 3.3. Espera en navegador (`wait`) y cambio de modelo (`switch_model`)
+* **`wait` (`js/tools/builtin/wait.tool.js`, alias `sleep`):** espera `seconds` (1 a 86.400) o hasta una hora local `until` (`HH:MM` / `HH:MM:SS`) comprobando el reloj cada segundo en el navegador (no existe en el runner de Node.js). Se cancela al pulsar «Detener» o cerrar la pestaña.
+* **`switch_model` (`js/tools/builtin/switch-model.tool.js`):** cambia de perfil (`profile`) y/o nivel de razonamiento (`reasoning`: `none`, `low`, `medium`, `high`, `xhigh`). Por seguridad contra *prompt injection*, el modelo no recibe la lista de perfiles y el cambio solo se acepta si el nombre del perfil aparece como palabra completa en algún mensaje del usuario de esa conversación. Al cambiar de modelo, descarta el `reasoningReplay` del modelo anterior e inyecta una nota efímera (`MODEL_SWITCH_NOTE`) para que el nuevo proveedor trate las llamadas previas como un turno cerrado (evitando errores de validación como la falta de `thought_signature` en Gemini). En el runner desatendido, pide la API key del nuevo perfil bajo demanda con `zerochat/run/profile`.
 
-`delegate_task` (`js/tools/builtin/delegate-task.tool.js`) lanza otra ejecución de `AgentRuntime` en la misma pestaña, con el mismo proveedor y modelo. Si existe un perfil llamado «Subagente» o «Subagent» (sin distinguir mayúsculas), `resolveConnection` lo busca con `context.services.profiles`, lo carga con `services.profiles.loadUnlocked` (que pide la contraseña si la API key está cifrada), comprueba que tenga `apiUrl`, `apiType` y `model` y usa su URL, tipo, API key, modelo, temperatura, razonamiento y `contextLimitOverride` (sin él, el gestor de contexto asume la capacidad de ese modelo); la compactación se crea con esa misma conexión mediante `services.engine.createHistorySummarizer`. Si el perfil existe pero no se puede leer, cargar o está incompleto, la herramienta falla en lugar de volver al modelo principal. Su historial empieza con un único mensaje de usuario, en inglés, con las normas del subagente y el encargo; reutiliza `prepareMessages`, `contextOptions` y `summarizeHistory` del agente principal (`context.agent`), así que comparte su prompt de sistema, el directorio y las normas del proyecto, el presupuesto de contexto y la compactación, salvo cuando el perfil «Subagente» aporta los suyos. Hereda su `signal`: detener el turno detiene también al subagente. Al agente principal solo vuelve el texto final, truncado a 20.000 caracteres; sus pasos no entran en el historial.
+### 3.4. Sandbox de ejecución de código (`execute_javascript`)
+Diseñado con 3 capas de defensa en profundidad según el entorno (ambos truncan salidas a `MAX_OUTPUT_LENGTH = 30.000` caracteres y `MAX_LOG_ENTRIES = 200`):
+1. **En navegador (`js/sandbox.js`):**
+   - `<iframe sandbox="allow-scripts">` con origen opaco `null` (sin `allow-same-origin`: bloquea `localStorage`, `IndexedDB`, cookies y DOM padre).
+   - CSP restrictivo inyectado (`default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; connect-src 'none'`), impidiendo llamadas de red (`fetch`, `XHR`, `WebSocket`, `WebRTC`).
+   - Ejecución en Web Worker interno con watchdog de timeout (2500 ms por defecto) que destruye el iframe si se bloquea.
+2. **En Node.js (`scripts/sandbox-child.js` → `py/tools/sandbox_script.py` y `js/sandbox-node-script.js`):** proceso hijo independiente sin variables de entorno ni token y con 3 barreras (ya que `node:vm` por sí solo no es frontera de seguridad):
+   - Contexto `vm.createContext` vacío sin objetos del anfitrión, comunicando solo cadenas y recogiendo el resultado por sondeo.
+   - Sin generación de código desde cadenas (`--disallow-code-generation-from-strings` y `codeGeneration: { strings: false, wasm: false }`) junto a `--permission` (sin disco ni procesos), neutralizando escapes por constructores del anfitrión (`eval` y `new Function` deshabilitados).
+   - Global del anfitrión vaciado (`process`, `require`, `module` y funciones de red eliminadas antes de evaluar).
 
-El subagente es de solo lectura. De las definiciones activas del turno (`resolveToolDefinitions`) solo recibe las de `isReadOnlyTool`: las nativas `search_web`, `fetch_web_page`, `download_doc`, `download_image`, `execute_javascript` y las cuatro de conocimiento, y del servidor local (`mcpServerId === 'mcp_proxy'`) `read_file`, `list_directory`, `search_files` y `get_diagnostics`. Quedan fuera las MCP externas, porque no declaran si escriben, además de `ask_user`, `render_chart`, `switch_model` y la propia `delegate_task`, así que no hay subagentes anidados. Su despacho rechaza sin ejecutarla cualquier llamada a una herramienta que no se le ofreció. Cada llamada permitida pasa por el `dispatchToolCall` del agente principal y, con él, por `ToolExecutor` y `ChatToolSecurity`.
+---
 
-La tarjeta (`createLiveCard`) muestra el encargo, el paso en curso en la insignia y, en `.subagent-steps`, las tarjetas de las herramientas del subagente y sus textos intermedios. El bloque de texto de cada paso se reserva al empezar el paso, encima de sus herramientas, y se rellena al terminarlo, no durante el streaming. Como ya agrupa sus llamadas, `appendToolCard` deja la tarjeta del subagente fuera de los grupos «Llamadas a herramientas», igual que los gráficos y `ask_user`. `execute` usa su tarjeta de `context.toolCard` y despacha las herramientas del subagente con la vista `context.toolCard.nest(.subagent-steps)`, de modo que las autorizaciones aparecen en las tarjetas anidadas. El informe se renderiza con `ChatMarkdown.parseMarkdown`. En el historial solo queda el mensaje `tool` con el informe, o el error en JSON, y con él se reconstruyen el encargo y el informe. El runtime ejecuta las llamadas de un lote en orden, así que varias delegaciones en una misma respuesta van una tras otra.
+## 4. Codificación canónica de nombres de herramientas
 
-### Comandos locales
+* **Formato público:** `<herramienta>` para herramientas nativas y locales del host (`read_file`, `run_command`…) y `<servicio>_<herramienta>` para herramientas de servicios MCP externos (`browser_service_browser_navigate`).
+* **Codificación sin pérdida (`publicToolName` en `js/mcp.js` y `public_tool_name` en `py/`):**
+  * Se conservan `a-y`, `A-Z` y `0-9` (y `_` solo dentro del nombre de la herramienta).
+  * Cualquier otro carácter, incluida la `z` minúscula, se escapa como `z<hexadecimal del punto de código>z`.
+  * Se rechazan componentes vacíos, nombres públicos de más de 64 caracteres y duplicados. Ambas implementaciones (JS y Python) se prueban contra la misma tabla de casos.
+* **Identidad en permisos:** las políticas persistidas se consultan exclusivamente por este identificador público canónico, sin alias ni eliminación de guiones bajos en herramientas MCP.
 
-El host local expone una sola herramienta de ejecución, `run_command`, y otra de control, `check_command`. Cada llamada a `run_command` abre una shell nueva (bash, o PowerShell en Windows) en el directorio del proyecto: no hereda `cd`, variables ni entornos virtuales de llamadas anteriores. La salida une stdout y stderr en el orden en que se producen.
+---
 
-- Sin `background`, espera hasta `timeout_seconds` (30 por defecto, máximo 600) y, si no ha terminado, no lo mata: lo pasa a segundo plano y devuelve `status: running` con su `job_id` y una nota que pide no relanzarlo. Solo se detiene (con todo su grupo de procesos) a petición del modelo, de la persona o al cerrar ZeroChat.
-- Con `background: true`, responde a los pocos segundos con un `job_id` y la primera salida; el comando sigue sin plazo hasta que termina o se detiene.
-- Un comando idéntico (sin contar los espacios de los extremos) a otro que sigue en marcha en el mismo proyecto no se lanza: el resultado es un error con el `job_id` del que sigue, para seguirlo con `check_command` o detenerlo antes si hace falta otra ejecución.
-- Cada comando se lanza con `PYTHONUNBUFFERED=1`: su salida va a un pipe y, sin eso, un programa Python la retendría en el búfer hasta salir, sin que la tarjeta, `check_command` ni su `pattern` vieran nada mientras trabaja.
-- `check_command(job_id?, wait_seconds?, stop?, pattern?)` devuelve el estado y solo la salida que el modelo aún no ha visto. Con `wait_seconds` espera a que el comando termine (como mucho `COMMAND_MAX_WAIT`); con `pattern` (uno o varios textos separados por `|`, buscados como texto sin distinguir mayúsculas, hasta `CHECK_PATTERN_MAX_CHARS`) vuelve en cuanto una línea nueva contiene alguno. No es una expresión regular a propósito: el motor `re` de Python no suelta el GIL, y una expresión con retroceso catastrófico, como `(a+)+$`, bloquearía todo el servidor. `wait_seconds` es un máximo: la espera vuelve en cuanto el comando termina. `job_id` es obligatorio: esperar sin un comando es cosa de la herramienta nativa `wait` (abajo). Cuando espera, el resultado dice por qué volvió (`returned_because`: `pattern_matched`, `command_finished`, `wait_elapsed` o `wait_ended_by_user`), cuánto esperó (`waited_s`) y la línea que coincidió (`matched_line`). No requiere confirmación porque solo actúa sobre comandos del registro del host.
+## 5. Tarjetas de ejecución (`ChatToolCards`)
 
-Cada comando es una tarea del registro del host, con su log en un directorio temporal de la sesión. Su comienzo se guarda en disco y su final en memoria, con un tope de 5 MB, y el log se borra al cerrar ZeroChat. El cliente envía `context.invocationId` como `params._meta.zerochatJobKey`; si se aborta el turno, detiene el comando con `zerochat/jobs/stop` y esa clave. `check_command` envía también su clave (el registro de esperas cortables y la espera viven en `py/tools/job_waits.py`): abortar el turno, o pulsar «Dejar de esperar» en su tarjeta, corta la espera con `zerochat/jobs/end_wait` sin detener el comando. Su tarjeta (`createWaitView` en `js/command-card.js`) se muestra desplegada y, mientras espera, en la zona visible del grupo, con el tiempo que lleva y, si espera a un comando, su salida nueva. La tarjeta de `run_command` (`js/command-card.js`) se refiere al comando primero por la clave de la invocación y después por su `job_id`. Su reloj se calcula en el navegador; el final de un comando en segundo plano se detecta cuando deja de figurar en `mcp.commandJobs`, y entonces la tarjeta pregunta una vez con `zerochat/jobs/get`. Desplegada muestra las últimas 40 líneas del log como una terminal (de una barra de progreso que se reescribe con `\r`, su último tramo), con un aviso si hay salida anterior: la primera consulta pide los últimos bytes con `zerochat/jobs/log` (`tail`), que devuelve también `offset` y `details`, y «Ver log completo» pide el log entero por páginas con `zerochat/jobs/log` y lo abre en una pestaña nueva. Plegada no hace peticiones propias y muestra junto al comando su última línea de salida, que el heartbeat publica en cada comando en marcha (`last_line`, hasta `LAST_LINE_MAX_CHARS`; de una barra de progreso que se reescribe con `\r`, su último tramo); desplegada pide su log cada 2 s mientras el comando sigue en marcha. Esas consultas (`jobs/get`, `jobs/log` y `jobs/list`) no se registran en la consola del servidor. Muestra su estado y un botón para detenerlo (`zerochat/jobs/stop` devuelve los detalles y la lista `jobs` en marcha); desplegada, su log, que pide solo al desplegarse y que se actualiza mientras el comando sigue en marcha. Si el comando sigue en segundo plano cuando termina la llamada, vuelve a la zona visible del grupo de herramientas (`ChatToolCards.reactivateToolCard`) hasta que acaba. Al terminar un turno, `js/ui-command-jobs.js` añade al final del chat un aviso plegado con los comandos en segundo plano que siguen en marcha (slice `mcp.commandJobs`, actualizado con el heartbeat y con `McpManager.refreshCommandJobs`) y retira el aviso anterior. Su tiempo no corre; cuando un comando deja de figurar en `mcp.commandJobs`, su línea pregunta una vez con `zerochat/jobs/get` y pasa a su final, con la duración y sus últimas líneas de salida, aunque el turno haya acabado. El modelo no se despierta: se entera con el siguiente mensaje (`buildCommandNotes`). Si el heartbeat indica `exit_on_close`, avisa con `beforeunload` antes de cerrar la pestaña. Al empezar un turno, `McpManager.buildCommandNotes` busca en la conversación los comandos cuyo último estado conocido es `running` y pide al host su final con `zerochat/jobs/report`, que entrega cada final una sola vez y solo si el modelo no lo ha visto. Con lo que devuelve se redacta una nota en inglés, que se guarda en el mensaje del usuario (`commandNotes`) y que `chat-engine.js` antepone a su texto: no se muestra en el chat y el historial que ve el modelo no cambia en turnos posteriores. La interfaz consulta y controla las tareas con los métodos `zerochat/jobs/list`, `zerochat/jobs/get`, `zerochat/jobs/log`, `zerochat/jobs/stop` y `zerochat/jobs/end_wait`, y el heartbeat publica las que siguen en marcha. Al parar el servidor, también con SIGHUP, se detienen todas. Para los cierres abruptos, en Windows cada comando entra en un Job Object con `KILL_ON_JOB_CLOSE`; en POSIX, cada instancia apunta sus grupos de procesos en un registro (`zerochat-jobs-<uid>/<pid>-…/jobs.json`, con la huella de arranque de cada proceso) y al arrancar se matan los de instancias que ya no existen, sin tocar otras vivas ni PID reutilizados.
-
-Las llamadas `tools/call` al host local no llevan firma propia: el backend decide cada una con sus políticas y, si necesita confirmación, devuelve un reto de un solo uso que la interfaz resuelve con `zerochat/security/authorize` (contrato en [`py/README.md`](../../py/README.md#3-seguridad-y-red)).
-
-### Esperas (`wait`)
-
-`wait` (`js/tools/builtin/wait.tool.js`, alias `sleep`) espera `seconds` (de 1 a 86.400) o hasta `until`, una hora local `HH:MM` o `HH:MM:SS`; si esa hora ya ha pasado hoy, es la de mañana. No dice qué hacer después: el modelo lo sabe por su contexto, y el resultado (`until`, `waited_s` y `note: "Wait finished, continue."`) solo le devuelve el turno. Es una espera optimista del navegador: compara con la hora de llegada cada segundo, así que una suspensión del equipo o los temporizadores frenados de una pestaña oculta retrasan el final, pero no lo desplazan; si se cierra el navegador o se detiene el turno, no queda nada pendiente. «Detener» aborta `context.signal` y corta la espera. Su tarjeta, sin desplegable y fuera de los grupos de herramientas, muestra «Esperando hasta las hh:mm:ss para continuar». En el runner sin interfaz (`--prompt` y ejecución en servidor) `js/run-node.js` la declara no disponible. Para esperar a un comando está `check_command(job_id, wait_seconds)`, que vuelve en cuanto termina.
-
-### Cambio de modelo (`switch_model`)
-
-`switch_model` (`js/tools/builtin/switch-model.tool.js`) cambia, por instrucción del usuario, de perfil (`profile`) y/o de nivel de razonamiento (`reasoning`: `none`, `low`, `medium`, `high` o `xhigh`, los del selector) a mitad del trabajo. El modelo no recibe la lista de perfiles: el nombre se busca sin distinguir mayúsculas y solo vale si aparece como palabra completa en un mensaje del usuario de la conversación (`context.modelSwitch.userMessages`), para que un texto ajeno no pueda mandar la conversación a otro proveedor. Un nombre que no existe devuelve un error sin sugerir otros.
-
-`ChatEngine.executeAgentTurnLoop` entrega `context.modelSwitch.apply({ profileId, reasoningEffort })`: activa el perfil con `params.activateProfile` (en la interfaz, `ChatUIProfiles.activateConnectionProfile`, como el selector, sin avisos de servicios MCP a mitad de turno; en el runner sin interfaz, el perfil de sesión, sin WebLLM), aplica el razonamiento con `ChatConfig.updateRuntime` y recalcula la conexión del turno (URL, API key, modelo, temperatura, razonamiento, límite de contexto y resumidor). Sin `activateProfile` solo cambia el razonamiento. En la ejecución en segundo plano (`--prompt`, `--conversation` y el switch del selector), `zerochat/run/prompt` entrega en `profiles` todos los perfiles del servidor sin sus API keys (la del perfil de la ejecución llega en `profile_data`); `js/run-mode.js` los registra como perfiles de sesión sin clave (`ChatProfileRepository.registerSessionProfile(profile, { keyless: true })`, solo en memoria y fuera de `list()`), y al cargar uno por primera vez el repositorio pide su clave al servidor con `zerochat/run/profile` (`setSessionKeyLoader`) y la herramienta los busca primero con `listSessionProfiles()`. `AgentRuntime.execute` pide esa conexión con `resolveConnection()` antes de cada paso: el cambio vale desde la siguiente llamada al modelo, también para la compactación, el prompt de sistema, las herramientas activas y la conexión que hereda `delegate_task`. Al cambiar de modelo, el razonamiento del turno que se reenviaba (`reasoningReplay`) se descarta, porque es del modelo anterior, y se vuelve a enviar el nivel de razonamiento aunque el anterior lo hubiera rechazado. Además, al modelo nuevo se le envía tras el último mensaje de ese momento un mensaje de usuario (`MODEL_SWITCH_NOTE`) que no se guarda ni se ve en el chat: para él lo anterior es un turno cerrado, como al cambiar en el selector. Así un proveedor que valida las llamadas del turno en curso no recibe como suyas las del otro modelo; Gemini 3 rechaza con un 400 una llamada del turno en curso sin su firma (`thought_signature`). No cambia el interruptor «Ejecución en segundo plano». El subagente no la recibe, porque no es de solo lectura.
-
-## Herramienta de ejecución de código (`execute_javascript`)
-
-`execute_javascript` (`js/tools/builtin/execute-javascript.tool.js` y `js/sandbox.js`) es una herramienta diseñada para asistir al modelo en cálculos numéricos, operaciones algorítmicas complejas y procesamiento de datos en tiempo real.
-
-- **Aislamiento según el entorno de ejecución**:
-  1. **En navegador (3 capas de defensa en profundidad)**:
-     - **`<iframe>` con `sandbox="allow-scripts"` (origen opaco `null`)**: Al no incluir `allow-same-origin`, el navegador bloquea completamente el acceso a `localStorage`, `sessionStorage`, `IndexedDB`, cookies y al DOM de la ventana principal (`window.parent` lanza `SecurityError`).
-     - **Content Security Policy (CSP) restrictivo**: El iframe inyecta su propia política `<meta http-equiv="Content-Security-Policy">` con `default-src 'none'`, `script-src 'unsafe-inline' 'unsafe-eval' blob:;` y `connect-src 'none'`. Esto imposibilita la exfiltración de datos mediante llamadas de red (`fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource`, WebRTC).
-     - **Web Worker desacoplado y Watchdog de timeout**: La computación se delega a un Worker interno sobre un hilo independiente para no congelar la interfaz de usuario ante algoritmos pesados o bucles. Un temporizador watchdog en el host (`timeoutMs`, por defecto 2500ms) elimina forzosamente el iframe (`iframe.remove()`) si se sobrepasa el límite de tiempo.
-  2. **En Node.js (modo servidor y runner desatendido)**: un proceso hijo aparte, sin entorno ni token, cuyo script tiene una sola fuente, `scripts/sandbox-child.js`. `npm run build:sandbox` genera de ella `py/tools/sandbox_script.py` (el servidor, `zerochat/sandbox/execute`) y `js/sandbox-node-script.js` (el runner sin servidor), con los indicadores de arranque; una prueba comprueba que coinciden. `node:vm` no es una frontera de seguridad, así que hay tres capas:
-     - **Contexto sin objetos del anfitrión**: `vm.createContext` recibe un objeto vacío y usa sus propios `Object`, `Array`, `Promise`…; `console` y el formato del resultado se definen dentro. Entre los dos lados solo cruzan cadenas y el resultado se recoge por sondeo: el anfitrión no espera la promesa del código, que entregaría funciones suyas a un `then` cambiado.
-     - **Sin generación de código desde cadenas**: el contexto se crea con `codeGeneration: { strings: false, wasm: false }` y el proceso se lanza con `--disallow-code-generation-from-strings`, además de `--permission` (sin disco ni procesos). Si un objeto del anfitrión se filtra (el error de `import()` lo es), su constructor de funciones no ejecuta nada. Por eso `eval` y `new Function` no están disponibles para el código.
-     - **Global del anfitrión vaciado**: antes de ejecutar el código, el proceso borra de su global `process`, `require`, `module` y las funciones de red.
-     - **Plazo**: `vm` interrumpe los bucles síncronos con `ERR_SCRIPT_EXECUTION_TIMEOUT`; un bucle asíncrono lo corta quien lanzó el proceso, matándolo al vencer el plazo.
-     - **Riesgo aceptado**: el modelo de permisos de Node no limita la red hasta Node 25; las tres capas cierran las vías conocidas (batería de escapes en `tests/infrastructure/py/test_sandbox.py`), pero la garantía de «sin red» solo la da el sistema.
-- **Control de salidas y recursos**: Truncado automático de salidas que superen `MAX_OUTPUT_LENGTH` (30.000 caracteres) y limitación estricta de registros de consola (`MAX_LOG_ENTRIES = 200`).
-- **Supervisión y activación**: Diseñada para asistir al modelo con la visibilidad del usuario. Se puede habilitar o inhabilitar en cualquier momento desde los ajustes de herramientas.
-
-## Nombres de herramientas
-
-El contrato público es `<herramienta>` (nombre canónico directo) para herramientas locales
-del host (como `read_file`, `write_file`, `edit_file`, `list_directory`, `run_command`) y
-`<servicio>_<herramienta>` para servicios externos, tanto directos como
-agregados por el host. Ejemplo: `browser_service_browser_navigate`.
-El host publica el nombre definitivo; el proveedor lo valida sin añadir prefijos.
-`metadata.mcpServerId` y `metadata.originalName` conservan la identidad remota.
-Las llamadas del host solo resuelven herramientas actualmente anunciadas.
-
-Los archivos de los servicios incluidos tienen como fuente de verdad `services/`.
-`npm run build:backend` ejecuta primero `scripts/build-managed-services.mjs`, que
-genera el catálogo `services/manifest.json` que el host descarga junto a la interfaz
-(detalles en [`py/README.md`](../../py/README.md)).
-
-Los componentes se codifican sin pérdida: se conservan `a-y`, `A-Z` y `0-9`;
-solo en la herramienta se conserva también `_`. Cualquier otro carácter,
-incluida la `z` minúscula, que abre cada escape, se representa como
-`z<hexadecimal del punto de código>z`. Las mayúsculas se conservan para que los
-nombres remotos (como `composio_COMPOSIO_SEARCH_TOOLS`) sigan siendo legibles y
-quepan en 64 caracteres. Así se distinguen mayúsculas, puntuación y límites entre
-servicio y herramienta sin depender del orden de descubrimiento. Los componentes
-vacíos, los nombres públicos de más de 64 caracteres y los duplicados se rechazan
-explícitamente; el host registra en consola cada herramienta descartada.
-`publicToolName` en `js/mcp.js` y `public_tool_name` en `zerochat.py` deben
-cambiar a la vez y se prueban con la misma tabla de casos.
-
-El registro no genera alias MCP ni elimina sus guiones bajos para resolverlos.
-Los permisos persistidos se consultan exclusivamente por identificador canónico,
-nunca por nombre original, sufijo o alias. No existe migración de nombres antiguos.
-
-## Tarjetas de ejecución
-
-`ChatToolCards.renderCardHtml(options)` construye el armazón único de las
-tarjetas nativas, MCP y de respaldo: cabecera, estado, botón y cuerpo plegable.
-Las vistas aportan `titleHtml`, `badgeHtml` y `bodyHtml`, escapando previamente
-cualquier dato externo; estos slots solo admiten HTML interno seguro.
-`className` conserva selectores específicos del contenido, sin cambiar el diseño
-de la cabecera. `titleSuffixHtml` permite mostrar el servidor MCP por separado
-del nombre truncado. El plegado y la agrupación se coordinan en `ChatToolCards`.
-Los gráficos son resultados principales: permanecen abiertos fuera de los grupos.
-Las capturas MCP y los comandos que siguen en marcha mantienen su tarjeta abierta.
-
-Las vistas reciben siempre el contexto de `ChatToolCards` (`markdown`, `t`, `charts`,
-`createCardWrapper` y los iconos de estado), así que no buscan dependencias en
-`window` ni definen escapados propios. `fetch_web_page` y `download_doc` comparten
-la tarjeta de `ChatToolCards.createWebRequestView`, que recibe el icono, los textos
-y la etiqueta de estado de cada una, y las herramientas de conocimiento local, salvo
-`read_knowledge_image`, la de `ChatToolCards.createTextResultView`; por eso `tool-cards.js` se carga antes que las
-herramientas nativas.
-
-El cierre automático se limita a la tarjeta que termina. Actualizar el estado de
-un grupo o mover una tarjeta al historial no modifica el atributo `open` del
-agrupador ni el plegado de otras tarjetas, respetando la interacción del usuario.
-Las tarjetas en curso también entran en el historial plegado del grupo, cuyo resumen
-nombra la que se ejecuta, así que el grupo no cambia de altura con cada llamada. Solo
-pasan a la zona visible para pedir autorización, hasta que se decide, o mientras un
-comando sigue en segundo plano.
+* **Armazón único (`ChatToolCards.renderCardHtml`):** construye la estructura de todas las tarjetas (nativas, MCP y de respaldo) con `titleHtml`, `badgeHtml`, `titleSuffixHtml` y `bodyHtml` (escapando previamente cualquier dato externo). Las vistas reciben sus dependencias inyectadas desde `ChatToolCards` (`markdown`, `t`, `charts`, `createCardWrapper`, iconos de estado).
+* **Agrupación y estabilidad visual:**
+  * Las tarjetas se agrupan en contenedores plegables («Llamadas a herramientas») que se cortan cada 20 tarjetas para no degradar el DOM. Quedan fuera de los grupos los resultados principales o contenedores propios: gráficos (`render_chart`), preguntas (`ask_user`), esperas (`wait`) y subagentes (`delegate_task`).
+  * Las tarjetas en curso entran directamente en el historial plegado del grupo (cuyo resumen muestra cuál se está ejecutando) para que la altura de la página no salte en cada llamada; solo pasan a la zona visible del grupo cuando requieren autorización interactiva del usuario o mientras un comando sigue corriendo en segundo plano.

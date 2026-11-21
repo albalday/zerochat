@@ -1,5 +1,7 @@
 # Guía y arquitectura de pruebas de ZeroChat
 
+Este documento define la estrategia táctica de verificación y las reglas de la suite de pruebas. Cuelga de la visión global en [`docs/architecture.md`](../docs/architecture.md) y complementa a [`AGENTS.md`](../AGENTS.md).
+
 ZeroChat utiliza el ejecutor nativo `node:test`, Playwright para las pruebas de navegador y `unittest` para la lógica Python del backend. La suite se organiza por nivel de responsabilidad y se ejecuta mediante `scripts/test-runner.mjs`.
 
 El runner es la fuente de verdad para los archivos descubiertos y para los grupos funcionales. Para consultar el inventario actual sin depender de esta guía, usa sus opciones `--list`.
@@ -106,7 +108,7 @@ Los cambios en el runner requieren actualizar esta guía solo si cambian sus com
 2. Crea el archivo con el patrón `test_<área>.js` o `<área>.test.js` dentro del nivel elegido.
 3. Aísla efectos compartidos en `beforeEach` y `afterEach`; restaura mocks, temporizadores y estado global al terminar cada caso.
 4. Para pruebas de navegador, usa los helpers de `tests/helpers/browser-env.js` (como `withTestApp`, que gestiona contexto, arranque y cierre automático) y garantiza el cierre de páginas y contextos en `finally`. Espera a la aplicación con `waitForAppReady(page)` (no solo a `zerochat-ready`, que se marca antes de cargar la sesión) y nunca con esperas fijas.
-5. Para pruebas que arrancan `zerochat.py`, usa `tests/helpers/backend-env.js`: `freePort()` para el puerto, `tokenDataDir()` para el token y `waitForServer()` para el arranque. Los comportamientos que comparten la misma configuración de arranque (misma CLI, mismo entorno) se prueban en un único proceso compartido, nunca con un spawn por comprobación; solo se arranca otro proceso cuando difieren los flags, el entorno o el ciclo de vida.
+5. Para pruebas que arrancan `zerochat.py`, usa `tests/helpers/backend-env.js`: `freePort()` para el puerto, `tokenDataDir()` para el token y `waitForServer()` para el arranque (espera la línea `Servidor HTTP` de su cabecera: lanza el proceso con stdout y stderr en `pipe`). Los comportamientos que comparten la misma configuración de arranque (misma CLI, mismo entorno) se prueban en un único proceso compartido, nunca con un spawn por comprobación; solo se arranca otro proceso cuando difieren los flags, el entorno o el ciclo de vida.
 6. Para la lógica Python del backend, crea `tests/infrastructure/py/test_<área>.py` con clases `unittest.TestCase` e importa el módulo con `from backend import zerochat`: `backend.py` carga `zerochat.py` una sola vez por proceso, y cada fichero tiene el suyo. Aísla el directorio de datos y las variables de entorno con `tempfile` y `unittest.mock.patch.dict(os.environ, …)`.
 7. Para topes que protegen memoria, contexto o seguridad (filas, tamaño, elementos, tiempo), incluye en la prueba de tabla del módulo el borde exacto (`N` y `N+1`) y comprueba el aviso o marcador de truncado. Importa las listas de formatos, constantes o convenciones desde el módulo o manifiesto de origen en lugar de reimplementarlas en el test.
 8. Añade la suite a un grupo funcional solo cuando forme parte de su flujo representativo.

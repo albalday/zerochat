@@ -50,7 +50,7 @@ npm install
 npm test
 ```
 
-For development rules, architecture and test suites, see [`AGENTS.md`](./AGENTS.md), [`js/README.md`](./js/README.md), [`py/README.md`](./py/README.md) and [`tests/README.md`](./tests/README.md).
+For development rules, architecture and test suites, see [`AGENTS.md`](./AGENTS.md), [`docs/architecture.md`](./docs/architecture.md), [`js/README.md`](./js/README.md), [`py/README.md`](./py/README.md) and [`tests/README.md`](./tests/README.md).
 
 ---
 
@@ -100,4 +100,4 @@ npm install
 npm test
 ```
 
-Las normas de desarrollo, arquitectura y suite de pruebas se describen en [`AGENTS.md`](./AGENTS.md), [`js/README.md`](./js/README.md), [`py/README.md`](./py/README.md) y [`tests/README.md`](./tests/README.md).
+Las normas de desarrollo, arquitectura y suite de pruebas se describen en [`AGENTS.md`](./AGENTS.md), [`docs/architecture.md`](./docs/architecture.md), [`js/README.md`](./js/README.md), [`py/README.md`](./py/README.md) y [`tests/README.md`](./tests/README.md).

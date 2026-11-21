@@ -37,17 +37,21 @@ Other agent instruction files (CLAUDE.md, .cursorrules) only point here. Add rul
 
 ## 1. Estructura y documentación
 
+Antes de diseñar cambios o proponer funcionalidades, lee la visión global del sistema y sus decisiones estructurales en [`docs/architecture.md`](./docs/architecture.md).
+
 Los cambios son pequeños, coherentes con la arquitectura y limitados a lo solicitado. Cada subsistema tiene normas técnicas propias, de obligado cumplimiento al tocarlo:
 
 | Ruta | Contenido | Normas |
 |---|---|---|
+| `docs/architecture.md` | Visión global de arquitectura, subsistemas, modelo de proyecto y orquestación | [`docs/architecture.md`](./docs/architecture.md) |
+| `docs/audit.md` | Norma y procedimiento de auditoría completa y acotada | [`docs/audit.md`](./docs/audit.md) |
 | `zerochat.html`, `js/`, `css/` | Interfaz web estática (GitHub Pages), sin bundle | [`js/README.md`](./js/README.md) |
 | `js/tools/` | Herramientas agénticas nativas | [`js/tools/README.md`](./js/tools/README.md) |
 | `py/`, `zerochat.py` | Backend local; `zerochat.py` se genera con `npm run build:backend` | [`py/README.md`](./py/README.md) |
 | `tests/` | Suite de pruebas | [`tests/README.md`](./tests/README.md) |
 | `scripts/` | Automatización, validación y versiones | — |
 | `help/` | Ayuda de usuario bilingüe (español e inglés) | — |
-| `docs/` | Auditorías y propuestas en borrador | — |
+| `docs/` | Documentación de arquitectura, norma de auditoría y propuestas en borrador | — |
 
 Este fichero solo contiene normas globales; los contratos de cada subsistema van en su README.
 
@@ -70,7 +74,7 @@ El código nuevo debe:
 Las entradas de usuario, respuestas de modelos y datos externos no son confiables:
 - Inserción segura: pintar texto plano o escapar con `escapeHtml`. `innerHTML` queda restringido a la lista cerrada de `tests/architecture/test_html_sinks.js`.
 - Los cambios que afecten a ejecución de comandos, sandbox o datos sensibles incluyen pruebas de límites y autorización.
-- El backend exige token de sesión y escucha por defecto en `127.0.0.1` (detalles en [`py/README.md`](./py/README.md#3-seguridad-y-red)).
+- El backend exige token de sesión y escucha por defecto en `127.0.0.1` (detalles en [`py/README.md`](./py/README.md#3-transporte-http-json-rpc-estado-vivo-y-autenticación)).
 
 
 ## 4. Pruebas y validación
@@ -93,7 +97,7 @@ Antes de considerar terminado un cambio:
 ## 5. Git y versiones
 
 - Todo desarrollo se hace en `dev`, con Conventional Commits (`feat:`, `fix:`, `refactor:`, `docs:`, `test:`, `chore:`).
-- Las versiones cambian solo con `npm run bump <patch | minor | major>`, nunca a mano: `patch` sube la interfaz web; `minor`/`major` también el backend y PyPI. No se ejecuta en cada commit, solo al consolidar para pasar a `master` (release PyPI en [`py/README.md`](./py/README.md#4-distribución-y-publicación-en-pypi)).
+- Las versiones cambian solo con `npm run bump <patch | minor | major>`, nunca a mano: `patch` sube la interfaz web; `minor`/`major` también el backend y PyPI. No se ejecuta en cada commit, solo al consolidar para pasar a `master` (release PyPI en [`py/README.md`](./py/README.md#8-distribución-y-publicación-en-pypi)).
 - Se promueve a `master` solo desde `dev`, tras `npm run bump` con versión superior a la de `master` y con todos los niveles de §4 en verde.
 - **Excepción:** los cambios exclusivos de `help/`, `docs/`, `.zerochat/` y `AGENTS.md` no necesitan bump ni la suite completa y pueden sincronizarse directamente con `master`.
 - Los cambios que no modifican lo publicado (ni la interfaz web ni el paquete de PyPI), como `tests/`, `.github/` o los scripts y README de desarrollo, se promueven sin bump, pero con todos los niveles de §4 en verde.
