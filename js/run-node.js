@@ -365,6 +365,7 @@
         signal: currentAbortController.signal,
         view,
         onProgress: sendOptions.onProgress,
+        maxSteps: sendOptions.maxSteps ?? null,
         // Cada paso cerrado queda grabado: si la ejecución se corta, se conserva lo hecho.
         onStepHistory: history => {
           sessionManager.saveActiveConversation(history).catch(error => console.warn('[RunNode] Could not save the step:', error));
@@ -385,6 +386,7 @@
       if (loopResult.loopDetected) {
         return { error: 'The agent loop was stopped after repeated tool calls.' };
       }
+      if (loopResult.stepLimit) return { limit: 'steps' };
       if (loopResult.error) {
         return { error: loopResult.error.message || String(loopResult.error) };
       }

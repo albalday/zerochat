@@ -142,7 +142,7 @@
    * reintenta, `sessionsLoaded` espera a la conversación inicial, `activateSessionProfile` activa
    * sin guardarlo el perfil pedido (nombre o id), arranca sus servicios MCP y devuelve
    * { started, unavailable }, `submitComposerText` envía el prompt
-   * como el usuario (o continúa con `{ resume: true }`) y devuelve { text } o { error },
+   * como el usuario (o continúa con `{ resume: true }`), con el tope `maxSteps`, y devuelve { text }, { error } o { limit },
    * `stopGeneration` la detiene, `exportConversation` da la conversación activa en un formato de
    * ChatExport, `switchToSession` cambia a una conversación existente y `startNewSession` abre sin
    * --conversation la conversación nueva cuyo id eligió el servidor (el de --run-file o uno propio).
@@ -175,7 +175,8 @@
         export: exportFormat,
         keep_page: keepPageRequested,
         conversation_id: conversationId,
-        new_conversation_id: newConversationId
+        new_conversation_id: newConversationId,
+        max_steps: maxSteps = null
       } = await send('zerochat/run/prompt');
       keepPage = keepPageRequested === true;
 
@@ -225,9 +226,9 @@
           if (cleaned.length !== messages.length) {
             State.replaceMessages(cleaned);
           }
-          generated = await submitComposerText('', { resume: true, onProgress: report });
+          generated = await submitComposerText('', { resume: true, onProgress: report, maxSteps });
         } else {
-          generated = await submitComposerText(prompt, { onProgress: report });
+          generated = await submitComposerText(prompt, { onProgress: report, maxSteps });
         }
       }
 
@@ -241,6 +242,8 @@
         result = { error: `The run needs the user: ${userRequest.text}` };
       } else if (generated?.error) {
         result = { error: generated.error };
+      } else if (generated?.limit) {
+        result = { limit: generated.limit };
       } else if (question) {
         result = { needs_input: { kind: 'ask_user', text: question } };
       } else if (pendingAuth) {
@@ -259,6 +262,8 @@
 
       if (result.needs_input) {
         await send('zerochat/run/result', { needs_input: result.needs_input });
+      } else if (result.limit) {
+        await send('zerochat/run/result', { limit: result.limit });
       } else if (result.error) {
         await send('zerochat/run/result', { error: result.error });
       } else {

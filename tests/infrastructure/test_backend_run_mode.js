@@ -245,7 +245,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(failed.info.profile, 'local', 'sin --profile usa el perfil por defecto local del servidor');
     assert.equal(ok.info.wrong_run_id, 'run_id no válido.');
     assert.equal(ok.info.second_prompt, 'El prompt ya se entregó.');
-    assert.equal(ok.info.bad_result, 'El resultado lleva text, error o needs_input con kind y text.');
+    assert.equal(ok.info.bad_result, 'El resultado lleva text, error, needs_input con kind y text, o limit.');
     // La conversación exportada se escribe una sola vez en el fichero, con el formato de su extensión.
     assert.equal(ok.info.export, 'markdown');
     assert.equal(ok.info.keep_page, true);

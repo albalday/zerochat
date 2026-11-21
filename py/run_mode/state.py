@@ -53,6 +53,8 @@ RUN_EXIT_ARGS = 4
 # Pausada a la espera del usuario (ask_user o una herramienta por aprobar): se reanuda con la conversación.
 RUN_EXIT_NEEDS_INPUT = 5
 RUN_NEEDS_INPUT_KINDS = ("ask_user", "tool_approval")
+# Alcanzó maxSteps o timeout de --run-file: lo hecho queda grabado y se continúa con la conversación.
+RUN_EXIT_LIMIT = 6
 # Perfil por defecto de --prompt cuando no se indica --profile.
 DEFAULT_RUN_PROFILE = "local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
@@ -62,7 +64,9 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 # Petición de --run-file: lo que quien lanza la ejecución fija en ella. Nunca lleva permisos, herramientas ni servicios
 # MCP, que salen siempre del entorno guardado del proyecto, así que no puede ampliarlos.
 RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile")
-RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt",))
+# Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
+RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
+RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt",) + tuple(RUN_FILE_LIMIT_KEYS))
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -74,8 +78,8 @@ _EXITED: set[tuple[int, str | None]] = set()
 _EXIT_LOCK = threading.Lock()
 
 
-def parse_run_request(raw: bytes) -> dict:
-    """Valida el contenido de --run-file y devuelve sus campos limpios; ValueError con el motivo si no vale."""
+def _run_request_object(raw: bytes) -> dict:
+    """El objeto JSON de --run-file, sin pasar del tope ni llevar campos fuera de RUN_FILE_KEYS."""
     if len(raw) > RUN_FILE_MAX_BYTES:
         raise ValueError(f"no puede superar {RUN_FILE_MAX_BYTES} bytes")
     try:
@@ -87,6 +91,12 @@ def parse_run_request(raw: bytes) -> dict:
     unknown = sorted(set(data) - RUN_FILE_KEYS)
     if unknown:
         raise ValueError(f"campos desconocidos: {', '.join(unknown)}")
+    return data
+
+
+def parse_run_request(raw: bytes) -> dict:
+    """Valida el contenido de --run-file y devuelve sus campos limpios; ValueError con el motivo si no vale."""
+    data = _run_request_object(raw)
     request = {}
     for key in RUN_FILE_TEXT_KEYS:
         if key in data:
@@ -100,6 +110,12 @@ def parse_run_request(raw: bytes) -> dict:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
         request["systemDataPrompt"] = _validate_project_prompt(data["systemDataPrompt"])
+    for key, maximum in RUN_FILE_LIMIT_KEYS.items():
+        if key in data:
+            value = data[key]
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
+                raise ValueError(f"{key} debe ser un entero entre 1 y {maximum}")
+            request[key] = value
     return request
 
 
@@ -370,7 +386,8 @@ class RunSession:
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
                  conversation_id: str | None = None, run_id: str | None = None,
                  tool_security: dict | None = None, profile_data: dict | None = None,
-                 new_conversation_id: str | None = None, system_data_prompt: str | None = None):
+                 new_conversation_id: str | None = None, system_data_prompt: str | None = None,
+                 max_steps: int | None = None, timeout_seconds: int | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -384,6 +401,9 @@ class RunSession:
         self.prompt = prompt
         # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
         self.system_data_prompt = system_data_prompt
+        # Límites de --run-file: el de pasos lo aplica el bucle del runner y el de tiempo, run_supervisor.
+        self.max_steps = max_steps
+        self.timeout_seconds = timeout_seconds
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
         self.profile_data = profile_data
@@ -439,6 +459,21 @@ class RunSession:
             else:
                 self.warnings_omitted += 1
             write_run_state(self)
+
+    def reach_limit(self, message: str) -> bool:
+        """Termina la ejecución en un límite, si no tenía ya resultado; despierta a quien la espera."""
+        with self.lock:
+            if self.result is not None:
+                return False
+            self.result = {"limit": message}
+            self.status = "limit"
+            self.error = message
+            write_run_state(self)
+            wake = self._wake
+        self.finished.set()
+        if wake is not None:
+            wake.set()
+        return True
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -518,7 +553,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
-                       "export": export_format, "keep_page": session.keep_page})
+                       "export": export_format, "keep_page": session.keep_page, "max_steps": session.max_steps})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
@@ -571,10 +606,19 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
     needs_input = params.get("needs_input")
     is_text = isinstance(text, str) and error is None and needs_input is None
     is_error = isinstance(error, str) and bool(error) and text is None and needs_input is None
+    limit = params.get("limit")
     is_needs_input = (isinstance(needs_input, dict) and needs_input.get("kind") in RUN_NEEDS_INPUT_KINDS
                       and isinstance(needs_input.get("text"), str) and text is None and error is None)
+    # El único límite que ve el runner es el de pasos; el de tiempo lo aplica este servidor.
+    is_limit = limit == "steps" and session.max_steps is not None and text is None and error is None and needs_input is None
+    if limit is not None and not is_limit:
+        return rpc_error(INVALID_PARAMS, "limit solo puede ser steps en una ejecución con maxSteps.")
+    if is_limit:
+        if not session.reach_limit(f"Límite de {session.max_steps} pasos alcanzado."):
+            return rpc_error(INVALID_PARAMS, "El resultado ya se recibió.")
+        return rpc_result({"ok": True})
     if not (is_text or is_error or is_needs_input):
-        return rpc_error(INVALID_PARAMS, "El resultado lleva text, error o needs_input con kind y text.")
+        return rpc_error(INVALID_PARAMS, "El resultado lleva text, error, needs_input con kind y text, o limit.")
     with session.lock:
         if session.result is not None:
             return rpc_error(INVALID_PARAMS, "El resultado ya se recibió.")
@@ -647,6 +691,9 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
     if session.result is None:
         run_error(session.stop_reason or session.error or "El runner se cerró o la ejecución se interrumpió sin resultado.")
         return RUN_EXIT_NO_RESULT, None
+    if "limit" in session.result:
+        console_error(timestamp_message(f"[run] {session.result['limit']} Lo hecho queda grabado en la conversación."))
+        return RUN_EXIT_LIMIT, None
     if "error" in session.result:
         run_error(f"Error de generación: {session.result['error']}")
         return RUN_EXIT_ERROR, None

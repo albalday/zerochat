@@ -619,6 +619,8 @@
         createMessageId = kind => createId(`msg_${kind}`),
         // Aviso que cierra el turno al detectar un bucle; lo redacta quien lanza el agente.
         loopNotice = '',
+        // Llamadas al modelo de este turno como mucho (maxSteps de --run-file); null, sin tope.
+        maxSteps = null,
         onBeforeRequest = null,
         callbacks = {}
       } = params;
@@ -687,6 +689,11 @@
       try {
         while (true) {
           if (abortSignal.aborted) throw createCancelledError();
+          // Sin cerrar el turno: el historial acaba en los resultados del último paso y se reanuda desde ahí.
+          if (maxSteps !== null && stepIndex >= maxSteps) {
+            status = 'step_limit';
+            break;
+          }
           await refreshConnection();
           callbacks.onStepStart?.(stepIndex);
 
@@ -784,7 +791,7 @@
         executionError = abortSignal.aborted ? createCancelledError() : err;
       }
 
-      // `status`: completed, loop_detected, cancelled o error (con `error`).
+      // `status`: completed, loop_detected, step_limit, cancelled o error (con `error`).
       return {
         status,
         finalText,

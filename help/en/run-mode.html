@@ -44,7 +44,7 @@
         <tbody>
           <tr><td><code>--conversation ID</code></td><td>Continues the conversation with that ID stored on the local server (see <code>--list-conversations</code>). Can be combined with <code>--prompt TEXT</code> to append a new user turn or used on its own to resume the last pending message or answer.</td></tr>
           <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If omitted, uses the conversation's original profile (if present) or the server's <code>local</code> profile; if it does not exist, the run ends with an error.</td></tr>
-          <tr><td><code>--run-file FILE</code></td><td>Reads the request from a JSON file (<code>-</code> to read it from standard input) instead of <code>--prompt</code>, <code>--conversation</code> and <code>--profile</code>, meant for orchestrators: <code>{"conversation_id": "...", "prompt": "...", "profile": "...", "systemDataPrompt": "..."}</code>, all optional except the prompt or the conversation. If <code>conversation_id</code> exists it is continued; otherwise the new conversation is saved under that ID. <code>systemDataPrompt</code> replaces the project's one for this run only. The file never carries tools, MCP services or permissions, which always come from the project: that is why the folder must have its environment saved in Settings (otherwise the run ends with code <code>3</code>), and an unknown field ends with code <code>4</code>.</td></tr>
+          <tr><td><code>--run-file FILE</code></td><td>Reads the request from a JSON file (<code>-</code> to read it from standard input) instead of <code>--prompt</code>, <code>--conversation</code> and <code>--profile</code>, meant for orchestrators: <code>{"conversation_id": "...", "prompt": "...", "profile": "...", "systemDataPrompt": "...", "maxSteps": 20, "timeout": 600}</code>, all optional except the prompt or the conversation. <code>maxSteps</code> (up to 1000) limits the calls to the model and <code>timeout</code> (up to 86400) the seconds since startup; when one is reached, the run ends with code <code>6</code> and what was done stays saved (see <a href="#codigos">section 4</a>). If <code>conversation_id</code> exists it is continued; otherwise the new conversation is saved under that ID. <code>systemDataPrompt</code> replaces the project's one for this run only. The file never carries tools, MCP services or permissions, which always come from the project: that is why the folder must have its environment saved in Settings (otherwise the run ends with code <code>3</code>), and an unknown field ends with code <code>4</code>.</td></tr>
           <tr><td><code>--browser</code></td><td>Opens the user's default browser in visible mode instead of the windowless Node.js process.</td></tr>
           <tr><td><code>--headless</code></td><td>With <code>--browser</code>, opens the user's default browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
           <tr><td><code>--export FILE</code></td><td>Saves the conversation to <code>FILE</code>; the format comes from the extension: <code>.md</code> (Markdown), <code>.json</code> (session) or <code>.html</code> (as shown in the chat). It is also exported after a generation error.</td></tr>
@@ -69,7 +69,7 @@
 
     <div class="card" id="codigos">
       <h2>4. Duration and exit codes</h2>
-      <p>The run has no time limit: it goes on until it finishes, you cancel it or you interrupt it (Ctrl+C), and the conversation is saved in SQLite after every step with tools, so the work done is not lost if it is cut off. For tasks that must repeat, schedule them outside (section 6).</p>
+      <p>Without <code>maxSteps</code> or <code>timeout</code> in <code>--run-file</code>, the run has no time limit: it goes on until it finishes, you cancel it or you interrupt it (Ctrl+C), and the conversation is saved in SQLite after every step with tools, so the work done is not lost if it is cut off. For tasks that must repeat, schedule them outside (section 6).</p>
       <div class="table-responsive"><table>
         <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
         <tbody>
@@ -79,6 +79,7 @@
           <tr><td><code>3</code></td><td>Startup failure: port in use, browser that could not be opened or, with <code>--run-file</code>, a folder without a saved environment.</td></tr>
           <tr><td><code>4</code></td><td>Invalid arguments (also outside <code>--prompt</code>).</td></tr>
           <tr><td><code>5</code></td><td>Paused waiting for the user: the <code>ask_user</code> question or the tool awaiting approval is on standard output.</td></tr>
+          <tr><td><code>6</code></td><td><code>--run-file</code> limit reached (<code>maxSteps</code> or <code>timeout</code>): the status is <code>limit</code> with the reason, the closed steps are saved and the conversation can be continued. When the timeout expires the runner is stopped and only the step in progress is lost.</td></tr>
         </tbody>
       </table></div>
     </div>

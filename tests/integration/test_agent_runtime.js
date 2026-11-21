@@ -381,6 +381,23 @@ test('AgentRuntime - detección de bucles: quinto lote idéntico o alternado se 
   }
 });
 
+test('AgentRuntime - maxSteps detiene el turno en el borde exacto sin cerrarlo, con los resultados del último paso en el historial', async t => {
+  const { registry, counts } = countingRegistry(['read_page']);
+  const pages = () => scriptedApi(Array.from({ length: 5 }, (_, page) => ({ tool: 'read_page', args: { page } })), 'Leído.');
+  const atLimit = pages();
+  const done = await runAgent(t, registry, { api: atLimit, maxSteps: 6, messages: [{ role: 'user', content: 'Lee.' }] });
+  assert.equal(done.status, 'completed');
+  assert.equal(atLimit.requests.length, 6);
+
+  const overLimit = pages();
+  const stopped = await runAgent(t, registry, { api: overLimit, maxSteps: 5, messages: [{ role: 'user', content: 'Lee.' }] });
+  assert.equal(stopped.status, 'step_limit');
+  assert.equal(overLimit.requests.length, 5);
+  assert.equal(counts.read_page, 10);
+  assert.equal(stopped.finalText, '');
+  assert.equal(stopped.history.at(-1).role, 'tool');
+});
+
 test('AgentRuntime - Ejecución de múltiples tool calls simultáneas en el mismo turno', async t => {
   const registry = new ToolRegistry();
   const executedCalls = [];

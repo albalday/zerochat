@@ -19,7 +19,7 @@ const CORS = {
  * Servidor local falso: registra las llamadas zerochat/run/* y los servicios MCP externos que se
  * arrancan, y retiene el prompt hasta `release`.
  */
-async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, conversationId = null, initialConversation = null } = {}) {
+async function routeBackend(page, prompt, { profile, profileData = null, serverProfiles = [], exportFormat, keepPage = false, conversationId = null, initialConversation = null, maxSteps = null } = {}) {
   const calls = [];
   const saved = [];
   let release;
@@ -76,7 +76,8 @@ async function routeBackend(page, prompt, { profile, profileData = null, serverP
           // su API key; la pide con zerochat/run/profile al activar uno.
           profiles: serverProfiles.map(({ settings, ...rest }) => ({ ...rest, settings: { ...settings, apiKey: undefined } })),
           export: exportFormat ?? null,
-          keep_page: keepPage
+          keep_page: keepPage,
+          max_steps: maxSteps
         });
       }
       if (method === 'zerochat/run/profile') return reply({ profile: serverProfiles.find(item => item.id === params.id) });
@@ -274,6 +275,22 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     ask.backend.release();
     await ask.page.waitForFunction(() => window.__closed === true);
     assert.deepEqual(resultOf(ask.backend), { run_id: RUN_ID, needs_input: { kind: 'ask_user', text: '¿A o B?' } });
+  });
+
+  test('Browser UI - el modo ejecución se detiene en max_steps con los resultados del último paso y devuelve limit', async () => {
+    const { page, backend } = await openRun(browser, server, 'Lee', { maxSteps: 1 });
+    await page.evaluate(() => {
+      window.ChatConfig.updateRuntime({ model: 'test-model', apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai' });
+      window.ChatAPI.streamChatCompletion = async () => ({
+        accumulatedText: '',
+        toolCalls: [{ id: `call_${Date.now()}`, type: 'function', function: { name: 'demo_action', arguments: '{}' } }],
+        stats: null
+      });
+    });
+    backend.release();
+    await page.waitForFunction(() => window.__closed === true);
+    assert.deepEqual(resultOf(backend), { run_id: RUN_ID, limit: 'steps' });
+    assert.equal(await page.evaluate(() => window.ChatState.get('messages').at(-1).role), 'tool');
   });
 
   test('Browser UI - el modo ejecución con conversation_id retira el paso pausado, vuelve a llamar al modelo y devuelve needs_input al pedir permiso', async () => {

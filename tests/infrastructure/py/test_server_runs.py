@@ -256,10 +256,19 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no puede superar"):
             zerochat.parse_run_request(at_limit + b" ")
 
+        # Límites: enteros de 1 a su máximo, en el borde exacto.
+        for key, maximum in zerochat.RUN_FILE_LIMIT_KEYS.items():
+            self.assertEqual(zerochat.parse_run_request(json.dumps({"prompt": "Hola", key: maximum}).encode())[key], maximum)
+            for invalid in (maximum + 1, 0, True, "5", 2.5):
+                with self.assertRaisesRegex(ValueError, f"{key} debe ser un entero"):
+                    zerochat.parse_run_request(json.dumps({"prompt": "Hola", key: invalid}).encode())
+
         # Un conversation_id que no existe es el de la conversación nueva; sin prompt no hay con qué empezarla.
         session = session_from(["--run-file", write_request({
-            "conversation_id": "session_orquestador_1", "prompt": " Redacta el informe ", "systemDataPrompt": "Eres el agente de informes."})])
+            "conversation_id": "session_orquestador_1", "prompt": " Redacta el informe ", "systemDataPrompt": "Eres el agente de informes.",
+            "maxSteps": 20, "timeout": 600})])
         self.assertEqual((session.conversation_id, session.new_conversation_id), (None, "session_orquestador_1"))
+        self.assertEqual((session.max_steps, session.timeout_seconds), (20, 600))
         self.assertEqual((session.prompt, session.profile, session.system_data_prompt), ("Redacta el informe", "local", "Eres el agente de informes."))
         rejects(["--run-file", write_request({"conversation_id": "session_orquestador_2"})])
 
@@ -333,6 +342,42 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         data = zerochat.get_run_state(conv_id)
         self.assertEqual(data["status"], "error")
         self.assertEqual(data["error"], "El runner de Node.js terminó con el código 3 sin resultado: Error fatal en runner")
+
+    def test_los_limites_de_pasos_y_tiempo_terminan_con_estado_limit_y_codigo_6(self):
+        # El runner solo puede declarar el límite de pasos, y solo en una ejecución que lo tiene.
+        sin_tope = zerochat.RunSession("Hola", new_conversation_id="session_sin_tope")
+        zerochat.RUN_SESSION = sin_tope
+        _, err, _ = dispatch_run("zerochat/run/result", {"run_id": sin_tope.run_id, "limit": "steps"})
+        self.assertEqual(err["code"], zerochat.INVALID_PARAMS)
+        session = zerochat.RunSession("Hola", new_conversation_id="session_pasos", max_steps=20)
+        zerochat.RUN_SESSION = session
+        self.assertEqual(dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})[0]["max_steps"], 20)
+        _, err, _ = dispatch_run("zerochat/run/result", {"run_id": session.run_id, "limit": "timeout"})
+        self.assertEqual(err["code"], zerochat.INVALID_PARAMS)
+        self.assertEqual(dispatch_run("zerochat/run/result", {"run_id": session.run_id, "limit": "steps"})[0], {"ok": True})
+        self.assertTrue(session.finished.is_set())
+        data = zerochat.get_run_state("session_pasos")
+        self.assertEqual((data["status"], data["error"]), ("limit", "Límite de 20 pasos alcanzado."))
+        self.assertIsNotNone(data["finished_at"])
+        with mock.patch("sys.stderr", io.StringIO()) as stderr:
+            self.assertEqual(zerochat.run_outcome(session), (zerochat.RUN_EXIT_LIMIT, None))
+        self.assertIn("Límite de 20 pasos alcanzado.", stderr.getvalue())
+
+        # El plazo cuenta desde el arranque: vencido, termina el runner y deja el límite, no un error.
+        timed = zerochat.RunSession("Hola", new_conversation_id="session_plazo", timeout_seconds=5)
+        timed.started_at -= 5000
+        runner_gone = threading.Event()
+        runner = mock.Mock(wait=mock.Mock(side_effect=lambda: runner_gone.wait(5)))
+        with mock.patch.object(zerochat, "stop_zerochat_server"), \
+             mock.patch.object(zerochat, "_kill_process_tree", side_effect=lambda *_, **__: runner_gone.set()) as kill:
+            zerochat.run_supervisor(mock.Mock(), timed, runner_proc=runner)
+        kill.assert_called_once_with(runner, grace_seconds=1.0)
+        data = zerochat.get_run_state("session_plazo")
+        self.assertEqual((data["status"], data["error"]), ("limit", "Límite de 5 s alcanzado."))
+        # Un resultado que llega tarde ya no cambia el final.
+        zerochat.RUN_SESSION = timed
+        _, err, _ = dispatch_run("zerochat/run/result", {"run_id": timed.run_id, "text": "tarde"})
+        self.assertIn("ya se recibió", err["message"])
 
     def test_el_runner_exige_node_22_13_o_superior(self):
         def found(version):

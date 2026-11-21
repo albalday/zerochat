@@ -259,6 +259,7 @@
           options.onProgress?.({ kind: update.phase === 'tool' ? 'tool' : 'status', text: update.text || update.phase || '' });
         },
         onProgress: options.onProgress,
+        maxSteps: options.maxSteps ?? null,
         onLog: (type, text) => {
           if (isCurrentSession()) Debug.addLog(type, text);
         },
@@ -316,6 +317,7 @@
       actions.hidden = false;
       UIConversation.bindMessageCopy(btnCopy, () => loopResult.accumulatedMarkdown || loopResult.finalAssistantText || '');
       if (loopResult.loopDetected) return { error: 'The agent loop was stopped after repeated tool calls.' };
+      if (loopResult.stepLimit) return { limit: 'steps' };
       return { text: loopResult.finalAssistantText };
     } catch (err) {
       console.error('[GenerationController] Agent inference failed:', err);

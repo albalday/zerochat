@@ -262,7 +262,7 @@
    * ella, switch_model solo cambia el nivel de razonamiento.
    * `params.onStepHistory(history)` recibe el historial tras cada paso con herramientas (el runner lo graba).
    * @param {Object} params - Parámetros de ejecución.
-   * @returns {Promise<{ finalAssistantText?: string, accumulatedMarkdown?: string, loopDetected?: boolean, truncated?: boolean, stats?: Object, chatHistory: Array, cancelled?: boolean, error?: any }>}
+   * @returns {Promise<{ finalAssistantText?: string, accumulatedMarkdown?: string, loopDetected?: boolean, stepLimit?: boolean, truncated?: boolean, stats?: Object, chatHistory: Array, cancelled?: boolean, error?: any }>}
    */
   async function executeAgentTurnLoop(params) {
     const {
@@ -280,7 +280,8 @@
       onGenerationStatus,
       onProgress,
       onStepHistory,
-      activateProfile = null
+      activateProfile = null,
+      maxSteps = null
     } = params;
     const AgentCore = getAgentCore();
     const turnBlocks = new Map();
@@ -343,6 +344,7 @@
       onBeforeRequest,
       onGenerationStatus,
       loopNotice: `> ⚠️ *${I18n.t('agent_loop_warning_notice')}*`,
+      maxSteps,
       createMessageId: (kind, info) => {
         if (kind === 'final') return `${assistantMsgId}_final`;
         if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
@@ -434,6 +436,7 @@
       .join('\n\n');
     return {
       loopDetected: result.status === 'loop_detected',
+      stepLimit: result.status === 'step_limit',
       truncated: result.truncated,
       finalAssistantText: result.finalText || '',
       accumulatedMarkdown,

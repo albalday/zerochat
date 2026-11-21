@@ -6,6 +6,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import time
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from typing import IO
@@ -14,6 +15,7 @@ from auth.tokens import revoke_token
 from browser.launch import launch_browser
 from core.environment import get_data_dir, get_dev_root
 from core.logging import log_event
+from core.process import _kill_process_tree
 from run_mode.runner_loader import RUNNER_CACHE_ALWAYS_DOWNLOAD, RUNNER_CACHE_BY_VERSION, RUNNER_LOADER_SCRIPT
 from run_mode.state import (
     NODE_REQUIRED_MESSAGE,
@@ -51,8 +53,9 @@ def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> 
 
 def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
                    browser_proc: subprocess.Popen | None = None, runner_log: IO[bytes] | None = None):
-    """Detiene el servidor al recibir el resultado o si termina el runner propio. Sin plazos: lo que dura una ejecución
-    lo decide quien la lanza (la cancela o la interrumpe), y cada paso cerrado ya está grabado."""
+    """Detiene el servidor al recibir el resultado, si termina el runner propio o al vencer el timeout de --run-file,
+    contado desde el arranque del proceso: entonces termina el runner, y lo hecho ya está grabado. Sin timeout, lo que
+    dura una ejecución lo decide quien la lanza (la cancela o la interrumpe)."""
     proc = runner_proc if runner_proc is not None else browser_proc
     wake = threading.Event()
     proc_done = threading.Event()
@@ -65,10 +68,14 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
                 proc_done.set()
                 wake.set()
             threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
-        wake.wait()
+        deadline = None if session.timeout_seconds is None else session.started_at / 1000 + session.timeout_seconds
+        woken = wake.wait(None if deadline is None else max(0.0, deadline - time.time()))
         # El latido o una señal ya detienen el servidor: el resultado queda vacío.
         if _SERVER_SHUTTING_DOWN.is_set():
             return
+        if not woken and session.reach_limit(f"Límite de {session.timeout_seconds} s alcanzado."):
+            if runner_proc is not None:
+                _kill_process_tree(runner_proc, grace_seconds=1.0)
         if proc_done.is_set() and not session.finished.wait(0.2):
             if runner_proc is not None:
                 session.stop_reason = runner_exit_reason(runner_proc, runner_log)
