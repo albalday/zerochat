@@ -53,13 +53,12 @@
   const getActiveBranchIds = () => getConfig().getActive().activeRagBranchIds;
   const isBranchActive = branchId => getActiveBranchIds().includes(String(branchId).trim());
 
-  /** Guarda las ramas activas en el entorno del proyecto sin vacíos ni repetidos y las devuelve. */
+  /** Guarda las ramas activas en el entorno del proyecto (la configuración quita vacíos y repetidos) y las devuelve. */
   function setActiveBranchIds(ids) {
-    const unique = [...new Set(ids.map(id => String(id).trim()).filter(Boolean))];
-    getConfig().updateRuntime({ activeRagBranchIds: unique });
-    getMCP()?.manager?.saveProjectEnvironment?.({ activeRagBranchIds: unique })
-      ?.catch?.(error => console.warn('[RagUI] Could not persist project RAG branches:', error));
-    return unique;
+    const { activeRagBranchIds } = getConfig().updateRuntime({ activeRagBranchIds: ids });
+    getMCP().manager.saveProjectEnvironment({ activeRagBranchIds })
+      .catch(error => console.warn('[RagUI] Could not persist project RAG branches:', error));
+    return activeRagBranchIds;
   }
 
   /** Ramas activas tras activar o desactivar una. */

@@ -177,7 +177,7 @@ test('Browser UI - la tarjeta de autorización sale del historial, inspecciona c
 
     const cmdResult = await page.evaluate(async () => {
       const longPattern = 'python3 scripts/very_long_command_runner.py --verbose --output /tmp/very/long/path/report.json --filter all';
-      const fullCommand = `${longPattern}\necho done`;
+      const fullCommand = `${longPattern}\necho line2\necho line3\necho line4\necho done`;
       const provider = new window.ChatMCP.McpToolProvider({
         id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'run_command' }]
       }, { id: 'mcp_prov_cmd_auth_view' });
@@ -189,16 +189,26 @@ test('Browser UI - la tarjeta de autorización sale del historial, inspecciona c
       document.body.appendChild(container);
       const card = window.ChatToolCards.createLiveToolCard('run_command', { command: fullCommand }, { invocationId: 'inv-long-1' });
       window.ChatToolCards.appendToolCard(container, card);
-      const beforeText = card.querySelector('.command-card-command').textContent;
+      const cmdEl = card.querySelector('.command-card-command');
+      const beforeText = cmdEl.textContent;
 
       const pending = window.ChatToolCards.promptToolAuthorization(card, {
         function: { name: 'run_command', arguments: JSON.stringify({ command: fullCommand }) }
       }, { ruleOffer: { type: 'command', command: longPattern } });
-      const whileAskingText = card.querySelector('.command-card-command').textContent;
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const whileAskingText = cmdEl.textContent;
+      const lineHeight = parseFloat(getComputedStyle(cmdEl).lineHeight);
+      const headerHeight = cmdEl.getBoundingClientRect().height;
+      const headerClamped = cmdEl.scrollHeight > cmdEl.clientHeight + 1 && headerHeight <= lineHeight * 2 + 2;
+      const headerInspectBtn = card.querySelector('.btn-auth-header-inspect');
+      const headerInspectVisible = Boolean(headerInspectBtn && !headerInspectBtn.hidden);
+      headerInspectBtn.click();
+      const headerNoticeText = document.getElementById('notice-message').textContent;
+      document.getElementById('notice-accept').click();
 
       card.querySelector('.btn-auth-more').click();
       await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      const inspectBtn = card.querySelector('.btn-auth-cmd-inspect');
+      const inspectBtn = card.querySelector('.tool-auth-more-menu .btn-auth-cmd-inspect');
       const inspectVisible = inspectBtn && !inspectBtn.hidden;
       inspectBtn.click();
       const noticeText = document.getElementById('notice-message').textContent;
@@ -206,13 +216,33 @@ test('Browser UI - la tarjeta de autorización sale del historial, inspecciona c
 
       card.querySelector('.btn-auth-allow-once').click();
       await pending;
-      const afterText = card.querySelector('.command-card-command').textContent;
+      const afterText = cmdEl.textContent;
+      const headerInspectRemoved = !card.querySelector('.btn-auth-header-inspect');
+
+      const shortCard = window.ChatToolCards.createLiveToolCard('run_command', { command: 'git status' }, { invocationId: 'inv-short-1' });
+      window.ChatToolCards.appendToolCard(container, shortCard);
+      const shortPending = window.ChatToolCards.promptToolAuthorization(shortCard, {
+        function: { name: 'run_command', arguments: JSON.stringify({ command: 'git status' }) }
+      }, { ruleOffer: { type: 'command', command: 'git status' } });
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const shortInspectHidden = Boolean(shortCard.querySelector('.btn-auth-header-inspect')?.hidden);
+      shortCard.querySelector('.btn-auth-allow-once').click();
+      await shortPending;
+
       container.remove();
-      return { beforeText, whileAskingText, afterText, inspectVisible, noticeText, longPattern, fullCommand };
+      return {
+        beforeText, whileAskingText, afterText, headerClamped, headerInspectVisible, headerNoticeText,
+        headerInspectRemoved, shortInspectHidden, inspectVisible, noticeText, longPattern, fullCommand
+      };
     });
     assert.equal(cmdResult.beforeText, `${cmdResult.longPattern} …`);
     assert.equal(cmdResult.whileAskingText, cmdResult.fullCommand);
     assert.equal(cmdResult.afterText, `${cmdResult.longPattern} …`);
+    assert.equal(cmdResult.headerClamped, true);
+    assert.equal(cmdResult.headerInspectVisible, true);
+    assert.equal(cmdResult.headerNoticeText, cmdResult.fullCommand);
+    assert.equal(cmdResult.headerInspectRemoved, true);
+    assert.equal(cmdResult.shortInspectHidden, true);
     assert.equal(cmdResult.inspectVisible, true);
     assert.equal(cmdResult.noticeText, cmdResult.longPattern);
 
@@ -242,6 +272,43 @@ test('Browser UI - la tarjeta de autorización sale del historial, inspecciona c
     assert.deepEqual(dirResult.unresolved, { '~/.ssh/id_rsa': false, '$HOME/.ssh/id_rsa': false, '../../etc/passwd': false });
     assert.equal(dirResult.decision.decision, 'allow_always');
     assert.equal(dirResult.decision.directoryRule, 'R:/home/user/other/**');
+
+    const writeResult = await page.evaluate(async () => {
+      const provider = new window.ChatMCP.McpToolProvider({
+        id: 'mcp_proxy', name: 'ZeroChat', initialize: async () => ({ success: true }), listTools: async () => [{ name: 'write_file' }]
+      }, { id: 'mcp_prov_write_summary' });
+      await provider.discoverTools();
+      window.ChatAgentCore.registry.registerProvider(provider);
+
+      const bigContent = Array.from({ length: 40 }, (_, i) => `linea ${i + 1}: contenido extenso para probar el limite`).join('\n');
+      const args = { path: 'notes.txt', content: bigContent };
+      const card = window.ChatToolCards.createLiveToolCard('write_file', args);
+      const messagesList = document.getElementById('messages-list');
+      messagesList.appendChild(card);
+
+      const pending = window.ChatToolCards.promptToolAuthorization(card, {
+        function: { name: 'write_file', arguments: JSON.stringify(args) }
+      }, { ruleOffer: { type: 'directory', access: 'W', directoryRule: 'W:/tmp/**' }, args });
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      const summary = card.querySelector('.mcp-input-summary');
+      const style = getComputedStyle(summary);
+      const lineHeight = parseFloat(style.lineHeight);
+      const paddingY = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      const maxHeight = lineHeight * 15 + paddingY + 2;
+      const clampedAndScrollable = summary.scrollHeight > summary.clientHeight && summary.clientHeight <= maxHeight;
+      summary.scrollTop = 120;
+      const scrolled = summary.scrollTop > 0;
+      const authPromptRect = card.querySelector('.tool-card-auth-prompt').getBoundingClientRect();
+      const listRect = messagesList.getBoundingClientRect();
+      const promptTopVisible = authPromptRect.top >= listRect.top;
+
+      card.querySelector('.btn-auth-deny').click();
+      await pending;
+      card.remove();
+      return { clampedAndScrollable, scrolled, promptTopVisible };
+    });
+    assert.deepEqual(writeResult, { clampedAndScrollable: true, scrolled: true, promptTopVisible: true });
   } finally { await browser.close(); }
 });
 

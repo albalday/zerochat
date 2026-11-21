@@ -29,10 +29,16 @@ def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, 
     return handler(*args) if handler else rpc_not_supported(method)
 
 
-def parse_nonneg_int(value, label: str, default: int | None = None) -> int | None:
-    """Valida un parámetro entero no negativo (sin booleanos); devuelve `default` si es None."""
+def parse_optional_nonneg_int(value, label: str) -> int | None:
+    """Valida un parámetro entero no negativo (sin booleanos) que puede faltar (None)."""
     if value is None:
-        return default
+        return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{label} debe ser un entero no negativo.")
     return value
+
+
+def parse_nonneg_int(value, label: str, default: int = 0) -> int:
+    """Valida un parámetro entero no negativo (sin booleanos); devuelve `default` si falta."""
+    parsed = parse_optional_nonneg_int(value, label)
+    return default if parsed is None else parsed

@@ -72,7 +72,25 @@ MAX_COMMAND_LENGTH = 16384
 MAX_RPC_METHOD_LENGTH = 128
 MAX_TOOL_NAME_LENGTH = 128
 LONG_POLL_MAX_WAIT_MS = 30000
-BROWSER_TOOLS = ("none", "browser_action", "playwright")
+
+# --- core.live_events ---
+"""Avisos de cambio del estado vivo que sigue el latido: cada dominio avisa y server/state despierta a quien espera."""
+
+
+
+_LIVE_CHANGE_HOOKS: list[typing.Callable[[], None]] = []
+
+
+def on_live_change(hook: typing.Callable[[], None]):
+    """Registra una función sin argumentos que se llama cuando cambia algo del estado vivo."""
+    _LIVE_CHANGE_HOOKS.append(hook)
+    return hook
+
+
+def notify_live_change() -> None:
+    """Avisa a los registrados de que el estado vivo (comandos, servicios, motores, ejecuciones o conversaciones) cambió."""
+    for hook in list(_LIVE_CHANGE_HOOKS):
+        hook()
 
 # --- core.logging ---
 """Registro en consola con la hora local; la consola interactiva, si existe, recibe las líneas."""
@@ -1085,13 +1103,19 @@ def dispatch_table(handlers: dict[str, Callable[..., RpcOutcome]], method: str, 
     return handler(*args) if handler else rpc_not_supported(method)
 
 
-def parse_nonneg_int(value, label: str, default: int | None = None) -> int | None:
-    """Valida un parámetro entero no negativo (sin booleanos); devuelve `default` si es None."""
+def parse_optional_nonneg_int(value, label: str) -> int | None:
+    """Valida un parámetro entero no negativo (sin booleanos) que puede faltar (None)."""
     if value is None:
-        return default
+        return None
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{label} debe ser un entero no negativo.")
     return value
+
+
+def parse_nonneg_int(value, label: str, default: int = 0) -> int:
+    """Valida un parámetro entero no negativo (sin booleanos); devuelve `default` si falta."""
+    parsed = parse_optional_nonneg_int(value, label)
+    return default if parsed is None else parsed
 
 # --- core.version ---
 """Versiones del backend y de la interfaz, y direcciones desde las que se publican."""
@@ -1099,7 +1123,7 @@ def parse_nonneg_int(value, label: str, default: int | None = None) -> int | Non
 
 
 
-SOURCE_BACKEND_VERSION = "10.35.0"
+SOURCE_BACKEND_VERSION = "10.36.0"
 
 
 def _read_source_version(filename: str) -> str | None:
@@ -1911,6 +1935,11 @@ def normalize_directory_path(value: str) -> str:
 
 
 
+# Shell con la que run_command ejecuta los comandos (tools/jobs.py): PowerShell en Windows y sh en el resto.
+# Los comandos se parten y se leen con sus reglas: en PowerShell la \ es un carácter más (C:\x), el escape
+# es la comilla invertida y dentro de comillas la comilla se repite ('it''s').
+COMMAND_SHELL = "powershell" if DETECTED_OS == "windows" else "posix"
+
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
 POLICY_ASK = "ask"
@@ -1933,8 +1962,15 @@ COMMAND_ABSOLUTE_ARG = re.compile(r"(?:^|[=:])(?:[/\\]|[A-Za-z]:[/\\])")
 SYSTEM_BIN_DIRS = ("/usr/bin/", "/bin/", "/usr/local/bin/")
 SUBCOMMAND_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
-# Lo que impide validar un comando por partes: sustitución de comandos o de procesos y saltos de línea.
+# En PowerShell /dev/null es un fichero más: lo que se descarta va a $null.
+POWERSHELL_SAFE_REDIRECTION_PATTERN = re.compile(r"[\d*]?>>?\s*\$null\b|\d?>&\d")
+# Lo que impide validar un comando por partes: sustitución de comandos o de procesos y saltos de línea, y en
+# PowerShell además los bloques de script ({ }), que ejecutan lo que llevan dentro.
 SHELL_SPLIT_UNSUPPORTED = re.compile(r"[`\n\r]|\$\(|[<>]\(")
+POWERSHELL_SPLIT_UNSUPPORTED = re.compile(r"[`\n\r{}]|\$\(|[<>]\(")
+# PowerShell también acepta como comillas las tipográficas: se leen como las ASCII.
+_POWERSHELL_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+                                    "\u201c": '"', "\u201d": '"', "\u201e": '"'})
 # Palabras que cambian cómo se ejecuta lo que sigue (bloques, bucles, prefijos o cambios de carpeta ocultos).
 SHELL_KEYWORDS = frozenset(["if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
                             "select", "function", "{", "}", "!", "[[", "time", "coproc", "pushd", "popd", "builtin",
@@ -1945,7 +1981,18 @@ CD_UNSAFE_TARGET = re.compile(r"[$~*?\[{]")
 WORKSPACE_TRUST_PIPE_FILTERS = frozenset([
     "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "cut", "tr", "column", "nl", "cat", "jq"
 ])
-WORKSPACE_TRUST_GLOBAL_COMMANDS = re.compile(r"(?:^|\s)(?:sudo|su|doas|mkfs|reboot|shutdown|systemctl)\b")
+# Órdenes que actúan sobre todo el sistema (privilegios, discos, energía, servicios): nunca son locales
+# al proyecto aunque no lleven rutas. mkfs incluye su familia (mkfs.ext4, mkfs.vfat...).
+WORKSPACE_TRUST_GLOBAL_COMMANDS = frozenset([
+    "sudo", "su", "doas", "pkexec", "run0", "mkfs", "reboot", "shutdown", "poweroff", "halt", "systemctl"
+])
+# Las de Windows solo cuentan con PowerShell: en sh, 'npm run format' no formatea ningún disco.
+POWERSHELL_GLOBAL_COMMANDS = WORKSPACE_TRUST_GLOBAL_COMMANDS | frozenset([
+    "runas", "gsudo", "format", "diskpart", "bcdedit", "restart-computer", "stop-computer", "format-volume",
+    "clear-disk", "initialize-disk", "stop-service", "restart-service", "set-service"
+])
+# Lo que separa palabras dentro de un argumento que otra shell volvería a interpretar (sh -c '...').
+_NESTED_WORD_SEPARATORS = re.compile(r"[\s;&|()<>`'\"]+")
 WORKSPACE_TRUST_OUTSIDE_REFERENCE = re.compile(r"(?:^|[\s=:'\"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'\"\\/])\.\.(?=[\s\\/'\"]|$)")
 _COMMAND_PATH_START = re.compile(r"^(?:[/\\]|(?:\.\.(?:$|[/\\]))|[A-Za-z]:[\\/])")
 _COMMAND_INTERNAL_OUTSIDE_REF = re.compile(r"[\s:'\"](?:[\\/~]|[A-Za-z]:[\\/]|\.\.(?:$|[\s\\/]))")
@@ -1991,20 +2038,26 @@ def split_command(cmd: str) -> list[tuple[str, str]] | None:
     plano, subshells, redirecciones a ficheros (salvo las de SAFE_REDIRECTION_PATTERN), palabras
     reservadas de la shell, comillas sin cerrar, un subcomando vacío o un cd que no sea 'cd <dir>'.
     """
-    if not isinstance(cmd, str) or SHELL_SPLIT_UNSUPPORTED.search(cmd):
+    powershell = COMMAND_SHELL == "powershell"
+    if not isinstance(cmd, str):
         return None
-    text = SAFE_REDIRECTION_PATTERN.sub(" ", cmd)
+    if powershell:
+        cmd = cmd.translate(_POWERSHELL_QUOTES)
+    if (POWERSHELL_SPLIT_UNSUPPORTED if powershell else SHELL_SPLIT_UNSUPPORTED).search(cmd):
+        return None
+    text = (POWERSHELL_SAFE_REDIRECTION_PATTERN if powershell else SAFE_REDIRECTION_PATTERN).sub(" ", cmd)
     segments, current, operator, quote, i = [], "", "", "", 0
     while i < len(text):
         ch = text[i]
         two = text[i:i + 2]
         if quote:
-            if ch == "\\" and quote == '"':
+            # En PowerShell la \ no escapa: "C:\" cierra la comilla.
+            if ch == "\\" and quote == '"' and not powershell:
                 current += two
                 i += 2
                 continue
             quote = "" if ch == quote else quote
-        elif ch == "\\":
+        elif ch == "\\" and not powershell:
             current += two
             i += 2
             continue
@@ -2029,22 +2082,60 @@ def split_command(cmd: str) -> list[tuple[str, str]] | None:
 def _is_plain_segment(segment: str) -> bool:
     """Un subcomando no vacío, que no empieza por una palabra reservada y, si es un cd, de la forma 'cd <dir>'."""
     try:
-        words = shlex.split(segment)
+        words = split_words(segment)
     except ValueError:
         return False
     if not words or words[0].lower() in SHELL_KEYWORDS:
         return False
     # Un cd tras variables ('x=1 cd /etc') o tras 'command' también cambia la carpeta: no se admite.
     rest = list(itertools.dropwhile(ENV_ASSIGNMENT.fullmatch, words))
-    if rest[rest[:1] == ["command"]:][:1] == ["cd"] and words[0] != "cd":
+    if rest[rest[:1] == ["command"]:][:1] == ["cd"] and not _is_cd(words[0]):
         return False
-    return words[0] != "cd" or (len(words) == 2 and not words[1].startswith("-") and not CD_UNSAFE_TARGET.search(words[1]))
+    return not _is_cd(words[0]) or (len(words) == 2 and not words[1].startswith("-") and not CD_UNSAFE_TARGET.search(words[1]))
+
+
+def _is_cd(word: str) -> bool:
+    """PowerShell no distingue mayúsculas en los nombres de órdenes: CD también cambia de carpeta."""
+    return (word.lower() if COMMAND_SHELL == "powershell" else word) == "cd"
+
+
+def split_words(segment: str) -> list[str]:
+    """Palabras de un subcomando tal como las verá la shell de run_command, sin comillas; ValueError si queda una sin cerrar."""
+    if COMMAND_SHELL != "powershell":
+        return shlex.split(segment)
+    text = segment.translate(_POWERSHELL_QUOTES)
+    words, current, quote, in_word, i = [], "", "", False, 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == quote and text[i + 1:i + 2] == quote:
+                current += ch
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+            else:
+                current += ch
+        elif ch in "'\"":
+            quote, in_word = ch, True
+        elif ch.isspace():
+            if in_word:
+                words.append(current)
+            current, in_word = "", False
+        else:
+            current, in_word = current + ch, True
+        i += 1
+    if quote:
+        raise ValueError("Comillas sin cerrar.")
+    if in_word:
+        words.append(current)
+    return words
 
 
 def cd_target(segment: str) -> str | None:
     """Carpeta de un subcomando 'cd <dir>' ya validado por split_command, o None si no es un cd."""
-    words = shlex.split(segment)
-    return words[1] if words[0] == "cd" else None
+    words = split_words(segment)
+    return words[1] if _is_cd(words[0]) else None
 
 
 def get_command_arg(args: dict | None) -> str:
@@ -2068,9 +2159,32 @@ def get_integrated_path_access(tool_name: str) -> str:
     return ""
 
 
+def invokes_global_command(segment: str) -> bool:
+    """
+    Si el subcomando nombra una orden global en cualquier palabra, tal como la verá la shell: sin comillas
+    ni escapes, por su nombre aunque vaya con ruta, y también dentro de un argumento que otra shell
+    reinterpretaría (sh -c 'sudo ls'), sin distinguir mayúsculas ni .exe. Cualquier posición cuenta, así que
+    también las que van tras env, command, nice o xargs. Un subcomando que no se puede partir cuenta como global.
+    """
+    try:
+        tokens = split_words(segment)
+    except ValueError:
+        return True
+    global_commands = POWERSHELL_GLOBAL_COMMANDS if COMMAND_SHELL == "powershell" else WORKSPACE_TRUST_GLOBAL_COMMANDS
+    for token in tokens:
+        for word in _NESTED_WORD_SEPARATORS.split(token):
+            base = word.rsplit("/", 1)[-1]
+            # Una \ es un escape para una shell anidada (sh -c 's\udo') o un separador de ruta en Windows.
+            for name in (base.replace("\\", ""), base.rsplit("\\", 1)[-1]):
+                name = name.lower().removesuffix(".exe")
+                if name in global_commands or name.startswith("mkfs."):
+                    return True
+    return False
+
+
 def is_workspace_local_command(segment: str) -> bool:
     """Filtro de Workspace Trust para un subcomando: sin órdenes globales ni referencias fuera del proyecto."""
-    return not WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
+    return not invokes_global_command(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
 
 
 def command_outside_references(segment: str) -> list[str] | None:
@@ -2081,10 +2195,10 @@ def command_outside_references(segment: str) -> list[str] | None:
     """
     if is_workspace_local_command(segment):
         return []
-    if WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) or "$" in segment or "~" in segment:
+    if invokes_global_command(segment) or "$" in segment or "~" in segment:
         return None
     try:
-        tokens = shlex.split(segment)
+        tokens = split_words(segment)
     except ValueError:
         return None
     if not tokens:
@@ -2129,7 +2243,7 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     command = segments[0][1]
     words, rest = compile_command_pattern(str(pattern))
     try:
-        args = shlex.split(command)
+        args = split_words(command)
     except ValueError:
         return False
     if not words or len(args) < len(words) or (len(args) > len(words) and not rest):
@@ -2170,7 +2284,7 @@ def clean_pattern_list(raw, label: str) -> list[str]:
     return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
-def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int = 0) -> None:
+def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int) -> None:
     """Comprueba que el total de patrones globales y de todos los proyectos no supere MAX_COMMAND_PATTERNS."""
     total = len(global_patterns) + len(project_patterns) + other_project_count
     if total > MAX_COMMAND_PATTERNS:
@@ -2295,18 +2409,8 @@ MAX_STAGED_CONVERSATION_BYTES = 64 * 1024 * 1024
 MAX_CONVERSATION_UPLOAD_CHUNKS = 512
 _UPLOAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _PENDING_CONVERSATION_UPLOADS: dict[str, dict] = {}
-_STORAGE_LIVE_HOOKS: list = []
 
 
-def on_storage_live_change(hook):
-    """Registra una función sin argumentos que se avisa cuando cambian ejecuciones o conversaciones."""
-    _STORAGE_LIVE_HOOKS.append(hook)
-    return hook
-
-
-def _notify_storage_live_change():
-    for hook in _STORAGE_LIVE_HOOKS:
-        hook()
 def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
     rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
@@ -2448,6 +2552,8 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
+# Herramienta de navegación de cada proyecto (sección Navegador de Ajustes).
+BROWSER_TOOLS = ("none", "browser_action", "playwright")
 PROJECT_ENVIRONMENT_FIELDS = ("systemDataPrompt", "enabledTools", "mcpServers", "browser", "activeRagBranchIds")
 PROJECT_ENVIRONMENT_KEYS = frozenset(PROJECT_ENVIRONMENT_FIELDS)
 MAX_PROJECT_PROMPT_LENGTH = 32768
@@ -2906,7 +3012,7 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         saved = _row_to_conversation_header(row)
-    _notify_storage_live_change()
+    notify_live_change()
     return saved
 
 
@@ -3089,7 +3195,7 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
             conn.commit()
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
-    _notify_storage_live_change()
+    notify_live_change()
     return True
 
 
@@ -3106,7 +3212,7 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
         conn.commit()
         changed = cursor.rowcount > 0
     if changed:
-        _notify_storage_live_change()
+        notify_live_change()
     return changed
 
 
@@ -3133,7 +3239,7 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
         if ids:
-            _notify_storage_live_change()
+            notify_live_change()
         return ids
     except Exception:
         conn.execute("ROLLBACK;")
@@ -3365,34 +3471,25 @@ def get_setting(key: str):
         return json.loads(row["value_json"])
 
 
-def set_setting(key: str, value) -> None:
-    """Guarda un ajuste JSON en la tabla `settings`."""
-    payload = json.dumps(value, ensure_ascii=False)
-    now = int(time.time() * 1000)
-    with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
-            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
-        """, (key, payload, now))
-        conn.commit()
+def _write_setting_on_conn(conn: sqlite3.Connection, key: str, value, now: int):
+    conn.execute("""
+        INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+    """, (key, json.dumps(value, ensure_ascii=False), now))
 
 
-def save_browser_config_storage(public_config: dict, extension_token: str, key: str, secret_key: str) -> None:
-    """Guarda atómicamente la configuración del navegador en `settings` y su token en `secrets`."""
-    payload = json.dumps(public_config, ensure_ascii=False)
+def set_setting(key: str, value, *, secret_name: str | None = None, secret: str = "") -> None:
+    """Guarda un ajuste JSON en `settings`; con `secret_name`, guarda (o borra si va vacío) en la misma transacción su secreto ofuscado."""
     now = int(time.time() * 1000)
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
-            conn.execute("""
-                INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
-                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
-            """, (key, payload, now))
-            if extension_token:
-                _write_secret_on_conn(conn, secret_key, extension_token, now)
-            else:
-                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_key,))
+            _write_setting_on_conn(conn, key, value, now)
+            if secret_name and secret:
+                _write_secret_on_conn(conn, secret_name, secret, now)
+            elif secret_name:
+                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_name,))
             conn.execute("COMMIT;")
         except Exception:
             conn.execute("ROLLBACK;")
@@ -3422,10 +3519,9 @@ def _row_to_run_state(row: sqlite3.Row) -> dict:
 
 def upsert_run_state(payload: dict) -> None:
     """Guarda o actualiza en SQLite el estado en vivo de una ejecución en servidor."""
-    conv_id = _validate_conversation_id(payload.get("conversation_id"))
-    pending = payload.get("pending")
+    conv_id = _validate_conversation_id(payload["conversation_id"])
+    pending = payload["pending"]
     pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
-    now = int(time.time() * 1000)
     with open_storage() as conn:
         conn.execute("""
             INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error)
@@ -3442,18 +3538,18 @@ def upsert_run_state(payload: dict) -> None:
                 error = excluded.error;
         """, (
             conv_id,
-            str(payload.get("run_id") or ""),
-            payload.get("pid"),
-            payload.get("pid_start"),
-            int(payload.get("started_at") or now),
-            int(payload.get("updated_at") or now),
-            str(payload.get("status") or "running"),
-            str(payload.get("step_text") or ""),
+            payload["run_id"],
+            payload["pid"],
+            payload["pid_start"],
+            payload["started_at"],
+            payload["updated_at"],
+            payload["status"],
+            payload["step_text"] or "",
             pending_json,
-            payload.get("error"),
+            payload["error"],
         ))
         conn.commit()
-    _notify_storage_live_change()
+    notify_live_change()
 
 
 def get_run_state(conversation_id: str) -> dict | None:
@@ -3479,7 +3575,7 @@ def delete_run_state(conversation_id: str) -> bool:
         conn.commit()
         deleted = cursor.rowcount > 0
     if deleted:
-        _notify_storage_live_change()
+        notify_live_change()
     return deleted
 
 
@@ -3708,10 +3804,9 @@ def load_browser_config() -> dict:
         token = get_secret(BROWSER_EXTENSION_TOKEN_KEY) or ""
         if stored is None and not token:
             return dict(BROWSER_CONFIG_DEFAULTS)
-        raw = stored if isinstance(stored, dict) else {}
         if stored is not None and not isinstance(stored, dict):
             raise ValueError("La configuración del navegador debe ser un objeto")
-        return validate_browser_config({**raw, "extensionToken": token})
+        return validate_browser_config({**(stored or {}), "extensionToken": token})
     except (OSError, ValueError, TypeError) as err:
         log_event(f"[zerochat] Configuración del navegador no válida en SQLite, se usan los valores por defecto: {err}")
         return dict(BROWSER_CONFIG_DEFAULTS)
@@ -3720,7 +3815,7 @@ def load_browser_config() -> dict:
 def save_browser_config(raw) -> dict:
     config = validate_browser_config(raw)
     public_config = {key: value for key, value in config.items() if key != "extensionToken"}
-    save_browser_config_storage(public_config, config["extensionToken"], BROWSER_CONFIG_KEY, BROWSER_EXTENSION_TOKEN_KEY)
+    set_setting(BROWSER_CONFIG_KEY, public_config, secret_name=BROWSER_EXTENSION_TOKEN_KEY, secret=config["extensionToken"])
     return config
 
 
@@ -3914,20 +4009,6 @@ def user_browser_extensions() -> dict[str, bool]:
     return found
 
 
-_ENGINES_CHANGE_HOOKS: list = []
-
-
-def on_browser_engines_change(hook):
-    """Registra una función sin argumentos que se avisa cuando cambian los motores de Playwright."""
-    _ENGINES_CHANGE_HOOKS.append(hook)
-    return hook
-
-
-def _notify_browser_engines_changed():
-    for hook in _ENGINES_CHANGE_HOOKS:
-        hook()
-
-
 class BrowserEngines:
     """Lista, instala y quita los motores propios de Playwright en su caché, nunca en el sistema."""
 
@@ -4008,7 +4089,7 @@ class BrowserEngines:
             cli = self._check_engine(engine)
             self._jobs[engine] = {"status": "installing", "percent": 0}
             self._notify_locked()
-        _notify_browser_engines_changed()
+        notify_live_change()
         threading.Thread(target=self._install, args=(cli, engine), daemon=True).start()
         return self.list()
 
@@ -4045,7 +4126,7 @@ class BrowserEngines:
                 self._jobs[engine] = {"status": "error", "error": format_log_error(str(err), 500)}
                 self._notify_locked()
             log_event(f"[zerochat] Fallo instalando el motor {engine} de Playwright: {format_log_error(str(err))}")
-        _notify_browser_engines_changed()
+        notify_live_change()
 
     def remove(self, engine) -> dict:
         with self._lock:
@@ -4059,7 +4140,7 @@ class BrowserEngines:
                     shutil.rmtree(locations[name][1], ignore_errors=True)
             self._jobs.pop(engine, None)
             self._notify_locked()
-        _notify_browser_engines_changed()
+        notify_live_change()
         result = self.list()
         # La configuración no se queda con un motor quitado si hay otro instalado.
         config = result["config"]
@@ -4077,9 +4158,10 @@ BROWSER_ENGINES = BrowserEngines()
 
 
 
+
 def _engines_list(params: dict) -> RpcOutcome:
-    since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
-    wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+    since_rev = parse_optional_nonneg_int(params.get("since_rev"), "since_rev")
+    wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
     engines_only = params.get("engines_only", False)
     if not isinstance(engines_only, bool):
         raise ValueError("engines_only debe ser un booleano")
@@ -4181,13 +4263,6 @@ def service_status(record: McpServiceRecord, alive: bool, exit_code: int | None)
 
 # Cada cuánto se vuelve a mirar el catálogo publicado con el servidor en marcha.
 CATALOG_REFRESH_SECONDS = 3600
-_MCP_STATE_HOOKS: list = []
-
-
-def on_mcp_state_change(hook):
-    """Registra una función sin argumentos que se avisa cuando cambia el estado de los servicios MCP."""
-    _MCP_STATE_HOOKS.append(hook)
-    return hook
 
 
 def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: str) -> bool:
@@ -4215,6 +4290,10 @@ class McpServiceManager:
         # Crearlo no toca el disco: el gestor global existe desde que se importa zerochat.
         self.services_root = Path(services_root) if services_root else get_data_dir() / "services"
         self.records: dict[str, McpServiceRecord] = {}
+        # _lock serializa arrancar, parar y configurar (un arranque puede durar minutos instalando).
+        # _state_changed guarda _state_rev y _starting, y es el único que toma start_async para marcar
+        # en "starting" el registro antes de que su hilo de arranque llegue a _lock: por eso tools() y
+        # list_servers() leen records sin tomar _lock.
         self._lock = threading.Lock()
         self._state_changed = threading.Condition()
         self._state_rev = 0
@@ -4222,14 +4301,12 @@ class McpServiceManager:
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         self._preferences: dict | None = None
-        self._preferences_db: Path | None = None
 
     def _notify_state_changed(self):
         with self._state_changed:
             self._state_rev += 1
             self._state_changed.notify_all()
-        for hook in _MCP_STATE_HOOKS:
-            hook()
+        notify_live_change()
 
     @property
     def services(self) -> dict[str, dict]:
@@ -4243,10 +4320,8 @@ class McpServiceManager:
 
     @property
     def preferences(self) -> dict:
-        db_path = get_storage_db_path()
-        if self._preferences is None or self._preferences_db != db_path:
+        if self._preferences is None:
             self._preferences = self._load_preferences()
-            self._preferences_db = db_path
         return self._preferences
 
     @staticmethod
@@ -4432,12 +4507,11 @@ class McpServiceManager:
                 self._state_changed.notify_all()
             rev = self._state_rev
         if should_launch:
-            for hook in _MCP_STATE_HOOKS:
-                hook()
+            notify_live_change()
             threading.Thread(target=self.start, args=(server_id,), name=f"mcp-start-{server_id}", daemon=True).start()
         return rev
 
-    def wait_server(self, server_id: str, since_rev: int | None = None, wait_ms: int = 25000) -> dict:
+    def wait_server(self, server_id: str, wait_ms: int, since_rev: int | None = None) -> dict:
         """Espera cambios de fase, aparición de oauthUrl o fin del arranque de un servicio MCP."""
         if server_id not in self.services:
             self.services = self._load_services()
@@ -4450,7 +4524,10 @@ class McpServiceManager:
                 phase = record.phase if record else "stopped"
                 oauth_url = record.client.oauth_url if record and record.client else None
                 terminal = phase not in ("installing", "starting")
-                changed = (since_rev is not None and self._state_rev != since_rev) or (since_rev is None and (terminal or bool(oauth_url) or phase == "installing"))
+                if since_rev is None:
+                    changed = bool(oauth_url) or phase == "installing"
+                else:
+                    changed = self._state_rev != since_rev
                 if terminal or changed:
                     break
                 remaining = deadline - time.monotonic()
@@ -4738,17 +4815,15 @@ def dispatch_server_control(method: str, params: dict) -> RpcOutcome:
     try:
         if method == "zerochat/external/servers/start":
             wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
-            if wait_ms is not None and wait_ms > 0:
+            if wait_ms > 0:
                 GLOBAL_MCP_MANAGER.start_async(server_id)
-                return rpc_result(GLOBAL_MCP_MANAGER.wait_server(server_id, wait_ms=wait_ms))
+                return rpc_result(GLOBAL_MCP_MANAGER.wait_server(server_id, wait_ms))
             servers = GLOBAL_MCP_MANAGER.start(server_id)
         elif method == "zerochat/external/servers/wait":
-            since_rev = parse_nonneg_int(params.get("since_rev"), "since_rev")
-            wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 25000)
             return rpc_result(GLOBAL_MCP_MANAGER.wait_server(
                 server_id,
-                since_rev=since_rev,
-                wait_ms=25000 if wait_ms is None else wait_ms,
+                parse_nonneg_int(params.get("wait_ms"), "wait_ms"),
+                since_rev=parse_optional_nonneg_int(params.get("since_rev"), "since_rev"),
             ))
         elif method == "zerochat/external/servers/stop":
             servers = GLOBAL_MCP_MANAGER.stop(server_id)
@@ -4840,7 +4915,9 @@ def remove_run_state(conversation_id: str | None) -> None:
     try:
         delete_run_state(conversation_id)
     except ValueError:
-        pass
+        pass  # Un identificador no válido nunca tuvo estado guardado.
+    except (sqlite3.Error, OSError) as err:
+        log_event(f"[zerochat] No se pudo borrar el estado de la ejecución de '{conversation_id}': {err}")
 
 
 def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
@@ -4867,7 +4944,11 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
             data["updated_at"] = int(time.time() * 1000)
-            upsert_run_state(data)
+            # Aunque no se pueda guardar, el latido ya la entrega en error.
+            try:
+                upsert_run_state(data)
+            except (sqlite3.Error, OSError) as err:
+                log_event(f"[zerochat] No se pudo marcar en error la ejecución de '{conv_id}': {err}")
 
         light = {
             "conversation_id": conv_id,
@@ -6376,14 +6457,20 @@ texto o al agotar el plazo, que es un máximo. La persona puede cortarlas con la
 
 
 
+class _WakeableJob(typing.Protocol):
+    """Lo que una espera necesita del comando (CommandJob): despertar a quien espera su salida."""
+
+    def wake_waiters(self) -> None: ...
+
+
 class CancellableWaits:
     """Esperas en curso, por la clave de su invocación: zerochat/jobs/end_wait corta la de esa clave."""
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._waits: dict[str, tuple[threading.Event, typing.Any]] = {}
+        self._waits: dict[str, tuple[threading.Event, _WakeableJob]] = {}
 
-    def open(self, key: str | None, job=None) -> threading.Event:
+    def open(self, key: str | None, job: _WakeableJob) -> threading.Event:
         """Registra una espera que se puede cortar con cancel(key); sin clave no se puede cortar."""
         event = threading.Event()
         if key:
@@ -6404,8 +6491,7 @@ class CancellableWaits:
             return False
         event, job = entry
         event.set()
-        if job is not None:
-            job.notify_finished()
+        job.wake_waiters()
         return True
 
 
@@ -6473,18 +6559,6 @@ MATCHED_LINE_MAX_CHARS = 500
 # Última línea de salida de cada comando en marcha en el latido, para su tarjeta plegada.
 LAST_LINE_MAX_CHARS = 200
 REPORT_TAIL_BYTES = 4096
-_JOBS_LIVE_HOOKS: list = []
-
-
-def on_jobs_live_change(hook):
-    """Registra una función sin argumentos que se avisa cuando cambia el estado vivo de los comandos."""
-    _JOBS_LIVE_HOOKS.append(hook)
-    return hook
-
-
-def _notify_jobs_live_change():
-    for hook in _JOBS_LIVE_HOOKS:
-        hook()
 
 
 def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int = 50, tail_lines: int = 30) -> tuple[str, bool]:
@@ -6716,8 +6790,6 @@ class CommandJob:
                     del self._tail[:overflow]
                     self._tail_start += overflow
             self._changed.notify_all()
-        if self.background:
-            _notify_jobs_live_change()
 
     def _read_output(self, stream):
         try:
@@ -6813,7 +6885,8 @@ class CommandJob:
                 timeout,
             )
 
-    def notify_finished(self):
+    def wake_waiters(self):
+        """Despierta a quien espera en wait_change (fin del comando o espera cortada)."""
         with self._changed:
             self._changed.notify_all()
 
@@ -6931,7 +7004,7 @@ class JobManager:
             job._log.close()
             job.log_path.unlink(missing_ok=True)
             raise
-        _notify_jobs_live_change()
+        notify_live_change()
         return job
 
     def _launch(self, job: CommandJob):
@@ -7000,8 +7073,8 @@ class JobManager:
             job.status = "exited"
         self._write_registry()
         job.done.set()
-        job.notify_finished()
-        _notify_jobs_live_change()
+        job.wake_waiters()
+        notify_live_change()
 
     def get(self, project: str, job_id=None, key=None) -> CommandJob | None:
         jobs = self.list(project)
@@ -7279,12 +7352,12 @@ class AccessController:
         raw_global, raw_project = get_security_policy_data(context.key)
         return self._normalize_global(raw_global), self._normalize_project(raw_project)
 
-    def _update_permanent(self, context: SecurityContext, mutator: typing.Callable[[dict, dict, int], None]) -> tuple[dict, dict | None]:
+    def _update_permanent(self, context: SecurityContext, mutator: typing.Callable[[dict, dict], None]) -> tuple[dict, dict | None]:
         """Lectura-modificación-escritura transaccional sobre las filas global y del proyecto."""
         def apply(raw_global: dict | None, raw_project: dict | None, other_pattern_count: int) -> tuple[dict, dict | None]:
             global_state = self._normalize_global(raw_global)
             project_state = self._normalize_project(raw_project)
-            mutator(global_state, project_state, other_pattern_count)
+            mutator(global_state, project_state)
             check_command_pattern_limit(global_state["commandPatterns"], project_state["commandPatterns"], other_pattern_count)
             self._check_entry_limit({
                 "directoryRules": project_state["directoryRules"] or [],
@@ -7430,7 +7503,7 @@ class AccessController:
         project = context.key
         default_rule = self.get_default_directory_rule(context)
 
-        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+        def mutator(global_state: dict, project_state: dict) -> None:
             self._apply_state_patch(global_state, project_state, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
         self._update_permanent(context, mutator)
         self._forget_session_overrides(project, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers)
@@ -7680,7 +7753,7 @@ class AccessController:
             return
         project = context.key
 
-        def mutator(global_state: dict, project_state: dict, _other_patterns: int) -> None:
+        def mutator(global_state: dict, project_state: dict) -> None:
             self._store_decision(global_state, project_state, decision, pattern, tool, server_name, server_id)
             if rules:
                 base_rules = project_state["directoryRules"] if project_state["directoryRules"] is not None else [self.get_default_directory_rule(context)]
@@ -7858,7 +7931,13 @@ ACCESS_CONTROLLER = AccessController()
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-_RUN_ACTIVE_CHECK_INTERVAL = 1.0
+# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite: con alguna en marcha,
+# el latido en espera vuelve a mirar cada tanto, y el vigilante, si ya terminaron para cerrar.
+_EXTERNAL_RUN_POLL_SECONDS = 1.0
+_WATCHDOG_RUN_RECHECK_SECONDS = 1.0
+# Campos de cada comando que cambian sin parar mientras corre: no cuentan en la firma `rev` (si no, cada
+# línea de salida despertaría a todos los latidos) y se refrescan al vencer cada espera.
+_VOLATILE_JOB_FIELDS = frozenset({"elapsed_s", "output_bytes", "last_line"})
 HEARTBEAT_LAST_SEEN = 0.0
 HEARTBEAT_INITIALIZED = False
 HEARTBEAT_WATCHDOG_STOP = threading.Event()
@@ -7931,10 +8010,7 @@ def notify_live_state_changed() -> None:
         _WATCHDOG_COND.notify_all()
 
 
-on_storage_live_change(notify_live_state_changed)
-on_jobs_live_change(notify_live_state_changed)
-on_mcp_state_change(notify_live_state_changed)
-on_browser_engines_change(notify_live_state_changed)
+on_live_change(notify_live_state_changed)
 
 
 def mark_browser_active():
@@ -7953,10 +8029,9 @@ def heartbeat_initialized() -> bool:
 
 
 def _live_state_rev(state: dict) -> str:
-    # Excluir campos volátiles (elapsed_s) para no despertar al latido mientras nada real cambia.
     stable = {
         **state,
-        "jobs": [{k: v for k, v in job.items() if k != "elapsed_s"} for job in state["jobs"]],
+        "jobs": [{k: v for k, v in job.items() if k not in _VOLATILE_JOB_FIELDS} for job in state["jobs"]],
     }
     encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()[:16]
@@ -7994,23 +8069,18 @@ def wait_live_state(
     since_rev: str | None = None,
     wait_ms: int = 0,
 ) -> dict:
-    """Devuelve el estado vivo; con since_rev y wait_ms espera cambios sin sondeo activo."""
-    state = live_state(ctx, focus_conversation_id)
-    clamped_ms = min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS)
-    if not since_rev or clamped_ms <= 0 or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
-        return state
-    deadline = time.monotonic() + clamped_ms / 1000.0
+    """Devuelve el estado vivo; con since_rev y wait_ms espera a que cambie su firma sin sondeo activo."""
+    deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
     while True:
         with _LIVE_STATE_COND:
             seq = _LIVE_STATE_SEQ
         state = live_state(ctx, focus_conversation_id)
-        if state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+        if not since_rev or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
             return state
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return state
-        # Las ejecuciones en segundo plano (--conversation) corren en otro proceso y actualizan SQLite.
-        slice_s = min(remaining, _RUN_ACTIVE_CHECK_INTERVAL) if any(r.get("status") == "running" for r in state["runs"]) else remaining
+        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if any(r.get("status") == "running" for r in state["runs"]) else remaining
         with _LIVE_STATE_COND:
             if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
                 _LIVE_STATE_COND.wait(slice_s)
@@ -8067,7 +8137,7 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
     Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
     """
     start_time = time.monotonic()
-    active_slice = min(_RUN_ACTIVE_CHECK_INTERVAL, max(0.05, inactivity_timeout_seconds))
+    run_recheck_seconds = min(_WATCHDOG_RUN_RECHECK_SECONDS, max(0.05, inactivity_timeout_seconds))
     while not HEARTBEAT_WATCHDOG_STOP.is_set():
         reason = _watchdog_wait_step(start_time, initial_grace_seconds, inactivity_timeout_seconds, require_initial_connection)
         if reason is None:
@@ -8076,7 +8146,7 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
             runs, _ = list_server_runs()
             if any(r.get("status") == "running" for r in runs):
                 with _WATCHDOG_COND:
-                    _WATCHDOG_COND.wait(active_slice)
+                    _WATCHDOG_COND.wait(run_recheck_seconds)
                 continue
         log_event(reason)
         stop_zerochat_server(server)
@@ -8883,12 +8953,11 @@ def _log(params: dict, job) -> RpcOutcome:
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
     try:
-        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
         if tail is not None:
-            parsed_tail = parse_nonneg_int(tail, "tail", 0) or 0
-            start = max(0, job.total - parsed_tail)
+            start = max(0, job.total - parse_nonneg_int(tail, "tail"))
         else:
-            start = parse_nonneg_int(offset, "offset", 0) or 0
+            start = parse_nonneg_int(offset, "offset")
     except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
@@ -9866,7 +9935,7 @@ def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
     if since_rev is not None and not isinstance(since_rev, str):
         return rpc_error(INVALID_PARAMS, "since_rev debe ser texto")
     try:
-        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
     except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
     return rpc_result(wait_live_state(ctx, params.get("focus_conversation_id"), since_rev=since_rev, wait_ms=wait_ms))

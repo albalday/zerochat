@@ -274,6 +274,13 @@ class PolicyEvaluationTest(ControllerTestCase):
         for path in ("/etc/passwd", "~/.ssh/id_rsa", "$HOME/.bashrc", "../outside.txt", "/workspace/../etc/passwd"):
             self.assertEqual(self.evaluate("read_file", {"path": path}).status, "ask", path)
         self.assertEqual(self.evaluate("run_command", {"command": "sudo apt update"}).status, "ask")
+        # Una orden global se reconoce por el ejecutable que verá la shell, no por el texto del comando
+        for command in ("'sudo' ls", '"sudo" ls', "s\\udo ls", "/usr/bin/sudo ls", "env -i sudo ls", "x=1 command sudo ls",
+                        "nice -n 5 doas ls", "pkexec ls", "run0 ls", "mkfs.ext4 disk.img", "sh -c 'sudo ls'",
+                        "sh -c 's\\udo ls'", "SUDO ls", '"su""do" ls', "sudo"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).status, "ask", command)
+        for command in ("npm run sudoku", "grep -r pseudo src", "cat mkfs-notes.txt", "ls systemctl-backup"):
+            self.assertTrue(self.evaluate("run_command", {"command": command}).allowed, command)
         # Un patrón guardado es una vía más de permitir: no hace más estrictas las reglas RWX del proyecto
         set_patterns(self.controller, "git status *")
         self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "directory_rule_allow")
@@ -743,7 +750,9 @@ class CommandPatternTest(HandlerTestCase):
             self.controller.import_state({"commandPatterns": {"global": [], "project": [f"a{i}" for i in range(limit - half + 1)]}}, ctx_a)
         self.assertEqual(len(saved_patterns()["projects"][ctx_b.key]), half)
 
-    def test_command_grants_need_a_pattern_that_covers_the_challenge(self):
+    # Aprobar un reto ejecuta el comando pendiente: aquí se sustituye la ejecución para no lanzar sudo de verdad.
+    @unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": [], "isError": False}, None, ""))
+    def test_command_grants_need_a_pattern_that_covers_the_challenge(self, execute_tool):
         gate = self.command_challenge("sudo echo hola mundo")
         cid = gate["challengeId"]
         self.assertEqual(gate["ruleOffer"]["command"], "sudo echo *")
@@ -773,10 +782,13 @@ class CommandPatternTest(HandlerTestCase):
         self.assertIsNone(err)
         self.assertTrue(res["authorized"])
         self.assertEqual(saved_patterns()["global"], ["sudo echo *"])
+        self.assertEqual(execute_tool.call_args.args[1:3], ("run_command", {"command": "sudo echo hola mundo"}))
         self.assertEqual(self.status("sudo echo otra cosa"), "allow")
         self.assertEqual(self.status("sudo rm -rf /"), "ask")
 
-    def test_command_pattern_scopes_session_project_and_global(self):
+    # Aprobar un reto ejecuta el comando pendiente: aquí se sustituye la ejecución para no lanzar sudo de verdad.
+    @unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": [], "isError": False}, None, ""))
+    def test_command_pattern_scopes_session_project_and_global(self, execute_tool):
         other_project = zerochat.SecurityContext(workspace_dir=self.base_dir.resolve())
         project = zerochat.normalize_directory_path(str(zerochat.PROJECT_DIR))
 
@@ -808,6 +820,54 @@ class CommandPatternTest(HandlerTestCase):
         self.assertEqual([self.status(c) for c in ("sudo echo uno dos", "sudo printf x", "sudo true x")], ["ask", "allow", "allow"])
         self.controller.apply_session_overlay(snapshot, cwd())
         self.assertEqual(self.status("sudo echo uno dos"), "allow")
+        self.assertEqual(execute_tool.call_count, 3)
+
+
+class PowerShellCommandTest(ControllerTestCase):
+    """En Windows run_command ejecuta PowerShell: los comandos se parten y se leen con su sintaxis."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = unittest.mock.patch.object(zerochat, "COMMAND_SHELL", "powershell")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_powershell_commands_split_with_its_quoting_and_operators(self):
+        split = zerochat.split_command
+        # La \ no escapa: "C:\" cierra la comilla y lo que sigue es otro subcomando (sh lo leería como un solo echo)
+        self.assertEqual(split('echo "C:\\" ; Remove-Item src'), [("", 'echo "C:\\"'), (";", "Remove-Item src")])
+        with unittest.mock.patch.object(zerochat, "COMMAND_SHELL", "posix"):
+            self.assertIsNone(split('echo "C:\\" ; Remove-Item src'))
+        # La comilla se repite dentro de comillas; las tipográficas valen como las ASCII
+        self.assertEqual(zerochat.split_words("cat 'C:\\a b\\it''s.txt' \"x\"\"y\""), ["cat", "C:\\a b\\it's.txt", 'x"y'])
+        self.assertEqual(zerochat.split_words("cat \u2018C:\\x y\u2019"), ["cat", "C:\\x y"])
+        with self.assertRaises(ValueError):
+            zerochat.split_words("cat 'C:\\x")
+        # Bloques de script, comilla invertida, llamada con & y redirecciones a fichero no se validan por partes;
+        # /dev/null es un fichero más y lo descartado va a $null
+        for command in ("Invoke-Command { Remove-Item src }", "ls | % { $_ }", "echo `whoami`", "& .\\build.ps1",
+                        "npm test > /dev/null", "npm test > out.txt"):
+            self.assertIsNone(split(command), command)
+        self.assertEqual(split("npm test 2>$null; npm run lint *>$null"), [("", "npm test"), (";", "npm run lint")])
+        # PowerShell no distingue mayúsculas: CD también cambia de carpeta
+        self.assertEqual(zerochat.cd_target("CD src"), "src")
+
+    def test_powershell_paths_and_global_commands_need_approval(self):
+        # Las rutas de Windows llegan enteras a las reglas de directorio (sh dejaba C:\x en C:x, que no es una ruta)
+        self.assertEqual(zerochat.command_outside_references("Get-Content 'C:\\Users\\x\\a b.txt' C:\\Windows\\win.ini"),
+                         ["C:\\Users\\x\\a b.txt", "C:\\Windows\\win.ini"])
+        self.assertEqual(zerochat.command_outside_references("cat ..\\otro\\a.txt"), ["..\\otro\\a.txt"])
+        for command in ("cat ..\\otro\\a.txt", "C:\\Windows\\System32\\sudo.exe ls", "runas /user:admin cmd",
+                        "Start-Process pwsh -Verb RunAs", "Format-Volume -DriveLetter D", "Stop-Service wuauserv",
+                        "npm test; Restart-Computer"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).status, "ask", command)
+        for command in ("Get-ChildItem src", "cat .\\src\\a.txt", "npm test 2>$null", "git status; git log"):
+            self.assertTrue(self.evaluate("run_command", {"command": command}).allowed, command)
+
+    @unittest.skipUnless(os.name == "nt", "Solo Windows resuelve C:\\ como ruta absoluta")
+    def test_windows_absolute_paths_outside_the_project_need_approval(self):
+        for command in ("cat C:\\Windows\\win.ini", "Get-Content 'C:\\Windows\\System32\\drivers\\etc\\hosts'", "CD C:\\Windows"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).status, "ask", command)
 
 
 class SessionLifecycleTest(HandlerTestCase):

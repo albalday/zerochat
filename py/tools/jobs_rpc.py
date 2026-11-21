@@ -21,12 +21,11 @@ def _log(params: dict, job) -> RpcOutcome:
     offset = params.get("offset", 0)
     limit = params.get("limit", JOB_LOG_PAGE_BYTES)
     try:
-        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
         if tail is not None:
-            parsed_tail = parse_nonneg_int(tail, "tail", 0) or 0
-            start = max(0, job.total - parsed_tail)
+            start = max(0, job.total - parse_nonneg_int(tail, "tail"))
         else:
-            start = parse_nonneg_int(offset, "offset", 0) or 0
+            start = parse_nonneg_int(offset, "offset")
     except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
     if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:

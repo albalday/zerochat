@@ -10,14 +10,20 @@ import typing
 from tools.common import line_matches
 
 
+class _WakeableJob(typing.Protocol):
+    """Lo que una espera necesita del comando (CommandJob): despertar a quien espera su salida."""
+
+    def wake_waiters(self) -> None: ...
+
+
 class CancellableWaits:
     """Esperas en curso, por la clave de su invocación: zerochat/jobs/end_wait corta la de esa clave."""
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._waits: dict[str, tuple[threading.Event, typing.Any]] = {}
+        self._waits: dict[str, tuple[threading.Event, _WakeableJob]] = {}
 
-    def open(self, key: str | None, job=None) -> threading.Event:
+    def open(self, key: str | None, job: _WakeableJob) -> threading.Event:
         """Registra una espera que se puede cortar con cancel(key); sin clave no se puede cortar."""
         event = threading.Event()
         if key:
@@ -38,8 +44,7 @@ class CancellableWaits:
             return False
         event, job = entry
         event.set()
-        if job is not None:
-            job.notify_finished()
+        job.wake_waiters()
         return True
 
 

@@ -29,6 +29,9 @@
   // Un subagente anida grupos dentro de su tarjeta: cada grupo solo gestiona sus zonas directas.
   const GROUP_CARDS = ':scope > .tool-call-group-history > .tool-call-group-cards';
   const GROUP_ACTIVE_CARDS = ':scope > .tool-call-group-active-cards';
+  const MAX_CARDS_PER_GROUP = 20;
+
+  const groupCards = group => Array.from(group.querySelectorAll(`${GROUP_CARDS} > .tool-card-wrapper, ${GROUP_ACTIVE_CARDS} > .tool-card-wrapper`));
 
   // Quien contesta las autorizaciones sin usuario (el modo ejecución); null, las contesta el usuario.
   let authorizationResponder = null;
@@ -47,12 +50,13 @@
 
   function getToolCallGroup(container) {
     const lastChild = container.lastElementChild;
-    return lastChild?.classList.contains('tool-call-group') ? lastChild : null;
+    if (!lastChild?.classList.contains('tool-call-group')) return null;
+    return groupCards(lastChild).length < MAX_CARDS_PER_GROUP ? lastChild : null;
   }
 
   function updateToolCallGroup(group) {
     if (!group) return;
-    const cards = Array.from(group.querySelectorAll(`${GROUP_CARDS} > .tool-card-wrapper, ${GROUP_ACTIVE_CARDS} > .tool-card-wrapper`));
+    const cards = groupCards(group);
     const running = cards.filter(card => card.dataset.toolCallStatus === 'running');
     const isRunning = running.length > 0;
     const failed = cards.filter(card => card.dataset.toolCallStatus === 'error').length;
@@ -397,7 +401,10 @@
       const overlayRect = overlayElement?.isConnected ? overlayElement.getBoundingClientRect() : null;
       const listRect = messagesList.getBoundingClientRect();
       const bottom = Math.max(elementRect.bottom, overlayRect?.bottom || -Infinity);
-      const overflow = bottom - listRect.bottom + 16;
+      const rawOverflow = bottom - listRect.bottom + 16;
+      if (rawOverflow <= 0) return;
+      // En tarjetas muy altas (p. ej. write_file), no empujar el diálogo de aprobación fuera por arriba.
+      const overflow = Math.min(rawOverflow, Math.max(0, elementRect.top - listRect.top - 8));
       if (overflow <= 0) return;
       const targetTop = Math.min(messagesList.scrollHeight - messagesList.clientHeight, messagesList.scrollTop + overflow);
       const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -558,9 +565,34 @@
     toolGroup?.classList.add('tool-call-group-auth-active');
     const cmdHeaderEl = cardEl.querySelector('.command-card-command');
     const cmdHeaderPrevText = cmdHeaderEl ? cmdHeaderEl.textContent : null;
-    if (cmdHeaderEl && cmdHeaderEl.title && cmdHeaderEl.title !== cmdHeaderPrevText) {
-      cmdHeaderEl.textContent = cmdHeaderEl.title;
+    let cmdHeaderInspectBtn = null;
+    if (cmdHeaderEl) {
+      if (cmdHeaderEl.title && cmdHeaderEl.title !== cmdHeaderPrevText) {
+        cmdHeaderEl.textContent = cmdHeaderEl.title;
+      }
+      const inspectTitle = t('tool_auth_command_inspect_title');
+      cmdHeaderInspectBtn = document.createElement('button');
+      cmdHeaderInspectBtn.type = 'button';
+      cmdHeaderInspectBtn.className = 'btn-auth-cmd-inspect btn-auth-header-inspect';
+      cmdHeaderInspectBtn.title = inspectTitle;
+      cmdHeaderInspectBtn.setAttribute('aria-label', inspectTitle);
+      cmdHeaderInspectBtn.hidden = true;
+      Utils.setTrustedHtml(cmdHeaderInspectBtn, SEARCH_SVG);
+      cmdHeaderInspectBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        await getDialogs().alert(cmdHeaderEl.textContent || '', { title: inspectTitle });
+      });
+      cmdHeaderEl.insertAdjacentElement('afterend', cmdHeaderInspectBtn);
     }
+    const syncHeaderInspect = () => {
+      if (!cmdHeaderEl || !cmdHeaderInspectBtn) return;
+      cmdHeaderInspectBtn.hidden = cmdHeaderEl.scrollHeight <= cmdHeaderEl.clientHeight + 1;
+    };
+    const cmdHeaderObserver = cmdHeaderEl && typeof ResizeObserver === 'function'
+      ? new ResizeObserver(syncHeaderInspect)
+      : null;
+    cmdHeaderObserver?.observe(cmdHeaderEl);
+    requestAnimationFrame(() => requestAnimationFrame(syncHeaderInspect));
 
     const badge = card.querySelector('.tool-card-badge');
     renderPendingAuthBadge(badge);
@@ -647,6 +679,8 @@
       const cleanup = () => {
         authPromptEl.remove();
         cardEl.classList.remove('tool-card-auth-active');
+        cmdHeaderObserver?.disconnect();
+        cmdHeaderInspectBtn?.remove();
         if (cmdHeaderEl && cmdHeaderPrevText !== null) cmdHeaderEl.textContent = cmdHeaderPrevText;
         if (wasCollapsed) collapseCard(card);
         const activeGroup = toolGroup || card.closest('.tool-call-group');
@@ -829,6 +863,7 @@
   }
 
   return {
+    MAX_CARDS_PER_GROUP,
     createCardView,
     renderCardHtml,
     renderStatusBadge,

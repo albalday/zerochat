@@ -15,7 +15,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults, McpStatus) {
   'use strict';
 
-  const { resolveDep, escapeHtml } = Utils;
+  const { resolveDep, escapeHtml, runLongPoll, LONG_POLL_WAIT_MS, LONG_POLL_MARGIN_MS } = Utils;
   const { t } = I18n;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
@@ -28,7 +28,7 @@
 
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
   const { USER_BROWSERS } = Defaults;
-  const ENGINE_WAIT_MS = 25000;
+  const ENGINE_RETRY_DELAY_MS = 500;
   const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken'];
   // La extensión muestra el token como variable de entorno: se admite pegar la línea entera.
   const TOKEN_ENV_PREFIX = /^PLAYWRIGHT_MCP_EXTENSION_TOKEN\s*=\s*/;
@@ -207,21 +207,25 @@
         section.config = { ...section.engines.config };
       }
       render();
-      while (!abortController.signal.aborted && section.engines?.engines?.some(engine => engine.status === 'installing')) {
-        const startedAt = Date.now();
-        const prevRev = section.engines.rev;
-        const update = await request(
-          'zerochat/browser/engines/list',
-          { since_rev: prevRev, wait_ms: ENGINE_WAIT_MS, engines_only: true },
-          { signal: abortController.signal, timeoutMs: ENGINE_WAIT_MS + 5000 }
-        );
-        if (abortController.signal.aborted) return;
-        section.engines = { ...section.engines, ...update };
-        render();
-        if (update?.rev === prevRev && Date.now() - startedAt < 50) {
-          await new Promise(resolve => { setTimeout(resolve, 500); });
+      const { signal } = abortController;
+      await runLongPoll({
+        signal,
+        idleDelayMs: ENGINE_RETRY_DELAY_MS,
+        onError: error => { throw error; },
+        poll: async () => {
+          if (!section.engines?.engines?.some(engine => engine.status === 'installing')) return { stop: true };
+          const prevRev = section.engines.rev;
+          const update = await request(
+            'zerochat/browser/engines/list',
+            { since_rev: prevRev, wait_ms: LONG_POLL_WAIT_MS, engines_only: true },
+            { signal, timeoutMs: LONG_POLL_WAIT_MS + LONG_POLL_MARGIN_MS }
+          );
+          if (signal.aborted) return { stop: true };
+          section.engines = { ...section.engines, ...update };
+          render();
+          return { changed: update?.rev !== prevRev };
         }
-      }
+      });
     } catch (error) {
       if (!abortController.signal.aborted) throw error;
     } finally {

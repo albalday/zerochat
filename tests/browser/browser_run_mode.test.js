@@ -445,7 +445,7 @@ describe('Browser UI - modo ejecución desatendida', { concurrency: 2 }, () => {
     const liveView = await page.evaluate(() => ({
       banner: document.querySelector('.server-run-banner-title')?.textContent,
       step: document.querySelector('.server-run-step')?.textContent,
-      heartbeatActive: window.ChatMCP.manager.heartbeatActive,
+      heartbeatActive: window.ChatMCP.manager.liveWatchAbort !== null,
       sendDisabled: document.getElementById('btn-send').disabled,
       stopVisible: !document.getElementById('btn-stop-stream').hidden,
       sidebarRunningIcon: Boolean(document.querySelector(`.sidebar-chat-item[data-session-id="${window.ChatState.get('sessions').activeId}"] .sidebar-chat-status-icon.running`))

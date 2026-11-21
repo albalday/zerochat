@@ -74,7 +74,7 @@ def _heartbeat(params: dict, ctx: SecurityContext) -> RpcOutcome:
     if since_rev is not None and not isinstance(since_rev, str):
         return rpc_error(INVALID_PARAMS, "since_rev debe ser texto")
     try:
-        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms", 0) or 0
+        wait_ms = parse_nonneg_int(params.get("wait_ms"), "wait_ms")
     except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
     return rpc_result(wait_live_state(ctx, params.get("focus_conversation_id"), since_rev=since_rev, wait_ms=wait_ms))

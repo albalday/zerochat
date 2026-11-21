@@ -604,6 +604,10 @@
 .mcp-input-summary {
   padding: 0.35rem 0.75rem;
   font-size: 0.75rem;
+  line-height: 1.45;
+  max-height: calc(15 * 1.45em + 0.7rem);
+  overflow-y: auto;
+  white-space: pre-wrap;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-color);
   overflow-wrap: anywhere;
@@ -1443,11 +1447,24 @@
   align-items: flex-start;
 }
 
+.command-card.tool-card-auth-active .tool-card-title {
+  align-items: flex-start;
+}
+
+.command-card.tool-card-auth-active .tool-card-title > svg:first-child {
+  flex-shrink: 0;
+  margin-top: 0.18rem;
+}
+
 .command-card.tool-card-auth-active .command-card-command {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.4;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  overflow: visible;
-  text-overflow: clip;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .command-card .tool-card-header-actions {

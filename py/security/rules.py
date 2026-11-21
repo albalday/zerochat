@@ -8,7 +8,13 @@ import itertools
 import re
 import shlex
 
+from core.environment import DETECTED_OS
 from security.context import normalize_directory_path
+
+# Shell con la que run_command ejecuta los comandos (tools/jobs.py): PowerShell en Windows y sh en el resto.
+# Los comandos se parten y se leen con sus reglas: en PowerShell la \ es un carácter más (C:\x), el escape
+# es la comilla invertida y dentro de comillas la comilla se repite ('it''s').
+COMMAND_SHELL = "powershell" if DETECTED_OS == "windows" else "posix"
 
 POLICY_ALLOW = "allow"
 POLICY_DENY = "deny"
@@ -32,8 +38,15 @@ COMMAND_ABSOLUTE_ARG = re.compile(r"(?:^|[=:])(?:[/\\]|[A-Za-z]:[/\\])")
 SYSTEM_BIN_DIRS = ("/usr/bin/", "/bin/", "/usr/local/bin/")
 SUBCOMMAND_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
 SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
-# Lo que impide validar un comando por partes: sustitución de comandos o de procesos y saltos de línea.
+# En PowerShell /dev/null es un fichero más: lo que se descarta va a $null.
+POWERSHELL_SAFE_REDIRECTION_PATTERN = re.compile(r"[\d*]?>>?\s*\$null\b|\d?>&\d")
+# Lo que impide validar un comando por partes: sustitución de comandos o de procesos y saltos de línea, y en
+# PowerShell además los bloques de script ({ }), que ejecutan lo que llevan dentro.
 SHELL_SPLIT_UNSUPPORTED = re.compile(r"[`\n\r]|\$\(|[<>]\(")
+POWERSHELL_SPLIT_UNSUPPORTED = re.compile(r"[`\n\r{}]|\$\(|[<>]\(")
+# PowerShell también acepta como comillas las tipográficas: se leen como las ASCII.
+_POWERSHELL_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
+                                    "\u201c": '"', "\u201d": '"', "\u201e": '"'})
 # Palabras que cambian cómo se ejecuta lo que sigue (bloques, bucles, prefijos o cambios de carpeta ocultos).
 SHELL_KEYWORDS = frozenset(["if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
                             "select", "function", "{", "}", "!", "[[", "time", "coproc", "pushd", "popd", "builtin",
@@ -44,7 +57,18 @@ CD_UNSAFE_TARGET = re.compile(r"[$~*?\[{]")
 WORKSPACE_TRUST_PIPE_FILTERS = frozenset([
     "head", "tail", "grep", "egrep", "fgrep", "rg", "wc", "sort", "uniq", "cut", "tr", "column", "nl", "cat", "jq"
 ])
-WORKSPACE_TRUST_GLOBAL_COMMANDS = re.compile(r"(?:^|\s)(?:sudo|su|doas|mkfs|reboot|shutdown|systemctl)\b")
+# Órdenes que actúan sobre todo el sistema (privilegios, discos, energía, servicios): nunca son locales
+# al proyecto aunque no lleven rutas. mkfs incluye su familia (mkfs.ext4, mkfs.vfat...).
+WORKSPACE_TRUST_GLOBAL_COMMANDS = frozenset([
+    "sudo", "su", "doas", "pkexec", "run0", "mkfs", "reboot", "shutdown", "poweroff", "halt", "systemctl"
+])
+# Las de Windows solo cuentan con PowerShell: en sh, 'npm run format' no formatea ningún disco.
+POWERSHELL_GLOBAL_COMMANDS = WORKSPACE_TRUST_GLOBAL_COMMANDS | frozenset([
+    "runas", "gsudo", "format", "diskpart", "bcdedit", "restart-computer", "stop-computer", "format-volume",
+    "clear-disk", "initialize-disk", "stop-service", "restart-service", "set-service"
+])
+# Lo que separa palabras dentro de un argumento que otra shell volvería a interpretar (sh -c '...').
+_NESTED_WORD_SEPARATORS = re.compile(r"[\s;&|()<>`'\"]+")
 WORKSPACE_TRUST_OUTSIDE_REFERENCE = re.compile(r"(?:^|[\s=:'\"])(?:[\\/~]|[A-Za-z]:[\\/])|\$|(?:^|[\s=:'\"\\/])\.\.(?=[\s\\/'\"]|$)")
 _COMMAND_PATH_START = re.compile(r"^(?:[/\\]|(?:\.\.(?:$|[/\\]))|[A-Za-z]:[\\/])")
 _COMMAND_INTERNAL_OUTSIDE_REF = re.compile(r"[\s:'\"](?:[\\/~]|[A-Za-z]:[\\/]|\.\.(?:$|[\s\\/]))")
@@ -90,20 +114,26 @@ def split_command(cmd: str) -> list[tuple[str, str]] | None:
     plano, subshells, redirecciones a ficheros (salvo las de SAFE_REDIRECTION_PATTERN), palabras
     reservadas de la shell, comillas sin cerrar, un subcomando vacío o un cd que no sea 'cd <dir>'.
     """
-    if not isinstance(cmd, str) or SHELL_SPLIT_UNSUPPORTED.search(cmd):
+    powershell = COMMAND_SHELL == "powershell"
+    if not isinstance(cmd, str):
         return None
-    text = SAFE_REDIRECTION_PATTERN.sub(" ", cmd)
+    if powershell:
+        cmd = cmd.translate(_POWERSHELL_QUOTES)
+    if (POWERSHELL_SPLIT_UNSUPPORTED if powershell else SHELL_SPLIT_UNSUPPORTED).search(cmd):
+        return None
+    text = (POWERSHELL_SAFE_REDIRECTION_PATTERN if powershell else SAFE_REDIRECTION_PATTERN).sub(" ", cmd)
     segments, current, operator, quote, i = [], "", "", "", 0
     while i < len(text):
         ch = text[i]
         two = text[i:i + 2]
         if quote:
-            if ch == "\\" and quote == '"':
+            # En PowerShell la \ no escapa: "C:\" cierra la comilla.
+            if ch == "\\" and quote == '"' and not powershell:
                 current += two
                 i += 2
                 continue
             quote = "" if ch == quote else quote
-        elif ch == "\\":
+        elif ch == "\\" and not powershell:
             current += two
             i += 2
             continue
@@ -128,22 +158,60 @@ def split_command(cmd: str) -> list[tuple[str, str]] | None:
 def _is_plain_segment(segment: str) -> bool:
     """Un subcomando no vacío, que no empieza por una palabra reservada y, si es un cd, de la forma 'cd <dir>'."""
     try:
-        words = shlex.split(segment)
+        words = split_words(segment)
     except ValueError:
         return False
     if not words or words[0].lower() in SHELL_KEYWORDS:
         return False
     # Un cd tras variables ('x=1 cd /etc') o tras 'command' también cambia la carpeta: no se admite.
     rest = list(itertools.dropwhile(ENV_ASSIGNMENT.fullmatch, words))
-    if rest[rest[:1] == ["command"]:][:1] == ["cd"] and words[0] != "cd":
+    if rest[rest[:1] == ["command"]:][:1] == ["cd"] and not _is_cd(words[0]):
         return False
-    return words[0] != "cd" or (len(words) == 2 and not words[1].startswith("-") and not CD_UNSAFE_TARGET.search(words[1]))
+    return not _is_cd(words[0]) or (len(words) == 2 and not words[1].startswith("-") and not CD_UNSAFE_TARGET.search(words[1]))
+
+
+def _is_cd(word: str) -> bool:
+    """PowerShell no distingue mayúsculas en los nombres de órdenes: CD también cambia de carpeta."""
+    return (word.lower() if COMMAND_SHELL == "powershell" else word) == "cd"
+
+
+def split_words(segment: str) -> list[str]:
+    """Palabras de un subcomando tal como las verá la shell de run_command, sin comillas; ValueError si queda una sin cerrar."""
+    if COMMAND_SHELL != "powershell":
+        return shlex.split(segment)
+    text = segment.translate(_POWERSHELL_QUOTES)
+    words, current, quote, in_word, i = [], "", "", False, 0
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == quote and text[i + 1:i + 2] == quote:
+                current += ch
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+            else:
+                current += ch
+        elif ch in "'\"":
+            quote, in_word = ch, True
+        elif ch.isspace():
+            if in_word:
+                words.append(current)
+            current, in_word = "", False
+        else:
+            current, in_word = current + ch, True
+        i += 1
+    if quote:
+        raise ValueError("Comillas sin cerrar.")
+    if in_word:
+        words.append(current)
+    return words
 
 
 def cd_target(segment: str) -> str | None:
     """Carpeta de un subcomando 'cd <dir>' ya validado por split_command, o None si no es un cd."""
-    words = shlex.split(segment)
-    return words[1] if words[0] == "cd" else None
+    words = split_words(segment)
+    return words[1] if _is_cd(words[0]) else None
 
 
 def get_command_arg(args: dict | None) -> str:
@@ -167,9 +235,32 @@ def get_integrated_path_access(tool_name: str) -> str:
     return ""
 
 
+def invokes_global_command(segment: str) -> bool:
+    """
+    Si el subcomando nombra una orden global en cualquier palabra, tal como la verá la shell: sin comillas
+    ni escapes, por su nombre aunque vaya con ruta, y también dentro de un argumento que otra shell
+    reinterpretaría (sh -c 'sudo ls'), sin distinguir mayúsculas ni .exe. Cualquier posición cuenta, así que
+    también las que van tras env, command, nice o xargs. Un subcomando que no se puede partir cuenta como global.
+    """
+    try:
+        tokens = split_words(segment)
+    except ValueError:
+        return True
+    global_commands = POWERSHELL_GLOBAL_COMMANDS if COMMAND_SHELL == "powershell" else WORKSPACE_TRUST_GLOBAL_COMMANDS
+    for token in tokens:
+        for word in _NESTED_WORD_SEPARATORS.split(token):
+            base = word.rsplit("/", 1)[-1]
+            # Una \ es un escape para una shell anidada (sh -c 's\udo') o un separador de ruta en Windows.
+            for name in (base.replace("\\", ""), base.rsplit("\\", 1)[-1]):
+                name = name.lower().removesuffix(".exe")
+                if name in global_commands or name.startswith("mkfs."):
+                    return True
+    return False
+
+
 def is_workspace_local_command(segment: str) -> bool:
     """Filtro de Workspace Trust para un subcomando: sin órdenes globales ni referencias fuera del proyecto."""
-    return not WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
+    return not invokes_global_command(segment) and not WORKSPACE_TRUST_OUTSIDE_REFERENCE.search(segment)
 
 
 def command_outside_references(segment: str) -> list[str] | None:
@@ -180,10 +271,10 @@ def command_outside_references(segment: str) -> list[str] | None:
     """
     if is_workspace_local_command(segment):
         return []
-    if WORKSPACE_TRUST_GLOBAL_COMMANDS.search(segment) or "$" in segment or "~" in segment:
+    if invokes_global_command(segment) or "$" in segment or "~" in segment:
         return None
     try:
-        tokens = shlex.split(segment)
+        tokens = split_words(segment)
     except ValueError:
         return None
     if not tokens:
@@ -228,7 +319,7 @@ def matches_command_pattern(command: str, pattern: str) -> bool:
     command = segments[0][1]
     words, rest = compile_command_pattern(str(pattern))
     try:
-        args = shlex.split(command)
+        args = split_words(command)
     except ValueError:
         return False
     if not words or len(args) < len(words) or (len(args) > len(words) and not rest):
@@ -269,7 +360,7 @@ def clean_pattern_list(raw, label: str) -> list[str]:
     return [p for p in unique if not any(q != p and matches_command_pattern(p, q) for q in unique)]
 
 
-def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int = 0) -> None:
+def check_command_pattern_limit(global_patterns: list[str], project_patterns: list[str], other_project_count: int) -> None:
     """Comprueba que el total de patrones globales y de todos los proyectos no supere MAX_COMMAND_PATTERNS."""
     total = len(global_patterns) + len(project_patterns) + other_project_count
     if total > MAX_COMMAND_PATTERNS:

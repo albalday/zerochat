@@ -17,7 +17,8 @@ import uuid
 from pathlib import Path
 
 from core.environment import get_data_dir
-from core.limits import BROWSER_TOOLS, MAX_PATH_LENGTH
+from core.limits import MAX_PATH_LENGTH
+from core.live_events import notify_live_change
 from storage.obfuscation import OBFUSCATION_PREFIX, obfuscate_secret, reveal_secret
 
 
@@ -38,18 +39,8 @@ MAX_STAGED_CONVERSATION_BYTES = 64 * 1024 * 1024
 MAX_CONVERSATION_UPLOAD_CHUNKS = 512
 _UPLOAD_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 _PENDING_CONVERSATION_UPLOADS: dict[str, dict] = {}
-_STORAGE_LIVE_HOOKS: list = []
 
 
-def on_storage_live_change(hook):
-    """Registra una función sin argumentos que se avisa cuando cambian ejecuciones o conversaciones."""
-    _STORAGE_LIVE_HOOKS.append(hook)
-    return hook
-
-
-def _notify_storage_live_change():
-    for hook in _STORAGE_LIVE_HOOKS:
-        hook()
 def _obfuscate_saved_api_keys(conn: sqlite3.Connection):
     """Las API keys de los perfiles del servidor, guardadas en claro hasta ahora, pasan a guardarse ofuscadas."""
     rows = conn.execute("SELECT id, api_key FROM profiles WHERE api_key != '';").fetchall()
@@ -191,6 +182,8 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
+# Herramienta de navegación de cada proyecto (sección Navegador de Ajustes).
+BROWSER_TOOLS = ("none", "browser_action", "playwright")
 PROJECT_ENVIRONMENT_FIELDS = ("systemDataPrompt", "enabledTools", "mcpServers", "browser", "activeRagBranchIds")
 PROJECT_ENVIRONMENT_KEYS = frozenset(PROJECT_ENVIRONMENT_FIELDS)
 MAX_PROJECT_PROMPT_LENGTH = 32768
@@ -649,7 +642,7 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
         conn.commit()
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         saved = _row_to_conversation_header(row)
-    _notify_storage_live_change()
+    notify_live_change()
     return saved
 
 
@@ -832,7 +825,7 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
             conn.commit()
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
-    _notify_storage_live_change()
+    notify_live_change()
     return True
 
 
@@ -849,7 +842,7 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
         conn.commit()
         changed = cursor.rowcount > 0
     if changed:
-        _notify_storage_live_change()
+        notify_live_change()
     return changed
 
 
@@ -876,7 +869,7 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
             _delete_orphan_blobs(conn, candidates)
         conn.execute("COMMIT;")
         if ids:
-            _notify_storage_live_change()
+            notify_live_change()
         return ids
     except Exception:
         conn.execute("ROLLBACK;")
@@ -1108,34 +1101,25 @@ def get_setting(key: str):
         return json.loads(row["value_json"])
 
 
-def set_setting(key: str, value) -> None:
-    """Guarda un ajuste JSON en la tabla `settings`."""
-    payload = json.dumps(value, ensure_ascii=False)
-    now = int(time.time() * 1000)
-    with open_storage() as conn:
-        conn.execute("""
-            INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
-            ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
-        """, (key, payload, now))
-        conn.commit()
+def _write_setting_on_conn(conn: sqlite3.Connection, key: str, value, now: int):
+    conn.execute("""
+        INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
+    """, (key, json.dumps(value, ensure_ascii=False), now))
 
 
-def save_browser_config_storage(public_config: dict, extension_token: str, key: str, secret_key: str) -> None:
-    """Guarda atómicamente la configuración del navegador en `settings` y su token en `secrets`."""
-    payload = json.dumps(public_config, ensure_ascii=False)
+def set_setting(key: str, value, *, secret_name: str | None = None, secret: str = "") -> None:
+    """Guarda un ajuste JSON en `settings`; con `secret_name`, guarda (o borra si va vacío) en la misma transacción su secreto ofuscado."""
     now = int(time.time() * 1000)
     with open_storage() as conn:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE;")
         try:
-            conn.execute("""
-                INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
-                ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at;
-            """, (key, payload, now))
-            if extension_token:
-                _write_secret_on_conn(conn, secret_key, extension_token, now)
-            else:
-                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_key,))
+            _write_setting_on_conn(conn, key, value, now)
+            if secret_name and secret:
+                _write_secret_on_conn(conn, secret_name, secret, now)
+            elif secret_name:
+                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_name,))
             conn.execute("COMMIT;")
         except Exception:
             conn.execute("ROLLBACK;")
@@ -1165,10 +1149,9 @@ def _row_to_run_state(row: sqlite3.Row) -> dict:
 
 def upsert_run_state(payload: dict) -> None:
     """Guarda o actualiza en SQLite el estado en vivo de una ejecución en servidor."""
-    conv_id = _validate_conversation_id(payload.get("conversation_id"))
-    pending = payload.get("pending")
+    conv_id = _validate_conversation_id(payload["conversation_id"])
+    pending = payload["pending"]
     pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
-    now = int(time.time() * 1000)
     with open_storage() as conn:
         conn.execute("""
             INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error)
@@ -1185,18 +1168,18 @@ def upsert_run_state(payload: dict) -> None:
                 error = excluded.error;
         """, (
             conv_id,
-            str(payload.get("run_id") or ""),
-            payload.get("pid"),
-            payload.get("pid_start"),
-            int(payload.get("started_at") or now),
-            int(payload.get("updated_at") or now),
-            str(payload.get("status") or "running"),
-            str(payload.get("step_text") or ""),
+            payload["run_id"],
+            payload["pid"],
+            payload["pid_start"],
+            payload["started_at"],
+            payload["updated_at"],
+            payload["status"],
+            payload["step_text"] or "",
             pending_json,
-            payload.get("error"),
+            payload["error"],
         ))
         conn.commit()
-    _notify_storage_live_change()
+    notify_live_change()
 
 
 def get_run_state(conversation_id: str) -> dict | None:
@@ -1222,7 +1205,7 @@ def delete_run_state(conversation_id: str) -> bool:
         conn.commit()
         deleted = cursor.rowcount > 0
     if deleted:
-        _notify_storage_live_change()
+        notify_live_change()
     return deleted
 
 

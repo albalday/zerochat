@@ -16,11 +16,10 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { resolveDep, escapeHtml, openTextInNewTab } = Utils;
+  const { resolveDep, escapeHtml, openTextInNewTab, delay, runLongPoll, LONG_POLL_WAIT_MS, LONG_POLL_MARGIN_MS } = Utils;
 
-  // Solo una tarjeta desplegada sigue su log mediante long-poll (wait_ms).
-  const LOG_WAIT_MS = 25000;
-  const LOG_REQUEST_TIMEOUT_MS = LOG_WAIT_MS + 5000;
+  // Solo una tarjeta desplegada sigue su log, con long-poll (wait_ms); antes de la primera lectura y
+  // entre reintentos, esta pausa deja al servidor registrar el comando.
   const LOG_RETRY_DELAY_MS = 500;
   // La tarjeta enseña el final del log, como una terminal pequeña; el log entero se abre aparte.
   const CARD_LOG_LINES = 40;
@@ -312,24 +311,18 @@
     }
   }
 
-  function waitUntilVisible(setCleanup) {
-    if (!document.hidden) return Promise.resolve();
+  /** Resuelve cuando la pestaña está visible, o antes si se aborta `signal`: oculta, no se pide el log. */
+  function whenVisible(signal) {
+    if (!document.hidden || signal.aborted) return Promise.resolve();
     return new Promise(resolve => {
-      const onVisible = () => {
-        if (!document.hidden) {
-          cleanup();
-          resolve();
-        }
-      };
-      const cleanup = () => {
-        document.removeEventListener('visibilitychange', onVisible);
-        setCleanup(null);
-      };
-      setCleanup(() => {
-        cleanup();
+      const done = () => {
+        if (document.hidden && !signal.aborted) return;
+        document.removeEventListener('visibilitychange', done);
+        signal.removeEventListener('abort', done);
         resolve();
-      });
-      document.addEventListener('visibilitychange', onVisible);
+      };
+      document.addEventListener('visibilitychange', done);
+      signal.addEventListener('abort', done);
     });
   }
 
@@ -337,10 +330,7 @@
     constructor(card) {
       this.card = card;
       this.state = initialState();
-      this.logTimer = null;
       this.logAbort = null;
-      this.logVisibilityCleanup = null;
-      this.logStreaming = false;
       this.log = { loaded: false, next: 0, loading: false, text: '', earlier: false };
       controllers.set(card, this);
       // El log se pide al desplegar la tarjeta, la despliegue quien la despliegue.
@@ -417,66 +407,46 @@
       this.render();
     }
 
-    startLogStream() {
-      if (this.logStreaming || this.isFinal() || !this.isExpanded()) return;
-      this.logStreaming = true;
-      this.followLog();
+    /** Sigue el log por long-poll mientras la tarjeta esté desplegada y el comando en marcha. */
+    startLogStream({ initialDelayMs = 0 } = {}) {
+      if (this.logAbort || this.isFinal()) return;
+      const controller = new AbortController();
+      this.logAbort = controller;
+      const { signal } = controller;
+      (async () => {
+        await delay(initialDelayMs, signal);
+        await runLongPoll({ signal, idleDelayMs: LOG_RETRY_DELAY_MS, poll: () => this.followLogStep(signal) });
+      })().finally(() => {
+        if (this.logAbort === controller) this.logAbort = null;
+      });
     }
 
     stopLogStream() {
-      this.logStreaming = false;
-      if (this.logTimer !== null) clearTimeout(this.logTimer);
-      this.logTimer = null;
       this.logAbort?.abort();
       this.logAbort = null;
       this.log.loading = false;
-      this.logVisibilityCleanup?.();
-      this.logVisibilityCleanup = null;
     }
 
-    waitUntilVisible() {
-      return waitUntilVisible(fn => { this.logVisibilityCleanup = fn; });
-    }
-
-    scheduleLogRetry(delayMs = LOG_RETRY_DELAY_MS) {
-      if (!this.logStreaming || this.logTimer !== null) return;
-      this.logTimer = setTimeout(() => {
-        this.logTimer = null;
-        this.followLog();
-      }, delayMs);
-    }
-
-    async followLog() {
-      if (!this.logStreaming) return;
+    async followLogStep(signal) {
       if (!this.card.isConnected) {
         untrack(this);
-        return;
+        return { stop: true };
       }
-      if (!this.isExpanded() || this.isFinal()) {
-        this.stopLogStream();
-        return;
-      }
-      if (document.hidden) {
-        await this.waitUntilVisible();
-        if (!this.logStreaming) return;
-      }
-      const started = Date.now();
-      const abortController = new AbortController();
-      this.logAbort = abortController;
-      const result = await this.loadLog({ waitMs: this.log.loaded ? LOG_WAIT_MS : 0, signal: abortController.signal });
-      if (this.logAbort === abortController) this.logAbort = null;
-      if (!this.logStreaming) return;
+      if (!this.isExpanded() || this.isFinal()) return { stop: true };
+      await whenVisible(signal);
+      if (signal.aborted) return { stop: true };
+      const initial = !this.log.loaded;
+      const result = await this.loadLog({ waitMs: initial ? 0 : LONG_POLL_WAIT_MS, signal });
+      if (signal.aborted) return { stop: true };
       if (result.done && this.state.toolReturned) {
         untrack(this);
         this.finish();
-        return;
+        return { stop: true };
       }
+      // La clave de la invocación llega después de crear la tarjeta: el botón de detener
+      // aparece cuando el servidor ya conoce el comando.
       if (this.state.confirmed) this.render();
-      if (result.ok && (!this.log.loaded || result.changed || Date.now() - started >= 50)) {
-        this.followLog();
-      } else {
-        this.scheduleLogRetry();
-      }
+      return { changed: result.ok && (initial || result.changed) };
     }
 
     /** Pregunta una vez al servidor cómo está el comando. */
@@ -574,7 +544,7 @@
         const query = initial
           ? { ...ref, tail: FIRST_LOG_BYTES, limit: LOG_PAGE_BYTES }
           : { ...ref, offset: this.log.next, limit: LOG_PAGE_BYTES, ...(waitMs > 0 ? { wait_ms: waitMs } : {}) };
-        const options = { ...(signal ? { signal } : {}), ...(waitMs > 0 ? { timeoutMs: waitMs + 5000 } : {}) };
+        const options = { ...(signal ? { signal } : {}), ...(waitMs > 0 ? { timeoutMs: waitMs + LONG_POLL_MARGIN_MS } : {}) };
         const page = await mcp.requestExternalControl('zerochat/jobs/log', query, options);
         if (page?.details) this.applyDetails(page.details);
         if (initial) {
@@ -610,9 +580,7 @@
         const controller = new CommandCardController(card);
         controller.render();
         track(controller);
-        // Pequeño margen inicial para que el servidor haya registrado el comando antes del primer tail.
-        controller.logStreaming = true;
-        controller.scheduleLogRetry(LOG_RETRY_DELAY_MS);
+        controller.startLogStream({ initialDelayMs: LOG_RETRY_DELAY_MS });
         return card;
       },
       updateLiveCard: (card, args, result) => {
@@ -711,9 +679,7 @@
       this.card = card;
       this.state = { request: waitRequest(args), startedAt: Date.now(), elapsed: 0, returned: false, result: null };
       this.clockTimer = null;
-      this.logTimer = null;
       this.logAbort = null;
-      this.logVisibilityCleanup = null;
       this.logNext = null;
       this.logText = '';
       this.logEarlier = false;
@@ -734,23 +700,14 @@
         if (!this.card.isConnected) this.stopTimers();
         else this.render();
       }, 1000);
-      if (this.state.request.jobId !== null) {
-        this.logTimer = setTimeout(() => {
-          this.logTimer = null;
-          this.followLog();
-        }, LOG_RETRY_DELAY_MS);
-      }
+      if (this.state.request.jobId !== null) this.followLog();
     }
 
     stopTimers() {
       if (this.clockTimer !== null) clearInterval(this.clockTimer);
-      if (this.logTimer !== null) clearTimeout(this.logTimer);
       this.clockTimer = null;
-      this.logTimer = null;
       this.logAbort?.abort();
       this.logAbort = null;
-      this.logVisibilityCleanup?.();
-      this.logVisibilityCleanup = null;
     }
 
     renderBadge() {
@@ -772,48 +729,32 @@
 
     /** La salida nueva del comando que se espera: desde donde iba al empezar la espera (long-poll). */
     async followLog() {
-      if (this.state.returned || !this.card.isConnected) return;
-      if (document.hidden) {
-        await waitUntilVisible(fn => { this.logVisibilityCleanup = fn; });
-        if (this.state.returned || !this.card.isConnected) return;
-      }
-      const mcp = getMcp();
+      const controller = new AbortController();
+      this.logAbort = controller;
+      const { signal } = controller;
+      await delay(LOG_RETRY_DELAY_MS, signal);
+      await runLongPoll({ signal, idleDelayMs: LOG_RETRY_DELAY_MS, poll: () => this.followLogStep(signal) });
+    }
+
+    async followLogStep(signal) {
+      if (this.state.returned || !this.card.isConnected) return { stop: true };
+      await whenVisible(signal);
+      if (signal.aborted || this.state.returned) return { stop: true };
       const ref = { id: this.state.request.jobId };
-      let ok = false;
-      let changed = false;
-      const started = Date.now();
-      const abortController = new AbortController();
-      this.logAbort = abortController;
-      try {
-        const query = this.logNext === null
-          ? { ...ref, tail: 0, limit: LOG_PAGE_BYTES }
-          : { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES, wait_ms: LOG_WAIT_MS };
-        const options = { signal: abortController.signal, ...(this.logNext !== null ? { timeoutMs: LOG_REQUEST_TIMEOUT_MS } : {}) };
-        const page = await mcp.requestExternalControl('zerochat/jobs/log', query, options);
-        ok = true;
-        if (Number.isInteger(page?.next)) this.logNext = page.next;
-        if (page?.text) {
-          changed = true;
-          const kept = appendLog(this.logText, String(page.text));
-          this.logText = kept.text;
-          this.logEarlier = this.logEarlier || kept.trimmed;
-          if (!this.state.returned) this.showText(this.logText, this.logEarlier);
-        }
-        if (page?.done === true) return;
-      } catch (_) {
-        // El comando ya no existe o se canceló la espera.
-      } finally {
-        if (this.logAbort === abortController) this.logAbort = null;
+      const query = this.logNext === null
+        ? { ...ref, tail: 0, limit: LOG_PAGE_BYTES }
+        : { ...ref, offset: this.logNext, limit: LOG_PAGE_BYTES, wait_ms: LONG_POLL_WAIT_MS };
+      const options = { signal, ...(this.logNext !== null ? { timeoutMs: LONG_POLL_WAIT_MS + LONG_POLL_MARGIN_MS } : {}) };
+      // Si el comando ya no existe, la petición falla y queda lo que devuelva la herramienta.
+      const page = await getMcp().requestExternalControl('zerochat/jobs/log', query, options);
+      if (Number.isInteger(page?.next)) this.logNext = page.next;
+      if (page?.text) {
+        const kept = appendLog(this.logText, String(page.text));
+        this.logText = kept.text;
+        this.logEarlier = this.logEarlier || kept.trimmed;
+        if (!this.state.returned) this.showText(this.logText, this.logEarlier);
       }
-      if (this.state.returned || !this.card.isConnected) return;
-      if (ok && (changed || Date.now() - started >= 50)) {
-        this.followLog();
-      } else {
-        this.logTimer = setTimeout(() => {
-          this.logTimer = null;
-          this.followLog();
-        }, LOG_RETRY_DELAY_MS);
-      }
+      return { stop: page?.done === true, changed: Boolean(page?.text) };
     }
 
     /** Corta la espera: la herramienta vuelve enseguida con lo que haya. */

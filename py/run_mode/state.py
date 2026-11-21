@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import shutil
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -94,7 +95,9 @@ def remove_run_state(conversation_id: str | None) -> None:
     try:
         delete_run_state(conversation_id)
     except ValueError:
-        pass
+        pass  # Un identificador no válido nunca tuvo estado guardado.
+    except (sqlite3.Error, OSError) as err:
+        log_event(f"[zerochat] No se pudo borrar el estado de la ejecución de '{conversation_id}': {err}")
 
 
 def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dict], dict | None]:
@@ -121,7 +124,11 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
             data["updated_at"] = int(time.time() * 1000)
-            upsert_run_state(data)
+            # Aunque no se pueda guardar, el latido ya la entrega en error.
+            try:
+                upsert_run_state(data)
+            except (sqlite3.Error, OSError) as err:
+                log_event(f"[zerochat] No se pudo marcar en error la ejecución de '{conv_id}': {err}")
 
         light = {
             "conversation_id": conv_id,
