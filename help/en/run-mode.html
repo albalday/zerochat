@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Run a prompt from the command line · ZeroChat Help · 10.x</title>
-  <meta name="description" content="zerochat.py --prompt: run a prompt unattended with the browser's ZeroChat configuration, options, exit codes, windowless mode and scheduled jobs with cron.">
+  <meta name="description" content="zerochat.py --prompt, --conversation and --run-file: run prompts unattended with Node.js, options, exit codes and scheduled jobs with cron.">
   <link rel="stylesheet" href="../help.css">
 </head>
 <body>
@@ -26,13 +26,13 @@
 
     <div class="card" id="como-funciona">
       <h2>1. How it works</h2>
-      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> and, by default, runs the agentic loop in a lightweight Node.js process using the <code>local</code> profile stored on the server (or the one you pass with <code>--profile</code>). When it finishes, it returns the answer and the process exits.</p>
+      <p><code>zerochat --prompt "TEXT"</code> (or <code>python3 zerochat.py --prompt "TEXT"</code>) starts the <a href="install.html">local server</a> and runs the agentic loop in a lightweight Node.js process using the <code>local</code> profile stored on the server (or the one you pass with <code>--profile</code>). When it finishes, it returns the answer and the process exits.</p>
       <p>With <code>--conversation ID</code> you can continue a conversation already stored on the local server (either adding a new <code>--prompt</code> or resuming its last pending message), or turn on the <strong>Background execution</strong> switch at the top of the profiles selector so turns run in the background even if you close the tab.</p>
       <div class="code-wrapper"><pre><code>zerochat --prompt "Summarize today's changes in this repository" &gt; summary.txt</code></pre></div>
       <ul>
         <li><strong>Standard output:</strong> only the model's final answer.</li>
         <li><strong>Standard error:</strong> the reason for a run without an answer. The server log is off by default; with <code>--log on</code> it also goes to standard error.</li>
-        <li><strong>Execution:</strong> by default it uses Node.js 22.13 or later in the background (no graphical browser required); with <code>--browser</code> it uses your default browser (visible, or windowless if you add <code>--headless</code>). Node downloads the interface each time from the same site as the browser and keeps a copy: without a connection it uses the last one, so with a local model it works offline from the first run on.</li>
+        <li><strong>Execution:</strong> uses Node.js 22.13 or later in the background (no graphical browser required). Node downloads the interface each time from the same site as the browser and keeps a copy: without a connection it uses the last one, so with a local model it works offline from the first run on.</li>
         <li><strong>Working directory:</strong> file and command tools work in the directory you run the command from, as in a normal session.</li>
       </ul>
     </div>
@@ -45,15 +45,12 @@
           <tr><td><code>--conversation ID</code></td><td>Continues the conversation with that ID stored on the local server (see <code>--list-conversations</code>). Can be combined with <code>--prompt TEXT</code> to append a new user turn or used on its own to resume the last pending message or answer.</td></tr>
           <tr><td><code>--profile NAME</code></td><td>Uses that profile (name or id) for this run only, without changing the saved active profile. If omitted, uses the conversation's original profile (if present) or the server's <code>local</code> profile; if it does not exist, the run ends with an error.</td></tr>
           <tr><td><code>--run-file FILE</code></td><td>Reads the request from a JSON file (<code>-</code> to read it from standard input) instead of <code>--prompt</code>, <code>--conversation</code> and <code>--profile</code>, meant for orchestrators: <code>{"conversation_id": "...", "prompt": "...", "profile": "...", "systemDataPrompt": "...", "maxSteps": 20, "timeout": 600}</code>, all optional except the prompt or the conversation. <code>maxSteps</code> (up to 1000) limits the calls to the model and <code>timeout</code> (up to 86400) the seconds since startup; when one is reached, the run ends with code <code>6</code> and what was done stays saved (see <a href="#codigos">section 4</a>). If <code>conversation_id</code> exists it is continued; otherwise the new conversation is saved under that ID. <code>systemDataPrompt</code> replaces the project's one for this run only. The file never carries tools, MCP services or permissions, which always come from the project: that is why the folder must have its environment saved in Settings (otherwise the run ends with code <code>3</code>), and an unknown field ends with code <code>4</code>.</td></tr>
-          <tr><td><code>--browser</code></td><td>Opens the user's default browser in visible mode instead of the windowless Node.js process.</td></tr>
-          <tr><td><code>--headless</code></td><td>With <code>--browser</code>, opens the user's default browser without a window. See <a href="#sin-ventana">section 5</a>.</td></tr>
           <tr><td><code>--export FILE</code></td><td>Saves the conversation to <code>FILE</code>; the format comes from the extension: <code>.md</code> (Markdown), <code>.json</code> (session) or <code>.html</code> (as shown in the chat). It is also exported after a generation error.</td></tr>
-          <tr><td><code>--keep-page</code></td><td>With <code>--browser</code> (without <code>--headless</code>), does not close the page when it finishes, so you can see the conversation. The process exits anyway and the page is left disconnected from the server.</td></tr>
           <tr><td><code>--log on|off</code></td><td>Shows the startup banner and the server log on standard error. Defaults to <code>off</code> with <code>--prompt</code>.</td></tr>
-          <tr><td><code>--port PORT</code></td><td>Listening port; if it is in use, the run does not start. Without <code>--port</code>, if another open ZeroChat uses the default port, the run listens on a free port and coexists with it (in development, with <code>--browser</code> and the local interface, it does not start).</td></tr>
+          <tr><td><code>--port PORT</code></td><td>Listening port; if it is in use, the run does not start. Without <code>--port</code>, if another open ZeroChat uses the default port, the run listens on a free port and coexists with it.</td></tr>
         </tbody>
       </table></div>
-      <p><code>--prompt</code> is not combined with <code>--no-browser</code> or <code>--keep-server</code>, because the run needs the browser and ends when it returns the result.</p>
+      <p><code>--prompt</code>, <code>--conversation</code> and <code>--run-file</code> are not combined with <code>--no-browser</code> or <code>--keep-server</code>, because the run executes in Node.js and ends when it returns the result.</p>
     </div>
 
     <div class="card" id="herramientas">
@@ -61,7 +58,7 @@
       <ul>
         <li><strong>Approvals and questions with <code>--prompt</code> (without <code>--conversation</code>):</strong> unattended runs start contained by their working directory <code>RWX</code> rules (by default <code>RWX:&lt;project&gt;/**</code>: files inside the project and simple local commands, plus that project's rules in Settings › Permissions; calls outside that scope or permanently denied are blocked and return an error to the model). To let a specific project act as an unrestricted maintenance folder, open Settings › Permissions in that project and add <code>RWX:/**</code> under <strong>Allowed directories</strong>. Every blocked call leaves a <code>[run] Permiso denegado: …</code> line on standard error.</li>
         <li><strong>Clean pause:</strong> when the model asks with <code>ask_user</code> or a tool is waiting for approval, the run saves the conversation in SQLite with the pending card, prints the question (or the pending tool) on standard output and exits with code <code>5</code>. Replies and approvals are always given in the web interface, which continues the conversation on the server with its profile (also the new ones from <code>--run-file</code>): the command line never asks or approves anything.</li>
-        <li><strong>Tracking from an orchestrator:</strong> a run with <code>--conversation</code> or with the <code>conversation_id</code> of <code>--run-file</code> stores its state in SQLite, also when it finishes successfully. A ZeroChat started with <code>--keep-server</code> serves it over HTTP just like to the interface: with the daily token from <code>zerochat/login</code>, <code>zerochat/heartbeat</code> with <code>focus_conversation_id</code> returns in <code>focus_run</code> the status (<code>running</code>, <code>needs_input</code>, <code>error</code> or <code>completed</code>), the final answer (<code>result_text</code>), what is pending (<code>pending</code>), the error, the denied permissions (<code>warnings</code>) and the finish time, and with <code>since_rev</code> and <code>wait_ms</code> it waits for the next change without polling. Without <code>--keep-server</code>, the server shuts down when it stops receiving heartbeats from a browser.</li>
+        <li><strong>Tracking from an orchestrator:</strong> a run with <code>--conversation</code> or with the <code>conversation_id</code> of <code>--run-file</code> stores its state in SQLite, also when it finishes successfully. A ZeroChat started with <code>--keep-server</code> serves it over HTTP just like to the interface: with the daily token from <code>zerochat/login</code>, <code>zerochat/heartbeat</code> with <code>focus_conversation_id</code> returns in <code>focus_run</code> the status (<code>running</code>, <code>needs_input</code>, <code>error</code>, <code>limit</code> or <code>completed</code>), the final answer (<code>result_text</code>), what is pending (<code>pending</code>), the error, the denied permissions (<code>warnings</code>) and the finish time, and with <code>since_rev</code> and <code>wait_ms</code> it waits for the next change without polling. Without <code>--keep-server</code>, the server shuts down when it stops receiving heartbeats from a browser.</li>
         <li><strong>“Background execution” switch in the profiles selector:</strong> when connected to the local server, the top of the profiles panel shows the <strong>Background execution</strong> switch (available for all profiles except <code>Mirror</code> and WebLLM). When enabled, each turn runs as an independent background process (<code>~/zerochat/runs/</code>) using the active profile: the sidebar marks the conversation with a clock while running and with <code>?</code> when waiting for your reply or permission; opening it shows each step as it is saved (the page checks every 2 seconds only while you have it open; you can open other conversations while it runs and it is fetched in full when you come back) and lets you stop it at any time or approve the tool / answer <code>ask_user</code> to resume. <strong>Allow once</strong> applies only to the call shown on the card, with those same arguments, and is not stored: if the model asks for something else when it resumes, the run pauses again to ask you.</li>
         <li><strong>MCP services:</strong> the run starts its own local server and the enabled external MCP services, which stop when the run finishes.</li>
       </ul>
@@ -69,14 +66,14 @@
 
     <div class="card" id="codigos">
       <h2>4. Duration and exit codes</h2>
-      <p>Without <code>maxSteps</code> or <code>timeout</code> in <code>--run-file</code>, the run has no time limit: it goes on until it finishes, you cancel it or you interrupt it (Ctrl+C), and the conversation is saved in SQLite after every step with tools, so the work done is not lost if it is cut off. For tasks that must repeat, schedule them outside (section 6).</p>
+      <p>Without <code>maxSteps</code> or <code>timeout</code> in <code>--run-file</code>, the run has no time limit: it goes on until it finishes, you cancel it or you interrupt it (Ctrl+C), and the conversation is saved in SQLite after every step with tools, so the work done is not lost if it is cut off. For tasks that must repeat, schedule them outside (section 5).</p>
       <div class="table-responsive"><table>
         <thead><tr><th>Code</th><th>Meaning</th></tr></thead>
         <tbody>
           <tr><td><code>0</code></td><td>Finished: the answer is on standard output.</td></tr>
           <tr><td><code>1</code></td><td>Generation error, unknown profile, unavailable profile MCP service, an interface dialog asking the user for something, or a requested export that could not be written (in that last case the answer is still printed).</td></tr>
-          <tr><td><code>2</code></td><td>The runner or the browser closed without returning a result.</td></tr>
-          <tr><td><code>3</code></td><td>Startup failure: port in use, browser that could not be opened or, with <code>--run-file</code>, a folder without a saved environment.</td></tr>
+          <tr><td><code>2</code></td><td>The runner closed without returning a result.</td></tr>
+          <tr><td><code>3</code></td><td>Startup failure: port in use, Node.js unavailable or, with <code>--run-file</code>, a folder without a saved environment.</td></tr>
           <tr><td><code>4</code></td><td>Invalid arguments (also outside <code>--prompt</code>).</td></tr>
           <tr><td><code>5</code></td><td>Paused waiting for the user: the <code>ask_user</code> question or the tool awaiting approval is on standard output.</td></tr>
           <tr><td><code>6</code></td><td><code>--run-file</code> limit reached (<code>maxSteps</code> or <code>timeout</code>): the status is <code>limit</code> with the reason, the closed steps are saved and the conversation can be continued. When the timeout expires the runner is stopped and only the step in progress is lost.</td></tr>
@@ -84,17 +81,8 @@
       </table></div>
     </div>
 
-    <div class="card" id="sin-ventana">
-      <h2>5. Windowless mode and user browser (<code>--browser</code> / <code>--headless</code>)</h2>
-      <p>By default, <code>--prompt</code> and <code>--conversation</code> run windowless using a Node.js 22.13 or later process and the profiles stored on the local server (<code>~/zerochat/storage/zerochat.db</code>), without needing a graphical session or installed browsers.</p>
-      <ul>
-        <li><strong><code>--prompt --browser</code>:</strong> opens your default browser in visible mode (with your local profiles, history and rules saved in it). Supports <code>--keep-page</code>.</li>
-        <li><strong><code>--prompt --browser --headless</code>:</strong> on Linux, looks up the default browser (<code>xdg-settings</code>) and launches it with <code>--headless</code> on your normal profile; if it is already open or cannot be identified, it opens as a tab the normal way.</li>
-      </ul>
-    </div>
-
     <div class="card" id="cron">
-      <h2>6. Scheduled jobs (cron)</h2>
+      <h2>5. Scheduled jobs (cron)</h2>
       <ul>
         <li><strong>Profile and environment:</strong> save the profile while connected to the local server with the <strong>Save</strong> button (by default <code>local</code>, or the one passed in <code>--profile</code>) and ensure Node.js 22.13 or later is available. That way <code>--prompt</code> runs directly in the background without a graphical session or conflicts with your open browser.</li>
         <li><strong>Environment:</strong> cron starts with a minimal <code>PATH</code> in the home directory. Change to the working directory with <code>cd</code> and add to <code>PATH</code> the commands your MCP services need (<code>node</code>, <code>npx</code>, <code>uvx</code>…).</li>
@@ -106,7 +94,7 @@
     </div>
 
     <div class="card" id="inventario">
-      <h2>7. What each run needs</h2>
+      <h2>6. What each run needs</h2>
       <p>Before scheduling a run, check that the machine has everything it uses:</p>
       <ul>
         <li><strong>ZeroChat and the browser:</strong> the local server installed and a browser whose profile has ZeroChat set up from the same origin (GitHub Pages or your installation), with its profiles, API keys and the encryption password if you use your own.</li>

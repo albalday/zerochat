@@ -1,20 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const RunMode = require('../../js/run-mode.js');
-
-test('RunMode.readRunId solo acepta un identificador válido del fragmento de arranque', () => {
-  const valid = 'a'.repeat(16);
-  const rows = [
-    [`#token=t&host=127.0.0.1&port=1&run=${valid}`, valid],
-    [`#run=${'b'.repeat(128)}`, 'b'.repeat(128)],
-    [`#run=${'b'.repeat(129)}`, null],
-    [`#run=${'a'.repeat(15)}`, null],
-    ['#run=abcdefghijklmnop%3Cscript', null],
-    ['#token=t', null],
-    ['', null]
-  ];
-  for (const [hash, expected] of rows) assert.equal(RunMode.readRunId(hash), expected, hash);
-});
+const MCP = require('../../js/mcp.js');
+const Profiles = require('../../js/profile-repository.js');
+const State = require('../../js/state.js');
+const ToolCards = require('../../js/tool-cards.js');
 
 test('RunMode.createProgressReporter limita el streaming al intervalo y envía siempre los demás avisos', t => {
   t.mock.timers.enable({ apis: ['Date'], now: 10_000 });
@@ -81,4 +71,109 @@ test('RunMode - pendingToolApproval y prepareConversationForContinuation detecta
   assert.deepEqual(RunMode.prepareConversationForContinuation([user, assistantCall, toolPending]), [user]);
   const normalHistory = [user, { role: 'assistant', content: 'respuesta' }];
   assert.deepEqual(RunMode.prepareConversationForContinuation(normalHistory), normalHistory);
+});
+
+test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input, exportación y reanudación', async t => {
+  const prevWindow = globalThis.window;
+  let closedCount = 0;
+  globalThis.window = { close: () => { closedCount += 1; } };
+  t.after(() => {
+    if (prevWindow === undefined) delete globalThis.window;
+    else globalThis.window = prevWindow;
+    Profiles.clearSessionProfile();
+    State.replaceConversation({ sessionId: 'reset', messages: [], sessions: [] });
+  });
+
+  async function runScenario({ promptPayload, submitResult, afterSubmitMessages = [] }) {
+    const calls = [];
+    let activated = null;
+    let startedNew = null;
+    let switched = null;
+    let submitted = null;
+
+    t.mock.method(MCP.manager, 'reconcileProjectServers', async () => {});
+    t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
+      calls.push({ method, params });
+      if (method === 'zerochat/run/prompt') return promptPayload;
+      if (method === 'zerochat/run/profile') return { profile: { id: params.id, name: 'local', settings: { apiKey: 'sk' } } };
+      return { ok: true };
+    });
+
+    await RunMode.start('run_test_id_123456', {
+      startupConnection: Promise.resolve({ success: true }),
+      connectBackend: async () => ({ success: true }),
+      activateSessionProfile: async id => { activated = id; },
+      submitComposerText: async (text, opts) => {
+        submitted = { text, opts };
+        State.replaceMessages(afterSubmitMessages);
+        return submitResult;
+      },
+      exportConversation: async fmt => `exported:${fmt}`,
+      switchToSession: async id => { switched = id; },
+      startNewSession: async id => { startedNew = id; }
+    });
+    return { calls, activated, startedNew, switched, submitted };
+  }
+
+  // 1. Nueva conversación con perfil, exportación y respuesta final.
+  const ok = await runScenario({
+    promptPayload: {
+      prompt: 'Hola',
+      profile: 'local',
+      profiles: [{ id: 'p1', name: 'local', settings: {} }],
+      export: 'md',
+      new_conversation_id: 'session_nueva_1',
+      max_steps: 5
+    },
+    submitResult: { text: 'Listo' },
+    afterSubmitMessages: [{ role: 'user', content: 'Hola' }, { role: 'assistant', content: 'Listo' }]
+  });
+  assert.equal(ok.startedNew, 'session_nueva_1');
+  assert.equal(ok.activated, 'p1');
+  assert.equal(ok.submitted.opts.maxSteps, 5);
+  assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
+  assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', text: 'Listo' });
+
+  // 2. Límite de pasos.
+  const limit = await runScenario({
+    promptPayload: { prompt: 'Lee', new_conversation_id: 'session_lim', max_steps: 2 },
+    submitResult: { limit: 'steps' },
+    afterSubmitMessages: [{ role: 'user', content: 'Lee' }, { role: 'tool', content: '{}' }]
+  });
+  assert.deepEqual(limit.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', limit: 'steps' });
+
+  // 3. Pausa por ask_user.
+  const ask = await runScenario({
+    promptPayload: { prompt: 'Pregunta', new_conversation_id: 'session_ask' },
+    submitResult: { text: '' },
+    afterSubmitMessages: [
+      { role: 'user', content: 'Pregunta' },
+      { role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'ask_user', arguments: '{"question":"¿A o B?"}' } }] },
+      { role: 'tool', tool_call_id: 'c1', name: 'ask_user', content: '{}' }
+    ]
+  });
+  assert.deepEqual(ask.calls.find(c => c.method === 'zerochat/run/result')?.params, {
+    run_id: 'run_test_id_123456', needs_input: { kind: 'ask_user', text: '¿A o B?' }
+  });
+
+  // 4. Reanudación de conversación pausada en tool_approval: retira el paso pendiente y vuelve a pausar si pide otro permiso.
+  State.replaceMessages([
+    { role: 'user', content: 'Haz algo' },
+    { role: 'assistant', tool_calls: [{ id: 'c0', function: { name: 'write_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c0', name: 'write_file', content: JSON.stringify({ awaitingApproval: true }) }
+  ]);
+  const resume = await runScenario({
+    promptPayload: { conversation_id: 'conv_resume' },
+    submitResult: { text: '' },
+    afterSubmitMessages: [
+      { role: 'user', content: 'Haz algo' },
+      { role: 'tool', name: 'run_command', content: JSON.stringify({ awaitingApproval: true }) }
+    ]
+  });
+  assert.equal(resume.switched, 'conv_resume');
+  assert.equal(resume.submitted.opts.resume, true);
+  assert.deepEqual(resume.calls.find(c => c.method === 'zerochat/run/result')?.params, {
+    run_id: 'run_test_id_123456', needs_input: { kind: 'tool_approval', text: 'run_command' }
+  });
+  assert.equal(closedCount, 4);
 });

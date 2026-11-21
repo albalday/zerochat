@@ -225,10 +225,12 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
         if status == "running" and _run_process_alive(data):
             watch_run_exit(data["pid"], data.get("pid_start"))
         elif status == "running":
+            now = int(time.time() * 1000)
             status = "error"
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
-            data["updated_at"] = int(time.time() * 1000)
+            data["updated_at"] = now
+            data["finished_at"] = now
             # Aunque no se pueda guardar, el latido ya la entrega en error.
             try:
                 upsert_run_state(data)
@@ -383,7 +385,7 @@ def _approved_call(tool_security) -> tuple[str, dict] | None:
 
 class RunSession:
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
-    def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None, keep_page: bool = False,
+    def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None,
                  conversation_id: str | None = None, run_id: str | None = None,
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
@@ -411,8 +413,6 @@ class RunSession:
         self.export_path = export_path
         self.exported = False
         self.export_error: str | None = None
-        # La interfaz no cierra la página al terminar, para ver la conversación (sin --headless).
-        self.keep_page = keep_page
         if tool_security is not None:
             self.tool_security = tool_security
         elif os.environ.get("ZEROCHAT_RUN_SECURITY"):
@@ -553,7 +553,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
-                       "export": export_format, "keep_page": session.keep_page, "max_steps": session.max_steps})
+                       "export": export_format, "max_steps": session.max_steps})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:

@@ -345,7 +345,7 @@
       const activeConfig = Config.getActive();
       const activeProfile = await ProfileRepository.loadUnlocked(activeConfig.activeProfile?.id);
       if (activeProfile?.settings?.apiType === 'webllm' || activeConfig.apiType === 'webllm') {
-        return { error: 'WebLLM / WebGPU is not supported in the headless Node.js runner. Use --browser instead.' };
+        return { error: 'WebLLM / WebGPU is not supported in the headless Node.js runner.' };
       }
       currentAbortController = new AbortController();
 
@@ -408,10 +408,8 @@
     return RunMode.start(runId, {
       startupConnection,
       connectBackend,
-      sessionsLoaded: Promise.resolve(),
       activateSessionProfile,
       submitComposerText,
-      stopGeneration,
       exportConversation,
       switchToSession: sessionManager.switchToSession,
       startNewSession: sessionManager.startNewSession

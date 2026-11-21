@@ -1,4 +1,4 @@
-"""Supervisión de la ejecución desatendida: plazos, final del runner o del navegador, y arranque del runner de Node."""
+"""Supervisión de la ejecución desatendida: plazos, final del runner y arranque del runner de Node."""
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import IO
 
 from auth.tokens import revoke_token
-from browser.launch import launch_browser
 from core.environment import get_data_dir, get_dev_root
 from core.logging import log_event
 from core.process import _kill_process_tree
@@ -26,7 +25,6 @@ from run_mode.state import (
 )
 from server.state import (
     _SERVER_SHUTTING_DOWN,
-    heartbeat_initialized,
     register_shutdown_event,
     stop_zerochat_server,
     unregister_shutdown_event,
@@ -52,19 +50,18 @@ def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> 
 
 
 def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
-                   browser_proc: subprocess.Popen | None = None, runner_log: IO[bytes] | None = None):
+                   runner_log: IO[bytes] | None = None):
     """Detiene el servidor al recibir el resultado, si termina el runner propio o al vencer el timeout de --run-file,
     contado desde el arranque del proceso: entonces termina el runner, y lo hecho ya está grabado. Sin timeout, lo que
     dura una ejecución lo decide quien la lanza (la cancela o la interrumpe)."""
-    proc = runner_proc if runner_proc is not None else browser_proc
     wake = threading.Event()
     proc_done = threading.Event()
     session.set_wake_event(wake)
     register_shutdown_event(wake)
     try:
-        if proc is not None:
+        if runner_proc is not None:
             def _watch_proc():
-                proc.wait()
+                runner_proc.wait()
                 proc_done.set()
                 wake.set()
             threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
@@ -85,22 +82,11 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
     if session.result is None:
         with session.lock:
             session.status = "error"
-            session.error = session.stop_reason or ("El runner se cerró sin resultado." if proc else "La ejecución se interrumpió sin resultado.")
+            session.error = session.stop_reason or ("El runner se cerró sin resultado." if runner_proc else "La ejecución se interrumpió sin resultado.")
             write_run_state(session)
     if session.runner_token:
         revoke_token(session.runner_token)
     stop_zerochat_server(server)
-
-
-def fall_back_when_headless_exits(proc: subprocess.Popen, url: str):
-    """
-    Un navegador sin ventana termina enseguida si su perfil ya está abierto (Firefox avisa de que
-    ya está en marcha): si acaba antes de que conecte la interfaz, se abre la pestaña normal.
-    """
-    proc.wait()
-    if not heartbeat_initialized() and not _SERVER_SHUTTING_DOWN.is_set():
-        log_event("El navegador sin ventana terminó sin abrir la interfaz (¿ya estaba abierto?); se abre una pestaña de la forma normal.")
-        launch_browser(url)
 
 
 def _runner_cache_file() -> Path:
@@ -124,7 +110,7 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
     modelo, que va al sandbox sin entorno; un runner alterado vendría con una interfaz alterada que ya puede más."""
     node = find_node_executable()
     if not node:
-        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida. Instálalo o usa --browser.")
+        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida.")
         return None
     try:
         cache_file = _runner_cache_file()

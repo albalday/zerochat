@@ -168,6 +168,10 @@ test('Browser UI - el selector muestra el proyecto actual, general, todos agrupa
     assert.deepEqual(await pendingItems(), [['b1', 'needs-input'], ['a2', 'limit'], ['n1', 'error']]);
     assert.deepEqual(await sidebarHeaders(page), ['lib', 'app', 'general']);
     assert.equal(await page.isDisabled('#btn-delete-all-chats'), true);
+    await search('nada');
+    await render('/repo/app', runs);
+    assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_chats')));
+    await search('');
     await render('/repo/app');
     assert.equal((await pendingOption()).hidden, true);
     assert.equal(await page.$eval('#sidebar-project-filter', select => select.value), 'current');

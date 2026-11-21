@@ -2,7 +2,7 @@
  * Sesión con el backend local (zerochat.py): adopta el fragmento de arranque con que zerochat.py abre la
  * página, resuelve el destino configurado (servidor local o remoto, con la clave del proxy si lo usa),
  * conecta con el token guardado de ese destino, se identifica cuando el servidor lo pide y guarda la
- * sesión: en la cookie del mismo origen o, en la pestaña de una ejecución (--prompt), solo en memoria.
+ * sesión en la cookie del mismo origen.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -22,8 +22,8 @@
   const LOCAL_HOSTS = ['127.0.0.1', 'localhost'];
 
   /**
-   * Sesión del fragmento de arranque: null sin token; si no, `{ session, run }`. zerochat.py abre la
-   * página con un servidor de este equipo, así que `session` es null si el fragmento apunta a otro.
+   * Sesión del fragmento de arranque, o null si no lleva token ni servidor local válido. zerochat.py abre
+   * la página con un servidor de este equipo.
    */
   function parseLaunchSession(hash) {
     const params = readLaunchFragment(hash);
@@ -32,10 +32,7 @@
     const host = params.get('host');
     const port = Number(params.get('port'));
     const local = LOCAL_HOSTS.includes(host) && Number.isInteger(port) && port > 0 && port < 65536;
-    return {
-      session: local ? getStorage().normalizeBackendSession({ token, url: `http://${host}:${port}` }) : null,
-      run: params.has('run')
-    };
+    return local ? getStorage().normalizeBackendSession({ token, url: `http://${host}:${port}` }) : null;
   }
 
   /** Proyecto pedido en la consulta de la URL (`?project=...`), o vacío. */
@@ -70,27 +67,19 @@
    * servidor también guarda conversaciones.
    */
   function create({ loadSessions }) {
-    // El servidor de --prompt puede estar en otro puerto y termina con la ejecución: su conexión queda
-    // en esta página y la cookie sigue apuntando las demás pestañas al servidor normal.
-    let runSession = null;
-
     // El fragmento se usa exclusivamente para el primer arranque desde zerochat.py.
     // Después la sesión se resuelve mediante una cookie del mismo origen.
     function adoptLaunchFragment() {
-      const launch = parseLaunchSession(location.hash);
-      if (!launch) return;
-      if (launch.run) {
-        runSession = launch.session;
-      } else if (launch.session && !getStorage().setBackendSession(launch.session)) {
+      const launchSession = parseLaunchSession(location.hash);
+      if (!launchSession) return;
+      if (!getStorage().setBackendSession(launchSession)) {
         console.warn('[BackendSession] Could not persist the initial backend session.');
       }
       history.replaceState(null, '', location.pathname + location.search);
     }
 
-    /** Guarda la sesión: en la pestaña de una ejecución solo en memoria, para no pisar la cookie de las demás. */
     function save(session) {
-      if (runSession) runSession = session;
-      else if (!getStorage().setBackendSession(session)) console.warn('[BackendSession] Could not persist the backend session.');
+      if (!getStorage().setBackendSession(session)) console.warn('[BackendSession] Could not persist the backend session.');
     }
 
     /**
@@ -102,7 +91,7 @@
       const project = parseLaunchProject(location.search);
       const mcp = getMcpManager();
       if (project) mcp.setInitialProject(project);
-      const connection = sessionConnection(runSession || getStorage().getBackendSession(), getConfig().getActive(), getDefaults().LOCAL_BACKEND_URL);
+      const connection = sessionConnection(getStorage().getBackendSession(), getConfig().getActive(), getDefaults().LOCAL_BACKEND_URL);
       if (!connection) return Promise.resolve({ success: false });
       return mcp.connectProxy(connection).then(async result => {
         if (result.success) await loadSessions();

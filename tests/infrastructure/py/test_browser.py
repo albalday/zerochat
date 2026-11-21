@@ -113,27 +113,3 @@ class BrowserActionTest(unittest.TestCase):
             popen.return_value.stdout.readline.return_value = '{"ready": true}'
             zerochat.PersistentBrowserSession()._ensure_running()
             self.assertEqual(popen.call_args.kwargs["env"]["ZEROCHAT_PLAYWRIGHT_MODULE"], str(playwright.resolve()))
-
-    def test_prompt_y_argumentos_de_browser_validan_combinaciones(self):
-        use_data_dir(self)
-        zerochat.save_general_profile({"name": "local", "settings": {"model": "local"}})
-        parser = zerochat.build_parser()
-        # --headless y --keep-page exigen --browser; --keep-page no se combina con --headless.
-        for bad_args in (
-            ["--prompt", "Hola", "--headless"],
-            ["--prompt", "Hola", "--keep-page"],
-            ["--browser"],
-        ):
-            with self.subTest(bad_args=bad_args), self.assertRaises(SystemExit) as err:
-                zerochat.run_session_from_args(parser, parser.parse_args(bad_args))
-            self.assertEqual(err.exception.code, zerochat.RUN_EXIT_ARGS)
-
-        with patch.object(zerochat, "default_browser_executable", return_value="/bin/google-chrome"), \
-             patch("subprocess.Popen") as mock_popen:
-            zerochat.launch_headless_browser("https://example.com#token=2")
-            self.assertEqual(mock_popen.call_args.args[0], [
-                "/bin/google-chrome",
-                "--headless",
-                "--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests",
-                "https://example.com#token=2",
-            ])

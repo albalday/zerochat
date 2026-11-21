@@ -1,9 +1,8 @@
 /**
- * Modo ejecución desatendida (zerochat.py --prompt y --conversation). El backend abre la interfaz
- * con `run=<id>` en el fragmento de arranque: la página pide el prompt o carga la conversación
- * existente, informa del paso en curso, gestiona las autorizaciones
- * de herramientas (permitiendo, denegando o pausando), exporta si se pidió (--export),
- * devuelve el resultado o el estado de espera al usuario (needs_input) y se cierra salvo con --keep-page.
+ * Modo ejecución desatendida (zerochat.py --prompt, --conversation y --run-file) en el runner de
+ * Node.js: pide el prompt o carga la conversación existente, informa del paso en curso, gestiona
+ * las autorizaciones de herramientas (permitiendo, denegando o pausando), exporta si se pidió
+ * (--export) y devuelve el resultado o el estado de espera al usuario (needs_input).
  * Todo viaja por JSON-RPC zerochat/run/*.
  */
 (function (root, factory) {
@@ -15,7 +14,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep, EPHEMERAL_ID_PATTERN, readLaunchFragment } = Utils;
+  const { resolveDep } = Utils;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
@@ -25,12 +24,6 @@
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
   const CONNECT_ATTEMPTS = 30;
   const CONNECT_RETRY_MS = 1000;
-
-  /** Identificador de la ejecución en el fragmento de arranque, o null fuera del modo ejecución. */
-  function readRunId(hash) {
-    const runId = readLaunchFragment(hash).get('run');
-    return runId && EPHEMERAL_ID_PATTERN.test(runId) ? runId : null;
-  }
 
   /** Envía cada aviso de progreso, salvo los de streaming más seguidos que el intervalo, que se descartan. */
   function createProgressReporter(send, intervalMs = STREAM_PROGRESS_INTERVAL_MS) {
@@ -43,34 +36,6 @@
       }
       send(event);
     };
-  }
-
-  /**
-   * Vigila los diálogos: cada uno se cierra como cancelado y se anota; el primero detiene la
-   * generación. Devuelve { text } con esa primera petición.
-   */
-  function watchUserDialogs(report, stopGeneration) {
-    const State = getState();
-    const request = { text: '' };
-    const handled = new Set();
-    const requestUser = text => {
-      report({ kind: 'user_request', text });
-      if (request.text) return;
-      request.text = text;
-      stopGeneration();
-    };
-    const dismissPending = () => {
-      for (const notice of State.get('ui').notices || []) {
-        if (handled.has(notice.id)) continue;
-        handled.add(notice.id);
-        requestUser(`${notice.title}: ${notice.message}`);
-        // ChatDialogs se suscribe al resultado justo después de encolar el aviso.
-        queueMicrotask(() => State.dismissNotice(notice.id, false));
-      }
-    };
-    State.subscribe(state => (state.ui.notices || []).map(notice => notice.id).join(','), dismissPending);
-    dismissPending();
-    return request;
   }
 
   /**
@@ -139,21 +104,18 @@
 
   /**
    * Ejecuta la petición: `startupConnection` es la conexión del arranque, `connectBackend` la
-   * reintenta, `sessionsLoaded` espera a la conversación inicial, `activateSessionProfile` activa
-   * sin guardarlo el perfil pedido (nombre o id), arranca sus servicios MCP y devuelve
-   * { started, unavailable }, `submitComposerText` envía el prompt
-   * como el usuario (o continúa con `{ resume: true }`), con el tope `maxSteps`, y devuelve { text }, { error } o { limit },
-   * `stopGeneration` la detiene, `exportConversation` da la conversación activa en un formato de
-   * ChatExport, `switchToSession` cambia a una conversación existente y `startNewSession` abre sin
-   * --conversation la conversación nueva cuyo id eligió el servidor (el de --run-file o uno propio).
+   * reintenta, `activateSessionProfile` activa sin guardarlo el perfil pedido (nombre o id),
+   * `submitComposerText` envía el prompt como el usuario (o continúa con `{ resume: true }`), con el
+   * tope `maxSteps`, y devuelve { text }, { error } o { limit }, `exportConversation` da la
+   * conversación activa en un formato de ChatExport, `switchToSession` cambia a una conversación
+   * existente y `startNewSession` abre sin --conversation la conversación nueva cuyo id eligió el
+   * servidor (el de --run-file o uno propio).
    */
   async function start(runId, {
     startupConnection,
     connectBackend,
-    sessionsLoaded,
     activateSessionProfile,
     submitComposerText,
-    stopGeneration,
     exportConversation,
     switchToSession,
     startNewSession
@@ -162,10 +124,7 @@
     const report = createProgressReporter(event => {
       send('zerochat/run/progress', event).catch(error => console.warn('[RunMode] Could not report progress:', error));
     });
-    let keepPage = false;
-    const userRequest = watchUserDialogs(report, stopGeneration);
     try {
-      await sessionsLoaded;
       await waitForBackend(startupConnection, connectBackend);
       const {
         prompt,
@@ -173,12 +132,10 @@
         profile_data: profileData,
         profiles: serverProfiles,
         export: exportFormat,
-        keep_page: keepPageRequested,
         conversation_id: conversationId,
         new_conversation_id: newConversationId,
         max_steps: maxSteps = null
       } = await send('zerochat/run/prompt');
-      keepPage = keepPageRequested === true;
 
       const isConversationMode = Boolean(conversationId);
       if (!isConversationMode && (typeof prompt !== 'string' || !prompt)) {
@@ -218,29 +175,25 @@
       await getMcpManager().reconcileProjectServers();
 
       let generated = null;
-      if (!userRequest.text) {
-        if (isConversationMode && (!prompt || typeof prompt !== 'string')) {
-          const State = getState();
-          const messages = State.get('messages');
-          const cleaned = prepareConversationForContinuation(messages);
-          if (cleaned.length !== messages.length) {
-            State.replaceMessages(cleaned);
-          }
-          generated = await submitComposerText('', { resume: true, onProgress: report, maxSteps });
-        } else {
-          generated = await submitComposerText(prompt, { onProgress: report, maxSteps });
+      if (isConversationMode && (!prompt || typeof prompt !== 'string')) {
+        const State = getState();
+        const messages = State.get('messages');
+        const cleaned = prepareConversationForContinuation(messages);
+        if (cleaned.length !== messages.length) {
+          State.replaceMessages(cleaned);
         }
+        generated = await submitComposerText('', { resume: true, onProgress: report, maxSteps });
+      } else {
+        generated = await submitComposerText(prompt, { onProgress: report, maxSteps });
       }
 
-      const question = userRequest.text ? null : pendingAskUserQuestion(getState().get('messages'));
-      const pendingAuth = userRequest.text ? null : pendingToolApproval(getState().get('messages'));
+      const question = pendingAskUserQuestion(getState().get('messages'));
+      const pendingAuth = pendingToolApproval(getState().get('messages'));
       if (question) report({ kind: 'user_request', text: question });
 
       // La conversación queda guardada con la pausa, nueva o no: se reanuda por su id.
       let result;
-      if (userRequest.text) {
-        result = { error: `The run needs the user: ${userRequest.text}` };
-      } else if (generated?.error) {
+      if (generated?.error) {
         result = { error: generated.error };
       } else if (generated?.limit) {
         result = { limit: generated.limit };
@@ -275,12 +228,11 @@
         .catch(sendError => console.error('[RunMode] Could not send the result:', sendError));
     } finally {
       getProfiles().clearSessionProfile();
-      if (!keepPage) window.close();
+      window.close();
     }
   }
 
   return {
-    readRunId,
     createProgressReporter,
     pendingAskUserQuestion,
     pendingToolApproval,

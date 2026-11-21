@@ -7,9 +7,9 @@ const os = require('node:os');
 const path = require('node:path');
 const { tokenDataDir, freePort } = require('../helpers/backend-env.js');
 
-// Modo ejecución de zerochat.py (--prompt): el arranque normal abre el navegador con xdg-open; un
-// xdg-open falso en el PATH hace de interfaz por JSON-RPC y deja en INFO lo que observó. Su configuración
-// va en fake-ui.json a su lado. El node falso hace lo mismo: recibe la URL como último argumento.
+// Modo ejecución de zerochat.py (--prompt): el arranque normal lanza node; un node falso en el
+// PATH hace de interfaz por JSON-RPC y deja en INFO lo que observó. Su configuración va en
+// fake-ui.json a su lado y recibe la URL antes de la política de caché.
 
 const repoRoot = path.resolve(__dirname, '../..');
 const backendPath = path.join(repoRoot, 'zerochat.py');
@@ -68,7 +68,6 @@ delivered = rpc("zerochat/run/prompt")["result"]
 prompt = delivered["prompt"]
 info["profile"] = delivered["profile"]
 info["export"] = delivered["export"]
-info["keep_page"] = delivered["keep_page"]
 info["second_prompt"] = rpc("zerochat/run/prompt").get("error", {}).get("message")
 save()
 if delivered["export"] and scenario == "ok":
@@ -142,13 +141,6 @@ function launchZerochat(prompt, { scenario = 'ok', env = {}, port, args = [], pr
   }
   const binDir = path.join(work, 'bin');
   fs.mkdirSync(binDir);
-  for (const name of ['xdg-open', 'user-browser']) {
-    fs.writeFileSync(path.join(binDir, name), `#!${pythonBin}\n${FAKE_BROWSER}`, { mode: 0o755 });
-  }
-  fs.writeFileSync(path.join(binDir, 'xdg-settings'), '#!/bin/sh\necho "user-browser.desktop"\n', { mode: 0o755 });
-  const appsDir = path.join(work, 'share', 'applications');
-  fs.mkdirSync(appsDir, { recursive: true });
-  fs.writeFileSync(path.join(appsDir, 'user-browser.desktop'), '[Desktop Entry]\nExec=user-browser %u\n');
 
   if (withNode) {
     fs.writeFileSync(path.join(binDir, 'node'), `#!${pythonBin}
@@ -176,7 +168,6 @@ sys.exit(0)
       env: {
         ...process.env,
         PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
-        XDG_DATA_HOME: path.join(work, 'share'),
         ZEROCHAT_DATA_DIR: dataDir,
         ...env
       },
@@ -204,11 +195,10 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
   try {
     const busyPort = String(busy.address().port);
     const [
-      ok, userHeadless, failed, unexported, browserGone, paused,
-      emptyPrompt, missingDefaultProfile, noNode, portInUse, devDefaultInUse, devBrowserDefaultInUse, productionDefaultInUse
+      ok, failed, unexported, runnerGone, paused,
+      emptyPrompt, missingDefaultProfile, noNode, portInUse, devDefaultInUse, productionDefaultInUse
     ] = await Promise.all([
-      runZerochat('hola mundo', { args: ['--browser', '--profile', ' Oficina ', '--log', 'on', '--export', exportPath, '--keep-page'] }),
-      runZerochat('hola headless', { args: ['--browser', '--headless'] }),
+      runZerochat('hola mundo', { args: ['--profile', ' Oficina ', '--log', 'on', '--export', exportPath] }),
       runZerochat('hola', { scenario: 'error' }),
       runZerochat('hola', { args: ['--export', unwritable] }),
       runZerochat('hola', { scenario: 'exit' }),
@@ -217,27 +207,18 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
       runZerochat('hola', { seedDefaultProfile: false }),
       runZerochat('hola', { withNode: false }),
       runZerochat('hola', { port: busy.address().port }),
-      // Sin --port, el puerto por defecto (aquí ZEROCHAT_PORT) ocupado: sin --browser usa un puerto libre incluso en desarrollo.
+      // Sin --port, el puerto por defecto (aquí ZEROCHAT_PORT) ocupado: usa un puerto libre incluso en desarrollo.
       runZerochat('hola', { port: null, env: { ZEROCHAT_PORT: busyPort } }),
-      runZerochat('hola', { port: null, args: ['--browser'], env: { ZEROCHAT_PORT: busyPort } }),
       runZerochat('hola', { port: null, env: { ZEROCHAT_PORT: busyPort }, production: true })
     ]);
 
     assert.equal(ok.code, 0, ok.stderr);
     assert.equal(ok.stdout, 'Respuesta a: hola mundo\n');
-    // Con --browser sin --headless abre el navegador del usuario en modo visible (xdg-open).
-    assert.equal(ok.info.launcher, 'xdg-open');
-    assert.deepEqual(ok.info.args, []);
-    // Con --browser --headless abre el navegador predeterminado del usuario con --headless.
-    assert.equal(userHeadless.code, 0, userHeadless.stderr);
-    assert.equal(userHeadless.info.launcher, 'user-browser');
-    assert.deepEqual(userHeadless.info.args, ['--headless', '--disable-features=LocalNetworkAccessChecks,BlockInsecurePrivateNetworkRequests']);
-    // Por defecto (sin --browser) usa el runner de Node.js con --permission y el perfil local.
-    assert.equal(failed.info.launcher, 'node');
-    // La orden exacta la comprueba py/test_server_runs.py; aquí, que es la del cargador también en desarrollo.
-    assert.equal(failed.info.args[0], '--permission');
-    assert.match(failed.info.args.at(-1), /cache[\\/]runner[\\/]modules\.json$/);
-    assert.deepEqual(failed.info.after_url, ['always'], 'en desarrollo el runner descarga siempre la interfaz');
+    // Usa el runner de Node.js con --permission y, en desarrollo, descarga siempre la interfaz.
+    assert.equal(ok.info.launcher, 'node');
+    assert.equal(ok.info.args[0], '--permission');
+    assert.match(ok.info.args.at(-1), /cache[\\/]runner[\\/]modules\.json$/);
+    assert.deepEqual(ok.info.after_url, ['always'], 'en desarrollo el runner descarga siempre la interfaz');
     // La interfaz es la del arranque normal (la local en desarrollo) con run= en el fragmento.
     assert.equal(ok.info.url, `http://127.0.0.1:${ok.port}/zerochat.html`);
     assert.deepEqual(ok.info.fragment_keys, ['host', 'port', 'run', 'token']);
@@ -248,7 +229,6 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(ok.info.bad_result, 'El resultado lleva text, error, needs_input con kind y text, o limit.');
     // La conversación exportada se escribe una sola vez en el fichero, con el formato de su extensión.
     assert.equal(ok.info.export, 'markdown');
-    assert.equal(ok.info.keep_page, true);
     assert.equal(fs.readFileSync(exportPath, 'utf8'), 'markdown: hola mundo');
     assert.equal(ok.info.second_export, 'La exportación ya se recibió.');
     // El cuerpo en el tope exacto pasa el límite y falla al no ser JSON; un byte más se rechaza.
@@ -258,7 +238,7 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     // la exportación por encima del tope general se acepta.
     assert.deepEqual(ok.info.other_method_limit, [200, 413]);
     assert.deepEqual(ok.info.export_reply.result, { ok: true });
-    assert.deepEqual([failed.info.export, failed.info.keep_page], [null, false]);
+    assert.equal(failed.info.export, null);
     // Una exportación pedida que no se escribe es un error, pero la respuesta sigue en stdout.
     assert.equal(unexported.info.export, 'json');
     assert.match(unexported.info.export_reply.error.message, /No se pudo escribir/);
@@ -273,9 +253,9 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(failed.code, 1, failed.stderr);
     // Con --prompt el registro está desactivado por defecto: solo queda el motivo del fallo.
     assert.match(failed.stderr, /^\[\d\d:\d\d:\d\d\] \[run\] Error de generación: model failed\n$/);
-    assert.equal(browserGone.code, 2, browserGone.stderr);
-    assert.match(browserGone.stderr, /sin resultado/);
-    for (const run of [failed, browserGone]) assert.equal(run.stdout, '');
+    assert.equal(runnerGone.code, 2, runnerGone.stderr);
+    assert.match(runnerGone.stderr, /sin resultado/);
+    for (const run of [failed, runnerGone]) assert.equal(run.stdout, '');
     // La pausa sale con su código y, en stdout, la pregunta en texto; el aviso, para una persona, en stderr.
     assert.equal(paused.code, 5, paused.stderr);
     assert.equal(paused.stdout, '¿A o B?\n');
@@ -290,14 +270,11 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.equal(portInUse.code, 3, portInUse.stderr);
     assert.match(portInUse.stderr, /No se pudo escuchar/);
     assert.equal(portInUse.info, null);
-    // Sin --port: sin --browser usa un puerto libre también en desarrollo; con --browser en desarrollo es fallo de arranque.
+    // Sin --port: usa un puerto libre también en desarrollo.
     assert.equal(devDefaultInUse.code, 0, devDefaultInUse.stderr);
     assert.equal(devDefaultInUse.stdout, 'Respuesta a: hola\n');
     assert.match(devDefaultInUse.info.url, /^http:\/\/127\.0\.0\.1:\d+\/zerochat\.html$/);
     assert.notEqual(devDefaultInUse.info.url, `http://127.0.0.1:${busyPort}/zerochat.html`);
-    assert.equal(devBrowserDefaultInUse.code, 3, devBrowserDefaultInUse.stderr);
-    assert.match(devBrowserDefaultInUse.stderr, /en desarrollo la interfaz local necesita ese puerto/);
-    assert.equal(devBrowserDefaultInUse.info, null);
     assert.equal(productionDefaultInUse.code, 0, productionDefaultInUse.stderr);
     assert.equal(productionDefaultInUse.stdout, 'Respuesta a: hola\n');
     assert.equal(productionDefaultInUse.info.url, 'https://albalday.github.io/zerochat/zerochat.html');

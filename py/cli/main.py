@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urlencode
 
 from auth.tokens import current_session_token, issue_runner_token, on_token_rotation
-from browser.launch import launch_browser, launch_headless_browser
+from browser.launch import launch_browser
 from cli.console import ConsoleControl
 from core.environment import (
     DEFAULT_HOST,
@@ -33,7 +33,6 @@ from core.environment import (
     set_active_address,
 )
 from core.logging import console_log, current_console_control, log_event, mute_console, set_console_control, timestamp_message
-from core.process import _kill_process_tree
 from core.version import DEFAULT_UI_URL, UI_VERSION, VERSION, check_version, is_installed_runtime
 from run_mode.state import (
     DEFAULT_RUN_PROFILE,
@@ -49,7 +48,7 @@ from run_mode.state import (
     set_run_session,
 )
 from mcp.manager import GLOBAL_MCP_MANAGER
-from run_mode.supervisor import fall_back_when_headless_exits, launch_node_runner, run_supervisor
+from run_mode.supervisor import launch_node_runner, run_supervisor
 from security.context import SecurityContext, project_context, set_default_project_dir
 from security.controller import ACCESS_CONTROLLER
 from security.rules import (
@@ -105,7 +104,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser = ZeroChatArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
     parser.color = False  # pyright: ignore[reportAttributeAccessIssue] (atributo de Python 3.14)
-    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; con --prompt, si está ocupado se usa otro libre salvo con --browser en desarrollo)")
+    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; en modo ejecución, si está ocupado se usa otro libre)")
     parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
@@ -114,29 +113,22 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
-    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt en la interfaz, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner o navegador cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
+    parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
     parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, systemDataPrompt, maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
-    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off con --prompt o --conversation)")
-    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt o --conversation, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
-    parser.add_argument("--browser", action="store_true", help="Con --prompt o --conversation, abrir el navegador predeterminado del usuario en lugar del proceso Node.js sin ventana")
-    parser.add_argument("--keep-page", action="store_true", help="Página: con --browser, no cerrar la página al terminar para ver la conversación (no se combina con --headless)")
-    parser.add_argument("--headless", action="store_true", help="Con --browser, abrir el navegador predeterminado sin ventana (si ya está abierto puede verse la pestaña)")
+    parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
+    parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
     parser.add_argument("--version", action="version", version=f"ZeroChat {VERSION}")
     return parser
 
 
 def _check_run_flags(parser: ZeroChatArgumentParser, args):
-    """Combinaciones de opciones que no admiten --prompt ni --conversation."""
+    """Combinaciones de opciones que no admite el modo ejecución."""
     if args.no_browser:
-        parser.error("--prompt y --conversation ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
+        parser.error("--prompt, --conversation y --run-file ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
-        parser.error("--prompt y --conversation terminan al devolver el resultado: no se combina con --keep-server (para no cerrar la página, --keep-page)")
-    if args.headless and not args.browser:
-        parser.error("--headless solo se usa con --browser (--prompt y --conversation ya se ejecutan sin ventana con Node.js)")
-    if args.keep_page and (not args.browser or args.headless):
-        parser.error("--keep-page necesita la ventana del navegador del usuario (--browser sin --headless)")
+        parser.error("--prompt, --conversation y --run-file terminan al devolver el resultado: no se combina con --keep-server")
 
 
 def _run_prompt(parser: ZeroChatArgumentParser, raw_prompt: str | None) -> str | None:
@@ -234,8 +226,8 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
             parser.error("--run-file necesita prompt o conversation_id")
         raw_prompt, raw_conversation, raw_profile = request.get("prompt"), request.get("conversation_id"), request.get("profile")
     elif args.prompt is None and args.conversation is None:
-        if args.browser or args.headless or args.keep_page or args.profile is not None or args.export is not None:
-            parser.error("--browser, --headless, --keep-page, --profile y --export solo se usan con --prompt, --conversation o --run-file")
+        if args.profile is not None or args.export is not None:
+            parser.error("--profile y --export solo se usan con --prompt, --conversation o --run-file")
         return None
     else:
         raw_prompt, raw_conversation, raw_profile = args.prompt, args.conversation, args.profile
@@ -244,9 +236,9 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     _check_run_flags(parser, args)
     profile_name, profile_data = _run_profile(parser, raw_profile, conv)
     export_path = _run_export_path(parser, args)
-    if conversation_id:
+    if conversation_id and args.run_file is None:
         mark_conversation_server_run(conversation_id, profile_name)
-    return RunSession(prompt, profile_name, export_path, args.keep_page, conversation_id=conversation_id, profile_data=profile_data,
+    return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=request.get("systemDataPrompt"),
                       max_steps=request.get("maxSteps"), timeout_seconds=request.get("timeout"))
 
@@ -331,8 +323,8 @@ def reset_session_authorizations():
         }, ctx)
 
 
-def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
-    """Abre el puerto de escucha; con --prompt, si el puerto por defecto está ocupado, usa uno libre."""
+def open_server(args) -> ThreadingHTTPServer:
+    """Abre el puerto de escucha; en modo ejecución, si el puerto por defecto está ocupado, usa uno libre."""
     host = args.host
     port = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
     set_active_address(host, port)
@@ -341,9 +333,8 @@ def open_server(args, local_ui: bool) -> ThreadingHTTPServer:
     except OSError as exc:
         if not current_run_session():
             raise
-        if args.port is not None or local_ui:
-            hint = "" if args.port is not None else " (en desarrollo la interfaz local necesita ese puerto: cierra el zerochat que lo usa)"
-            run_error(f"No se pudo escuchar en {host}:{port}: {exc}{hint}")
+        if args.port is not None:
+            run_error(f"No se pudo escuchar en {host}:{port}: {exc}")
             sys.exit(RUN_EXIT_SETUP)
     # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
     try:
@@ -404,8 +395,7 @@ def print_header(dev_root, ui_url: str, exposure_warning: str | None, exit_on_cl
 
 
 def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
-    """Abre la interfaz: en modo ejecución, con su supervisor; si no, con el control de consola.
-    Devuelve el navegador sin ventana lanzado, si lo hay."""
+    """Abre la interfaz: en modo ejecución con el runner de Node.js y su supervisor; si no, con el navegador y control de consola."""
     session = current_run_session()
     if not session:
         console = ConsoleControl(server, parser, launch_url=lambda: launch_url(ui_url))
@@ -413,28 +403,15 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
         console.start()
         if not args.no_browser:
             launch_browser(launch_url(ui_url))
-        return None
-    if not args.browser:
-        session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id)
-        runner = launch_node_runner(launch_url(ui_url, token=session.runner_token))
-        if runner is None:
-            server.server_close()
-            mute_console()
-            sys.exit(RUN_EXIT_SETUP)
-        runner_proc, runner_log = runner
-        threading.Thread(target=run_supervisor, args=(server, session, runner_proc, None, runner_log), daemon=True).start()
-        return runner_proc
-    target_url = launch_url(ui_url)
-    headless_browser = launch_headless_browser(target_url) if args.headless else None
-    if headless_browser is None and not launch_browser(target_url):
-        run_error("No se pudo abrir el navegador.")
+        return
+    session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id)
+    runner = launch_node_runner(launch_url(ui_url, token=session.runner_token))
+    if runner is None:
         server.server_close()
         mute_console()
         sys.exit(RUN_EXIT_SETUP)
-    if headless_browser is not None:
-        threading.Thread(target=fall_back_when_headless_exits, args=(headless_browser, target_url), daemon=True).start()
-    threading.Thread(target=run_supervisor, args=(server, session, None, headless_browser), daemon=True).start()
-    return headless_browser
+    runner_proc, runner_log = runner
+    threading.Thread(target=run_supervisor, args=(server, session, runner_proc, runner_log), daemon=True).start()
 
 
 def start_heartbeat_watchdog(server: ThreadingHTTPServer, require_initial: bool):
@@ -472,11 +449,8 @@ def serve(server: ThreadingHTTPServer):
             set_console_control(None)
 
 
-def finish_run(headless_browser, result_out):
+def finish_run(result_out):
     """Modo ejecución: escribe la respuesta final en el stdout original y sale con su código."""
-    # Firefox sin ventana sigue vivo al cerrar la página; uno ya abierto solo recibió la pestaña.
-    if headless_browser is not None and headless_browser.poll() is None:
-        _kill_process_tree(headless_browser)
     session = current_run_session()
     # Una conversación nueva de --run-file (ya guardada por el runner) la continúa la interfaz en el servidor con su
     # perfil, como las de --conversation, que se marcan al empezar porque ya existen.
@@ -521,6 +495,14 @@ def require_saved_environment():
         sys.exit(RUN_EXIT_SETUP)
 
 
+def _prepare_run_environment(parser: ZeroChatArgumentParser, args, session: RunSession | None):
+    _apply_conversation_project(parser, session)
+    if args.run_file is not None:
+        require_saved_environment()
+        if session and session.conversation_id:
+            mark_conversation_server_run(session.conversation_id, session.profile)
+
+
 def main():
     parser = build_parser()
     args = parser.parse_args()
@@ -528,9 +510,7 @@ def main():
     reset_notices()
     session = run_session_from_args(parser, args)
     set_run_session(session)
-    _apply_conversation_project(parser, session)
-    if args.run_file is not None:
-        require_saved_environment()
+    _prepare_run_environment(parser, args, session)
     result_out = redirect_log(args)
 
     if getattr(args, "list_profiles", False):
@@ -569,28 +549,27 @@ def main():
     prepare_environment(args, is_dev=dev_root is not None)
     current_session_token()
 
-    # La interfaz local de desarrollo en el navegador del usuario tiene el puerto en su origen: en otro no vería los datos guardados.
-    server = open_server(args, local_ui=static_root is not None and not args.ui_url and args.browser)
+    server = open_server(args)
     exposure_warning = remote_exposure_warning(active_address()[0])
     if exposure_warning:
         add_notice(exposure_warning)
 
     ui_url = interface_url(args, static_root)
-    # El modo ejecución (que rechaza --keep-server) detecta con el latido que el navegador se cerró sin devolver resultado.
+    # El modo ejecución (que rechaza --keep-server) detecta con el latido que el runner se cerró sin devolver resultado.
     exit_on_close = not args.keep_server
     set_exit_on_close(exit_on_close)
     print_header(dev_root, ui_url, exposure_warning, exit_on_close)
     # Los servicios MCP incluidos se actualizan desde el catálogo publicado junto a la interfaz.
     GLOBAL_MCP_MANAGER.start_catalog_refresh(ui_url)
 
-    headless_browser = start_interface(args, parser, server, ui_url)
+    start_interface(args, parser, server, ui_url)
     if exit_on_close:
         start_heartbeat_watchdog(server, require_initial=not args.no_browser)
     install_signal_handlers(server)
     serve(server)
 
     if current_run_session():
-        finish_run(headless_browser, result_out)
+        finish_run(result_out)
 
 
 if __name__ == "__main__":

@@ -272,11 +272,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual((session.prompt, session.profile, session.system_data_prompt), ("Redacta el informe", "local", "Eres el agente de informes."))
         rejects(["--run-file", write_request({"conversation_id": "session_orquestador_2"})])
 
-        # Uno que existe se continúa, como --conversation; desde stdin con -.
+        # Uno que existe se continúa, como --conversation; desde stdin con -. No marca serverRun antes de comprobar el entorno.
         zerochat.save_conversation({"id": "session_orquestador_3", "title": "Agente"}, [{"id": "u1", "role": "user", "content": "Hola"}])
         with mock.patch("sys.stdin", mock.Mock(buffer=io.BytesIO(json.dumps({"conversation_id": "session_orquestador_3"}).encode()))):
             session = session_from(["--run-file", "-"])
         self.assertEqual((session.conversation_id, session.new_conversation_id, session.prompt), ("session_orquestador_3", None, None))
+        self.assertNotIn("serverRun", zerochat.get_conversation("session_orquestador_3"))
 
         # El systemDataPrompt sustituye al guardado en lo que recibe la interfaz, sin escribirlo en SQLite.
         ctx = use_project(self, folder)
@@ -307,14 +308,18 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             result, _, message = zerochat.authorize_or_challenge("local", "run_command", {"command": "rm -rf /"}, ctx)
             self.assertEqual(result["securityStatus"], "deny")
             self.assertIn("Permiso denegado: run_command", stderr.getvalue())
-            # Tope en el borde exacto: RUN_WARNINGS_MAX avisos se guardan y del siguiente solo se cuenta.
-            for index in range(1, zerochat.RUN_WARNINGS_MAX):
+            # Tope en el borde exacto: RUN_WARNINGS_MAX avisos se guardan, cada uno recortado en RUN_PROGRESS_TEXT_MAX, y del siguiente solo se cuenta.
+            session.add_warning("a" * zerochat.RUN_PROGRESS_TEXT_MAX)
+            session.add_warning("b" * (zerochat.RUN_PROGRESS_TEXT_MAX + 1))
+            for index in range(3, zerochat.RUN_WARNINGS_MAX):
                 session.add_warning(f"aviso {index}")
             self.assertEqual(len(zerochat.get_run_state("session_avisos")["warnings"]), zerochat.RUN_WARNINGS_MAX)
             session.add_warning("uno de más")
         warnings = zerochat.get_run_state("session_avisos")["warnings"]
         self.assertEqual(len(warnings), zerochat.RUN_WARNINGS_MAX + 1)
         self.assertTrue(warnings[0].startswith("run_command: ") and message.endswith(warnings[0].removeprefix("run_command: ")))
+        self.assertEqual(warnings[1], "a" * zerochat.RUN_PROGRESS_TEXT_MAX)
+        self.assertEqual(warnings[2], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
         self.assertEqual(warnings[-1], "… y 1 permiso(s) denegado(s) más")
 
     def test_supervisor_detiene_y_registra_error_si_cierra_sin_resultado(self):
@@ -477,6 +482,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         disk_dead = zerochat.get_run_state("conv_dead")
         self.assertEqual(disk_dead["status"], "error")
+        self.assertIsNotNone(disk_dead["finished_at"])
         self.assertIn("inesperadamente", disk_dead["error"])
 
         # En un servidor worker (RUN_SESSION activo), list_server_runs devuelve ([], None)
@@ -786,7 +792,7 @@ class FinishRunOutputTest(unittest.TestCase):
         with mock.patch.object(zerochat, "RUN_SESSION", session), mock.patch.object(zerochat, "_MUTED", False), \
              mock.patch.object(sys, "stdout", log):
             with self.assertRaises(SystemExit) as exit_info:
-                zerochat.finish_run(None, answer)
+                zerochat.finish_run(answer)
             late = threading.Thread(target=zerochat.log_event, args=("línea tardía",))
             late.start()
             late.join()
@@ -805,7 +811,7 @@ class FinishRunOutputTest(unittest.TestCase):
             session.result = {"text": "hecho"}
             with mock.patch.object(zerochat, "RUN_SESSION", session), mock.patch.object(zerochat, "_MUTED", False), \
                  mock.patch.object(sys, "stdout", io.StringIO()), self.assertRaises(SystemExit):
-                zerochat.finish_run(None, io.StringIO())
+                zerochat.finish_run(io.StringIO())
         marked = zerochat.get_conversation("session_nueva_orquestada")
         self.assertEqual((marked.get("serverRun"), marked.get("profileId")), (True, "oficina"))
         # Una nueva con id del servidor no la sigue nadie: queda como la dejó la interfaz.

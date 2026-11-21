@@ -1,6 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady, openSavedSession, startStaticServer, stopStaticServer } = require('../helpers/browser-env.js');
 
 describe('Browser UI - conversation', { concurrency: 2 }, () => {
   after(async () => {
@@ -722,6 +722,56 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
     assert.equal(result.modelTagDisplay, 'none', 'Sin perfil «Subagente» no hay etiqueta de modelo, tampoco en móvil');
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
+});
+
+test('Browser UI - el HTML exportado se abre solo, sin scripts, con el aspecto del chat y desplazamiento normal', async () => {
+  const server = await startStaticServer();
+  const browser = await createTestBrowser();
+  try {
+    const port = server.address().port;
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.evaluate(() => {
+      const elements = {
+        messagesList: document.getElementById('messages-list'),
+        welcomeBanner: document.getElementById('welcome-banner')
+      };
+      window.ChatState.replaceConversation({
+        sessionId: 'export_html_test',
+        messages: [{ id: 'u1', role: 'user', content: 'Hola' }],
+        sessions: [{ id: 'export_html_test', title: 'Export', createdAt: 1000, updatedAt: 1000 }]
+      });
+      window.ChatUIConversation.renderSessionMessages(elements, window.ChatState.get('messages'), {
+        resetTelemetry: () => {},
+        updateTelemetry: () => {}
+      });
+    });
+    const html = await page.evaluate(async () => (await window.ChatUITransfer.buildConversationExport('html')).content);
+    assert.doesNotMatch(html, /<script/i);
+    const expected = await page.evaluate(() => {
+      const bubble = document.querySelector('.message-row.user .message-content');
+      return { theme: document.documentElement.dataset.theme, background: getComputedStyle(bubble).backgroundColor };
+    });
+    const exported = await browser.newPage();
+    await exported.setContent(html);
+    const view = await exported.evaluate(() => {
+      const bubble = document.querySelector('.message-row.user .message-content');
+      const icon = document.querySelector('.messages-list use');
+      return {
+        theme: document.documentElement.dataset.theme,
+        user: bubble.textContent.trim(),
+        background: getComputedStyle(bubble).backgroundColor,
+        overflow: getComputedStyle(document.body).overflowY,
+        actions: document.querySelectorAll('.message-actions').length,
+        iconResolved: !icon || Boolean(document.getElementById(icon.getAttribute('href').slice(1)))
+      };
+    });
+    assert.deepEqual(view, { theme: expected.theme, user: 'Hola', background: expected.background, overflow: 'visible', actions: 0, iconResolved: true });
+  } finally {
+    await browser.close();
+    await stopStaticServer(server);
+  }
 });
 
 });

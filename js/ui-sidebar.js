@@ -228,7 +228,7 @@
       ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter) || contentIds?.has(session.id))
       : visible;
     if (matching.length === 0) {
-      const emptyKey = showAll || filter ? 'sidebar_no_chats' : 'sidebar_no_project_chats';
+      const emptyKey = showAll || pendingView || filter ? 'sidebar_no_chats' : 'sidebar_no_project_chats';
       elements.sidebarChatsList.innerHTML = `<div class="sidebar-no-chats">${escapeHtml(t(emptyKey))}</div>`;
       return;
     }

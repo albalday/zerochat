@@ -38,7 +38,7 @@ test('RunNode - startHeadlessRun valida parámetros y orquesta la conexión con 
   });
   t.mock.method(RunMode, 'start', async (runId, options) => {
     receivedRunId = runId;
-    for (const fn of ['connectBackend', 'activateSessionProfile', 'submitComposerText', 'stopGeneration', 'exportConversation', 'switchToSession']) {
+    for (const fn of ['connectBackend', 'activateSessionProfile', 'submitComposerText', 'exportConversation', 'switchToSession', 'startNewSession']) {
       assert.equal(typeof options[fn], 'function');
     }
     assert.equal((await options.startupConnection).success, true);

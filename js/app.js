@@ -887,7 +887,7 @@
     subscribeToState();
     loadCachedModels();
     updateUIFromConfig();
-    const sessionsLoaded = ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
     setupEventListeners();
     if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
 
@@ -915,21 +915,17 @@
     // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
     if (UIProfiles.startImportMode(elements)) return;
 
-    // connectStartup quita el fragmento de arranque: el modo ejecución se lee antes.
-    const runId = RunMode.readRunId(location.hash);
-    if (!runId) {
-      MCP.manager.setProfileSyncHandler(async serverId => {
-        try {
-          await MCP.manager.syncProfiles(serverId, {
-            onServerChange: UIProfiles.confirmServerProfileSync
-          });
-          UIProfiles.renderProfileMenu();
-          UIProfiles.syncActiveProfileTrigger();
-        } catch (error) {
-          console.warn('[App] Could not synchronize profiles with backend:', error);
-        }
-      });
-    }
+    MCP.manager.setProfileSyncHandler(async serverId => {
+      try {
+        await MCP.manager.syncProfiles(serverId, {
+          onServerChange: UIProfiles.confirmServerProfileSync
+        });
+        UIProfiles.renderProfileMenu();
+        UIProfiles.syncActiveProfileTrigger();
+      } catch (error) {
+        console.warn('[App] Could not synchronize profiles with backend:', error);
+      }
+    });
     const startupMcpConnection = backendSession.connectStartup();
     // Al volver a la pestaña se relee enseguida el estado vivo del servidor local (o se reconecta).
     document.addEventListener('visibilitychange', () => {
@@ -937,28 +933,13 @@
     });
     TabAlert.mount();
     updateNewTabLink();
-    if (runId) {
-      RunMode.start(runId, {
-        startupConnection: startupMcpConnection,
-        connectBackend: backendSession.connectStartup,
-        sessionsLoaded,
-        activateSessionProfile: profileId => UIProfiles.activateConnectionProfile(profileId, { sessionOnly: true }),
-        exportConversation: async format => (await UITransfer.buildConversationExport(format)).content,
-        submitComposerText,
-        stopGeneration: GenerationController.handleStopGeneration,
-        switchToSession,
-        startNewSession: sessionId => ConversationService.createNewSession({ ...getConversationServiceOptions(), saveCurrent: false, sessionId })
-      });
-    } else {
-      // Registro del Service Worker para aceleración de arranque y soporte offline en móvil; el modo
-      // ejecución no lo hace porque su aviso de actualización es un diálogo que la terminaría.
-      registerServiceWorker().then(async reloading => {
-        if (reloading) return;
-        const connection = await startupMcpConnection;
-        if (!connection.success) return;
-        await UIMcp.reconcileProjectServices(State.get('mcp').externalServers);
-      }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
-    }
+    // Registro del Service Worker para aceleración de arranque y soporte offline en móvil.
+    registerServiceWorker().then(async reloading => {
+      if (reloading) return;
+      const connection = await startupMcpConnection;
+      if (!connection.success) return;
+      await UIMcp.reconcileProjectServices(State.get('mcp').externalServers);
+    }).catch(error => console.warn('[App] Could not check MCP services on startup:', error));
 
     document.documentElement.classList.add('zerochat-ready');
     console.log('💬 ZeroChat initialized with autonomous tools and local Orama knowledge.');
