@@ -214,9 +214,11 @@ def _secure_db_files(db_path: Path):
     if not db_path.exists():
         fd = os.open(db_path, os.O_WRONLY | os.O_CREAT, 0o600)
         os.close(fd)
-    for target in (db_path, db_path.with_name(db_path.name + "-wal"), db_path.with_name(db_path.name + "-shm")):
-        if target.exists():
-            target.chmod(0o600)
+    db_path.chmod(0o600)
+    for sidecar in (db_path.with_name(db_path.name + "-wal"), db_path.with_name(db_path.name + "-shm")):
+        # SQLite borra los auxiliares WAL al cerrar la última conexión de otro proceso.
+        with contextlib.suppress(FileNotFoundError):
+            sidecar.chmod(0o600)
 
 
 def _apply_migrations(conn: sqlite3.Connection):

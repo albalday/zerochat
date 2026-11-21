@@ -74,6 +74,19 @@ class StorageEngineTest(unittest.TestCase):
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(self.storage_dir.stat().st_mode), 0o700)
             self.assertEqual(stat.S_IMODE(self.db_path.stat().st_mode), 0o600)
+            # SQLite puede borrar -wal/-shm entre procesos concurrentes mientras se aseguran permisos.
+            wal_path = self.db_path.with_name(self.db_path.name + "-wal")
+            wal_path.write_bytes(b"")
+            orig_chmod = type(wal_path).chmod
+
+            def unlink_wal_then_chmod(path, mode):
+                if path == wal_path:
+                    path.unlink(missing_ok=True)
+                return orig_chmod(path, mode)
+
+            with mock.patch.object(type(wal_path), "chmod", unlink_wal_then_chmod):
+                with zerochat.open_storage():
+                    pass
         # La 7 ofusca la clave que estaba en claro y la 9 retira mcpServers/playwrightBrowser de los perfiles.
         self.assertNotIn("sk-en-claro", stored_key)
         migrated_profile = zerochat.get_general_profile_with_key("profile:viejo")
