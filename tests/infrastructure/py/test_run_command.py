@@ -323,6 +323,14 @@ class BackgroundCommandTest(unittest.TestCase):
                 self.assertGreaterEqual(elapsed, wait_ms / 1000)
                 self.assertLess(elapsed, wait_ms / 1000 + 2)
 
+        # Solo se espera por una clave sin id: una clave vacía o un id que no existe fallan enseguida.
+        for params in ({"key": ""}, {"id": 9999, "key": "tarjeta-antes-de-lanzar"}, {"id": 9999, "key": "nunca-lanzada"}):
+            with self.subTest(params=params):
+                started = time.monotonic()
+                _, err, _ = zerochat.dispatch_jobs("zerochat/jobs/log", {**params, "tail": 0, "wait_ms": 5000}, ctx)
+                self.assertIn("Comando no encontrado", err["message"])
+                self.assertLess(time.monotonic() - started, 1)
+
         # Al apagar se cortan las esperas pendientes.
         waiter, results = wait_in_background("nunca-lanzada", 30000)
         started = time.monotonic()

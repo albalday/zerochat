@@ -69,15 +69,17 @@ def dispatch_jobs(method: str, params: dict, ctx: SecurityContext) -> RpcOutcome
         return dispatch_table(PROJECT_JOB_METHODS, method, params, ctx.key)
     if method not in SINGLE_JOB_METHODS:
         return rpc_not_supported(method)
-    job = JOBS.get(ctx.key, job_id=params.get("id"), key=params.get("key"))
-    if job is None and method == "zerochat/jobs/log" and isinstance(params.get("key"), str):
+    key = params.get("key")
+    job = JOBS.get(ctx.key, job_id=params.get("id"), key=key)
+    if job is None and method == "zerochat/jobs/log" and params.get("id") is None and isinstance(key, str) and key:
         # La tarjeta pide el log por la clave antes de que se lance el comando: con wait_ms espera a que se lance.
+        # Por id no se espera: un id que no existe ya no existirá.
         try:
             wait_ms = min(parse_nonneg_int(params.get("wait_ms"), "wait_ms"), LONG_POLL_MAX_WAIT_MS)
         except ValueError as exc:
             return rpc_error(INVALID_PARAMS, str(exc))
         started = time.monotonic()
-        job = JOBS.wait_registered(ctx.key, params["key"], wait_ms / 1000.0) if wait_ms > 0 else None
+        job = JOBS.wait_registered(ctx.key, key, wait_ms / 1000.0) if wait_ms > 0 else None
         # Lo que queda de la espera es para la salida nueva.
         params = {**params, "wait_ms": max(0, wait_ms - int((time.monotonic() - started) * 1000))}
     if job is None:
