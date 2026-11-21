@@ -240,8 +240,16 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
         hasError: group.classList.contains('has-error')
       };
       const expandedCards = group.querySelectorAll('.tool-call-group-cards .tool-card-wrapper').length;
+      const limit = ToolCards.MAX_CARDS_PER_GROUP;
+      for (let i = 3; i <= limit; i++) {
+        ToolCards.appendToolCard(container, ToolCards.createLiveToolCard('generic_step', { step: i }));
+      }
+      const atLimitGroups = container.querySelectorAll('.tool-call-group').length;
+      ToolCards.appendToolCard(container, ToolCards.createLiveToolCard('generic_overflow', { step: limit + 1 }));
+      const groupCounts = [...container.querySelectorAll('.tool-call-group')]
+        .map(el => el.querySelectorAll('.tool-card-wrapper').length);
       container.remove();
-      return { running, sameHeight, completed, expandedCards };
+      return { running, sameHeight, completed, expandedCards, atLimitGroups, groupCounts, limit };
     });
     assert.deepEqual(result.running, { groups: 1, isOpen: false, hasEmptySeparator: false, visibleCards: 0, status: '2 · ejecutando generic_two' });
     assert.equal(result.sameHeight, true);
@@ -250,6 +258,8 @@ test('Browser UI - agrupa llamadas consecutivas de herramientas y conserva su de
     assert.equal(result.completed.cards, 2);
     assert.equal(result.completed.hasError, true);
     assert.equal(result.expandedCards, 2);
+    assert.equal(result.atLimitGroups, 1);
+    assert.deepEqual(result.groupCounts, [result.limit, 1]);
   } finally { await browser.close(); }
 });
 
