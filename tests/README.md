@@ -1,5 +1,7 @@
 # Guía y arquitectura de pruebas de ZeroChat
 
+Este documento define la estrategia táctica de verificación y las reglas de la suite de pruebas. Cuelga de la visión global en [`docs/architecture.md`](../docs/architecture.md) y complementa a [`AGENTS.md`](../AGENTS.md).
+
 ZeroChat utiliza el ejecutor nativo `node:test`, Playwright para las pruebas de navegador y `unittest` para la lógica Python del backend. La suite se organiza por nivel de responsabilidad y se ejecuta mediante `scripts/test-runner.mjs`.
 
 El runner es la fuente de verdad para los archivos descubiertos y para los grupos funcionales. Para consultar el inventario actual sin depender de esta guía, usa sus opciones `--list`.
