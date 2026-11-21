@@ -4941,8 +4941,8 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
-# Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: un proceso
-# terminado puede seguir figurando como vivo (zombi) hasta que lo recoge quien lo lanzó.
+# Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: uno que lanzó
+# otra instancia puede seguir figurando como vivo (zombi) hasta que lo recoge quien lo lanzó.
 _EXIT_WATCHED: set[tuple[int, str | None]] = set()
 _EXITED: set[tuple[int, str | None]] = set()
 _EXIT_LOCK = threading.Lock()
@@ -4964,10 +4964,11 @@ def _run_process_alive(data: dict) -> bool:
     return True
 
 
-def watch_run_exit(pid: int, pid_start: str | None) -> None:
+def watch_run_exit(pid: int, pid_start: str | None, proc: subprocess.Popen | None = None) -> None:
     """
-    Espera en un hilo, sin sondeo, a que termine el proceso de una ejecución en otro proceso y avisa del cambio del
-    estado vivo: su final (completada, a la espera del usuario o con error) ya está en SQLite cuando termina.
+    Espera en un hilo, sin sondeo, a que termine el proceso de una ejecución y avisa del cambio del estado vivo: su
+    final (completada, a la espera del usuario o con error) ya está en SQLite cuando termina. Con proc, el que lanzó
+    este servidor (start_server_run), lo espera con Popen.wait y así lo recoge; si no, por su PID.
     """
     key = (pid, pid_start)
     with _EXIT_LOCK:
@@ -4976,7 +4977,11 @@ def watch_run_exit(pid: int, pid_start: str | None) -> None:
         _EXIT_WATCHED.add(key)
 
     def wait():
-        exited = wait_pid_exit(pid, None)
+        if proc is not None:
+            proc.wait()
+            exited = True
+        else:
+            exited = wait_pid_exit(pid, None)
         if exited is None:
             return  # No se puede esperar: se queda en _EXIT_WATCHED para no reintentarlo.
         with _EXIT_LOCK:
@@ -5167,6 +5172,7 @@ def start_server_run(params: dict) -> dict:
         "error": None
     }
     upsert_run_state(payload)
+    watch_run_exit(proc.pid, payload["pid_start"], proc)
 
     return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
 

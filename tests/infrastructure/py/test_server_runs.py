@@ -379,9 +379,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         start_token = zerochat._process_start_token(os.getpid())
         with mock.patch.object(zerochat, "find_node_executable", return_value="/usr/bin/node"), \
              mock.patch.object(zerochat, "_process_start_token", return_value=start_token), \
-             mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
+             mock.patch("subprocess.Popen", return_value=mock_proc) as mock_popen, \
+             mock.patch.object(zerochat, "watch_run_exit") as watch_exit:
             zerochat.start_server_run({"conversation_id": "conv_proj", "profile": "valid-profile"})
             self.assertEqual(mock_popen.call_args.kwargs["cwd"], project)
+            # Espera su final con el Popen que lanzó, que así recoge (prueba de abajo).
+            watch_exit.assert_called_once_with(mock_proc.pid, start_token, mock_proc)
             zerochat.remove_run_state("conv_proj")
             mock_popen.reset_mock()
 
@@ -521,6 +524,18 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 5)
         if zerochat.pid_exit_waitable():
             self.assertEqual(waiting.timeouts, [None], "Espera el final de la ejecución sin releer")
+
+    def test_el_proceso_de_una_ejecucion_lanzada_por_el_servidor_se_recoge_al_terminar(self):
+        worker = start_worker(self)
+        start = zerochat._process_start_token(worker.pid)
+        notified = threading.Event()
+        with mock.patch.object(zerochat, "notify_live_change", side_effect=notified.set):
+            zerochat.watch_run_exit(worker.pid, start, worker)
+            worker.terminate()
+            self.assertTrue(notified.wait(5))
+        # Lo recogió el hilo (returncode), no la prueba: no queda zombi y ya no figura en marcha.
+        self.assertIsNotNone(worker.returncode)
+        self.assertFalse(zerochat._run_process_alive({"pid": worker.pid, "pid_start": start}))
 
     def test_el_latido_en_espera_despierta_al_terminar_una_ejecucion_y_solo_relee_con_su_conversacion_a_la_vista(self):
         ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)

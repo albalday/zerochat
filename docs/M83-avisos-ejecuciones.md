@@ -25,9 +25,10 @@ interfaz no recibe ningún aviso. Por eso, mientras alguna ejecución figuraba e
 `list_server_runs` lanza un hilo por cada ejecución en marcha y viva, que espera su PID con
 `wait_pid_exit(pid, None)`: pidfd en Linux, kqueue en macOS y el handle del proceso en Windows.
 Al terminar el proceso, ese hilo llama a `notify_live_change()`, que despierta a los latidos en
-espera y al vigilante. Recuerda además el proceso (PID y huella de arranque) como terminado:
-la interfaz lanza el worker y no lo recoge, así que queda como zombi y `_pid_alive` lo seguiría
-dando por vivo.
+espera y al vigilante. Las ejecuciones que lanza el propio servidor (`start_server_run`) se
+esperan desde el arranque con su `Popen.wait`, que además recoge el proceso (M83-T10). De las
+demás recuerda el proceso (PID y huella de arranque) como terminado: puede seguir como zombi
+hasta que lo recoge quien lo lanzó, y `_pid_alive` lo seguiría dando por vivo.
 
 Vale para cualquier ejecución, también para las lanzadas a mano desde un terminal, sin saber
 quién la lanzó. Un pidfd abierto mientras el proceso vive queda fijado a él, así que un PID
