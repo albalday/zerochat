@@ -888,13 +888,7 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
             send = os.killpg if os.getpgid(pid) == pid else os.kill
             if grace_seconds > 0:
                 send(pid, signal.SIGTERM)
-                if proc is not None:
-                    try:
-                        proc.wait(timeout=grace_seconds)
-                        return
-                    except subprocess.TimeoutExpired:
-                        pass
-                elif wait_pid_exit(pid, grace_seconds):
+                if _exits_within(pid, proc, grace_seconds):
                     return
             send(pid, signal.SIGKILL)
         else:
@@ -908,6 +902,21 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
             pass
 
 
+def _exits_within(pid: int, proc: subprocess.Popen | None, seconds: float) -> bool:
+    """Si el proceso termina antes de seconds segundos: el Popen propio se espera; de otro solo se tiene el PID."""
+    if proc is not None:
+        try:
+            proc.wait(timeout=seconds)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+    exited = wait_pid_exit(pid, seconds)
+    if exited is None:
+        time.sleep(seconds)
+        return not _pid_alive(pid)
+    return exited
+
+
 def _windows_kernel32():
     """kernel32 con los prototipos que usan la huella de arranque y la comprobación de vida de un proceso."""
     from ctypes import wintypes
@@ -918,12 +927,16 @@ def _windows_kernel32():
     kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     kernel32.GetProcessTimes.restype = wintypes.BOOL
     kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     return kernel32
 
 
 # PROCESS_QUERY_LIMITED_INFORMATION: basta para leer la hora de creación y el código de salida.
 _WINDOWS_PROCESS_QUERY = 0x1000
+_WINDOWS_SYNCHRONIZE = 0x00100000
+_WINDOWS_INFINITE = 0xFFFFFFFF
 
 
 def _windows_process_start_token(pid: int) -> str | None:
@@ -971,12 +984,26 @@ def _windows_pid_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
-def wait_pid_exit(pid: int, timeout: float) -> bool:
+@functools.cache
+def pid_exit_waitable() -> bool:
+    """Si este sistema sabe esperar sin sondeo a que termine un proceso por su PID (wait_pid_exit)."""
+    if sys.platform == "linux":
+        try:
+            os.close(os.pidfd_open(os.getpid()))
+            return True
+        except OSError:
+            return False  # Núcleo anterior a pidfd (Linux 5.3).
+    return sys.platform in ("darwin", "win32")
+
+
+def wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
     """
-    Espera como mucho timeout segundos a que termine un proceso del que solo se tiene el PID (de un Popen
-    propio basta Popen.wait): sin sondeo, con pidfd en Linux y kqueue en macOS; en otro sistema, o con un
-    núcleo sin pidfd, duerme el plazo y lo comprueba al final. Devuelve si terminó.
+    Espera como mucho timeout segundos (None: sin plazo) a que termine un proceso del que solo se tiene el PID
+    (de un Popen propio basta Popen.wait), sin sondeo: pidfd en Linux, kqueue en macOS y su handle en Windows.
+    Devuelve si terminó, o None si no se puede esperar (pid_exit_waitable, o un proceso de otra cuenta en Windows).
     """
+    if not pid_exit_waitable():
+        return None
     try:
         if sys.platform == "linux":
             fd = os.pidfd_open(pid)
@@ -984,7 +1011,7 @@ def wait_pid_exit(pid: int, timeout: float) -> bool:
                 return bool(select.select([fd], [], [], timeout)[0])
             finally:
                 os.close(fd)
-        elif sys.platform == "darwin":
+        if sys.platform == "darwin":
             queue = select.kqueue()
             try:
                 event = select.kevent(pid, filter=select.KQ_FILTER_PROC, flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
@@ -992,12 +1019,22 @@ def wait_pid_exit(pid: int, timeout: float) -> bool:
                 return bool(queue.control([event], 1, timeout))
             finally:
                 queue.close()
+        return _windows_wait_pid_exit(pid, timeout)
     except ProcessLookupError:
         return True
-    except OSError:
-        pass
-    time.sleep(timeout)
-    return not _pid_alive(pid)
+
+
+def _windows_wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
+    kernel32 = _windows_kernel32()
+    handle = kernel32.OpenProcess(_WINDOWS_SYNCHRONIZE, False, pid)
+    if not handle:
+        # ERROR_ACCESS_DENIED: existe, pero es de otra cuenta; si no, ya no existe.
+        return None if ctypes.get_last_error() == 5 else True  # pyright: ignore[reportAttributeAccessIssue] (solo en Windows)
+    try:
+        wait_ms = _WINDOWS_INFINITE if timeout is None else max(0, int(timeout * 1000))
+        return kernel32.WaitForSingleObject(handle, wait_ms) == 0  # WAIT_OBJECT_0
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _pid_alive(pid: int) -> bool:
@@ -4904,17 +4941,50 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
+# Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: un proceso
+# terminado puede seguir figurando como vivo (zombi) hasta que lo recoge quien lo lanzó.
+_EXIT_WATCHED: set[tuple[int, str | None]] = set()
+_EXITED: set[tuple[int, str | None]] = set()
+_EXIT_LOCK = threading.Lock()
+
+
 def _run_process_alive(data: dict) -> bool:
     """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
     pid = data.get("pid")
+    saved_start = data.get("pid_start")
+    with _EXIT_LOCK:
+        if (pid, saved_start) in _EXITED:
+            return False
     if not _pid_alive(pid):
         return False
-    saved_start = data.get("pid_start")
     if saved_start:
         current_start = _process_start_token(pid)
         if current_start is not None and current_start != saved_start:
             return False
     return True
+
+
+def watch_run_exit(pid: int, pid_start: str | None) -> None:
+    """
+    Espera en un hilo, sin sondeo, a que termine el proceso de una ejecución en otro proceso y avisa del cambio del
+    estado vivo: su final (completada, a la espera del usuario o con error) ya está en SQLite cuando termina.
+    """
+    key = (pid, pid_start)
+    with _EXIT_LOCK:
+        if key in _EXIT_WATCHED or key in _EXITED:
+            return
+        _EXIT_WATCHED.add(key)
+
+    def wait():
+        exited = wait_pid_exit(pid, None)
+        if exited is None:
+            return  # No se puede esperar: se queda en _EXIT_WATCHED para no reintentarlo.
+        with _EXIT_LOCK:
+            _EXIT_WATCHED.discard(key)
+            _EXITED.add(key)
+        notify_live_change()
+
+    threading.Thread(target=wait, name=f"run-exit-{pid}", daemon=True).start()
 
 
 def write_run_state(session: RunSession) -> None:
@@ -4969,7 +5039,9 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             continue
 
         status = data.get("status")
-        if status == "running" and not _run_process_alive(data):
+        if status == "running" and _run_process_alive(data):
+            watch_run_exit(data["pid"], data.get("pid_start"))
+        elif status == "running":
             status = "error"
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
@@ -7981,8 +8053,10 @@ ACCESS_CONTROLLER = AccessController()
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite: con alguna en marcha,
-# el latido en espera vuelve a mirar cada tanto, y el vigilante, si ya terminaron para cerrar.
+# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite. Su final llega sin sondeo (se
+# espera su PID, watch_run_exit), pero no su progreso (step_text): el latido en espera relee cada tanto mientras
+# la interfaz muestra la conversación de una en marcha. Donde no se puede esperar un PID, el latido y el
+# vigilante releen así con cualquiera en marcha.
 _EXTERNAL_RUN_POLL_SECONDS = 1.0
 _WATCHDOG_RUN_RECHECK_SECONDS = 1.0
 # Campos de cada comando que cambian sin parar mientras corre: no cuentan en la firma `rev` (si no, cada
@@ -8130,10 +8204,18 @@ def wait_live_state(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return state
-        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if any(r.get("status") == "running" for r in state["runs"]) else remaining
+        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if _rereads_runs(state) else remaining
         with _LIVE_STATE_COND:
             if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
                 _LIVE_STATE_COND.wait(slice_s)
+
+
+def _rereads_runs(state: dict) -> bool:
+    """Si el latido en espera debe releer SQLite cada _EXTERNAL_RUN_POLL_SECONDS (ver arriba)."""
+    focus = state.get("focus_run")
+    if isinstance(focus, dict) and focus.get("status") == "running":
+        return True
+    return not pid_exit_waitable() and any(r.get("status") == "running" for r in state["runs"])
 
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
@@ -8193,10 +8275,16 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
         if reason is None:
             return
         if HEARTBEAT_INITIALIZED:
+            with _LIVE_STATE_COND:
+                seq = _LIVE_STATE_SEQ
             runs, _ = list_server_runs()
             if any(r.get("status") == "running" for r in runs):
+                # Hasta que termine alguna (lo avisa watch_run_exit, que list_server_runs pone en marcha) o vuelva el navegador.
                 with _WATCHDOG_COND:
-                    _WATCHDOG_COND.wait(run_recheck_seconds)
+                    if not pid_exit_waitable():
+                        _WATCHDOG_COND.wait(run_recheck_seconds)
+                    elif _LIVE_STATE_SEQ == seq and not HEARTBEAT_WATCHDOG_STOP.is_set():
+                        _WATCHDOG_COND.wait()
                 continue
         log_event(reason)
         stop_zerochat_server(server)

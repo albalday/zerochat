@@ -11,6 +11,7 @@ from http.server import ThreadingHTTPServer
 from browser.engines import BROWSER_ENGINES
 from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.live_events import on_live_change
+from core.process import pid_exit_waitable
 from core.logging import console_log, log_event, timestamp_message
 from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.state import list_server_runs
@@ -21,8 +22,10 @@ from tools.jobs import JOBS
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
 DEFAULT_HEARTBEAT_GRACE = 45.0
-# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite: con alguna en marcha,
-# el latido en espera vuelve a mirar cada tanto, y el vigilante, si ya terminaron para cerrar.
+# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite. Su final llega sin sondeo (se
+# espera su PID, watch_run_exit), pero no su progreso (step_text): el latido en espera relee cada tanto mientras
+# la interfaz muestra la conversación de una en marcha. Donde no se puede esperar un PID, el latido y el
+# vigilante releen así con cualquiera en marcha.
 _EXTERNAL_RUN_POLL_SECONDS = 1.0
 _WATCHDOG_RUN_RECHECK_SECONDS = 1.0
 # Campos de cada comando que cambian sin parar mientras corre: no cuentan en la firma `rev` (si no, cada
@@ -170,10 +173,18 @@ def wait_live_state(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return state
-        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if any(r.get("status") == "running" for r in state["runs"]) else remaining
+        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if _rereads_runs(state) else remaining
         with _LIVE_STATE_COND:
             if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
                 _LIVE_STATE_COND.wait(slice_s)
+
+
+def _rereads_runs(state: dict) -> bool:
+    """Si el latido en espera debe releer SQLite cada _EXTERNAL_RUN_POLL_SECONDS (ver arriba)."""
+    focus = state.get("focus_run")
+    if isinstance(focus, dict) and focus.get("status") == "running":
+        return True
+    return not pid_exit_waitable() and any(r.get("status") == "running" for r in state["runs"])
 
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
@@ -233,10 +244,16 @@ def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float
         if reason is None:
             return
         if HEARTBEAT_INITIALIZED:
+            with _LIVE_STATE_COND:
+                seq = _LIVE_STATE_SEQ
             runs, _ = list_server_runs()
             if any(r.get("status") == "running" for r in runs):
+                # Hasta que termine alguna (lo avisa watch_run_exit, que list_server_runs pone en marcha) o vuelva el navegador.
                 with _WATCHDOG_COND:
-                    _WATCHDOG_COND.wait(run_recheck_seconds)
+                    if not pid_exit_waitable():
+                        _WATCHDOG_COND.wait(run_recheck_seconds)
+                    elif _LIVE_STATE_SEQ == seq and not HEARTBEAT_WATCHDOG_STOP.is_set():
+                        _WATCHDOG_COND.wait()
                 continue
         log_event(reason)
         stop_zerochat_server(server)

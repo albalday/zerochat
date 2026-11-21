@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import functools
 import os
 import select
 import signal
@@ -38,13 +39,7 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
             send = os.killpg if os.getpgid(pid) == pid else os.kill
             if grace_seconds > 0:
                 send(pid, signal.SIGTERM)
-                if proc is not None:
-                    try:
-                        proc.wait(timeout=grace_seconds)
-                        return
-                    except subprocess.TimeoutExpired:
-                        pass
-                elif wait_pid_exit(pid, grace_seconds):
+                if _exits_within(pid, proc, grace_seconds):
                     return
             send(pid, signal.SIGKILL)
         else:
@@ -58,6 +53,21 @@ def _kill_process_tree(target: subprocess.Popen | int, *, grace_seconds: float =
             pass
 
 
+def _exits_within(pid: int, proc: subprocess.Popen | None, seconds: float) -> bool:
+    """Si el proceso termina antes de seconds segundos: el Popen propio se espera; de otro solo se tiene el PID."""
+    if proc is not None:
+        try:
+            proc.wait(timeout=seconds)
+            return True
+        except subprocess.TimeoutExpired:
+            return False
+    exited = wait_pid_exit(pid, seconds)
+    if exited is None:
+        time.sleep(seconds)
+        return not _pid_alive(pid)
+    return exited
+
+
 def _windows_kernel32():
     """kernel32 con los prototipos que usan la huella de arranque y la comprobación de vida de un proceso."""
     from ctypes import wintypes
@@ -68,12 +78,16 @@ def _windows_kernel32():
     kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     kernel32.GetProcessTimes.restype = wintypes.BOOL
     kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
     return kernel32
 
 
 # PROCESS_QUERY_LIMITED_INFORMATION: basta para leer la hora de creación y el código de salida.
 _WINDOWS_PROCESS_QUERY = 0x1000
+_WINDOWS_SYNCHRONIZE = 0x00100000
+_WINDOWS_INFINITE = 0xFFFFFFFF
 
 
 def _windows_process_start_token(pid: int) -> str | None:
@@ -121,12 +135,26 @@ def _windows_pid_alive(pid: int) -> bool:
         kernel32.CloseHandle(handle)
 
 
-def wait_pid_exit(pid: int, timeout: float) -> bool:
+@functools.cache
+def pid_exit_waitable() -> bool:
+    """Si este sistema sabe esperar sin sondeo a que termine un proceso por su PID (wait_pid_exit)."""
+    if sys.platform == "linux":
+        try:
+            os.close(os.pidfd_open(os.getpid()))
+            return True
+        except OSError:
+            return False  # Núcleo anterior a pidfd (Linux 5.3).
+    return sys.platform in ("darwin", "win32")
+
+
+def wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
     """
-    Espera como mucho timeout segundos a que termine un proceso del que solo se tiene el PID (de un Popen
-    propio basta Popen.wait): sin sondeo, con pidfd en Linux y kqueue en macOS; en otro sistema, o con un
-    núcleo sin pidfd, duerme el plazo y lo comprueba al final. Devuelve si terminó.
+    Espera como mucho timeout segundos (None: sin plazo) a que termine un proceso del que solo se tiene el PID
+    (de un Popen propio basta Popen.wait), sin sondeo: pidfd en Linux, kqueue en macOS y su handle en Windows.
+    Devuelve si terminó, o None si no se puede esperar (pid_exit_waitable, o un proceso de otra cuenta en Windows).
     """
+    if not pid_exit_waitable():
+        return None
     try:
         if sys.platform == "linux":
             fd = os.pidfd_open(pid)
@@ -134,7 +162,7 @@ def wait_pid_exit(pid: int, timeout: float) -> bool:
                 return bool(select.select([fd], [], [], timeout)[0])
             finally:
                 os.close(fd)
-        elif sys.platform == "darwin":
+        if sys.platform == "darwin":
             queue = select.kqueue()
             try:
                 event = select.kevent(pid, filter=select.KQ_FILTER_PROC, flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
@@ -142,12 +170,22 @@ def wait_pid_exit(pid: int, timeout: float) -> bool:
                 return bool(queue.control([event], 1, timeout))
             finally:
                 queue.close()
+        return _windows_wait_pid_exit(pid, timeout)
     except ProcessLookupError:
         return True
-    except OSError:
-        pass
-    time.sleep(timeout)
-    return not _pid_alive(pid)
+
+
+def _windows_wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
+    kernel32 = _windows_kernel32()
+    handle = kernel32.OpenProcess(_WINDOWS_SYNCHRONIZE, False, pid)
+    if not handle:
+        # ERROR_ACCESS_DENIED: existe, pero es de otra cuenta; si no, ya no existe.
+        return None if ctypes.get_last_error() == 5 else True  # pyright: ignore[reportAttributeAccessIssue] (solo en Windows)
+    try:
+        wait_ms = _WINDOWS_INFINITE if timeout is None else max(0, int(timeout * 1000))
+        return kernel32.WaitForSingleObject(handle, wait_ms) == 0  # WAIT_OBJECT_0
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _pid_alive(pid: int) -> bool:

@@ -21,19 +21,36 @@ def dispatch_run(method, params):
     return zerochat.dispatch_run(method, params, CTX)
 
 
-def waiting_on(test, condition) -> threading.Event:
-    """Event que se activa cuando un hilo entra a esperar en condition: el cambio llega con la espera ya en curso."""
-    waiting = threading.Event()
+class Waiting(threading.Event):
+    """Se activa cuando un hilo entra a esperar en la condición; timeouts guarda el plazo de cada espera (None: sin plazo)."""
+
+    def __init__(self):
+        super().__init__()
+        self.timeouts: list[float | None] = []
+
+
+def waiting_on(test, condition) -> Waiting:
+    """Waiting de condition: el cambio llega con la espera ya en curso."""
+    waiting = Waiting()
     real_wait = condition.wait
 
-    def wait(*args, **kwargs):
+    def wait(timeout=None):
+        waiting.timeouts.append(timeout)
         waiting.set()
-        return real_wait(*args, **kwargs)
+        return real_wait(timeout)
 
     patcher = mock.patch.object(condition, "wait", side_effect=wait)
     patcher.start()
     test.addCleanup(patcher.stop)
     return waiting
+
+
+def start_worker(test) -> subprocess.Popen:
+    """Proceso que hace de ejecución en segundo plano: la prueba decide cuándo termina."""
+    worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"])
+    test.addCleanup(worker.wait)
+    test.addCleanup(worker.kill)
+    return worker
 
 
 def upsert_run(fields):
@@ -479,13 +496,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             zerochat.heartbeat_watchdog(server, inactivity_timeout_seconds=0.1)
         stop.assert_called_once_with(server)
 
-    def test_heartbeat_watchdog_no_apaga_si_hay_run_activo(self):
-        upsert_run({
-            "run_id": "run_wd",
-            "conversation_id": "conv_watchdog",
-            "pid": os.getpid(),
-            "status": "running"
-        })
+    def test_heartbeat_watchdog_no_apaga_si_hay_run_activo_y_apaga_en_cuanto_termina_su_proceso(self):
+        worker = start_worker(self)
+        upsert_run({"run_id": "run_wd", "conversation_id": "conv_watchdog", "pid": worker.pid, "status": "running"})
 
         mock_server = mock.Mock()
         zerochat.HEARTBEAT_INITIALIZED = True
@@ -494,20 +507,47 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         waiting = waiting_on(self, zerochat._WATCHDOG_COND)
 
         def finish_once_waiting():
-            # El latido ya venció: el vigilante solo espera porque la ejecución sigue en marcha.
+            # El latido ya venció: el vigilante solo espera porque la ejecución sigue en marcha. Su proceso
+            # termina sin que nadie lo recoja (queda zombi), como el de una ejecución que lanzó la interfaz.
             self.assertTrue(waiting.wait(5))
-            upsert_run({
-                "run_id": "run_wd",
-                "conversation_id": "conv_watchdog",
-                "pid": os.getpid(),
-                "status": "completed"
-            })
+            worker.terminate()
 
         threading.Thread(target=finish_once_waiting, daemon=True).start()
 
+        started = time.monotonic()
         with mock.patch.object(zerochat, "stop_zerochat_server") as mock_stop:
             zerochat.heartbeat_watchdog(mock_server, inactivity_timeout_seconds=0.05)
             mock_stop.assert_called_once_with(mock_server)
+        self.assertLess(time.monotonic() - started, 5)
+        if zerochat.pid_exit_waitable():
+            self.assertEqual(waiting.timeouts, [None], "Espera el final de la ejecución sin releer")
+
+    def test_el_latido_en_espera_despierta_al_terminar_una_ejecucion_y_solo_relee_con_su_conversacion_a_la_vista(self):
+        ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)
+        waiting = waiting_on(self, zerochat._LIVE_STATE_COND)
+        for focus in (None, "conv_vista"):
+            with self.subTest(focus=focus):
+                worker = start_worker(self)
+                upsert_run({"run_id": f"run_{focus}", "conversation_id": "conv_vista", "pid": worker.pid, "status": "running"})
+                initial = zerochat.live_state(ctx, focus)["rev"]
+                waiting.clear()
+                waiting.timeouts.clear()
+
+                def finish_once_waiting():
+                    self.assertTrue(waiting.wait(5))
+                    worker.terminate()
+
+                threading.Thread(target=finish_once_waiting, daemon=True).start()
+                started = time.monotonic()
+                updated = zerochat.wait_live_state(ctx, focus, since_rev=initial, wait_ms=20000)
+                self.assertLess(time.monotonic() - started, 5)
+                # Murió sin dejar resultado: el latido la entrega en error.
+                self.assertEqual([run["status"] for run in updated["runs"]], ["error"])
+                if focus:
+                    # Su progreso no avisa: con su conversación a la vista se relee cada poco.
+                    self.assertLessEqual(waiting.timeouts[0], zerochat._EXTERNAL_RUN_POLL_SECONDS)
+                elif zerochat.pid_exit_waitable():
+                    self.assertGreater(waiting.timeouts[0], zerochat._EXTERNAL_RUN_POLL_SECONDS, "Sin trocear la espera")
 
     def test_la_firma_del_estado_vivo_ignora_la_salida_de_los_comandos(self):
         job = {"id": 1, "status": "running", "elapsed_s": 1, "output_bytes": 10, "last_line": "a"}

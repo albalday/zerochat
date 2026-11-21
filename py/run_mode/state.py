@@ -19,7 +19,8 @@ from pathlib import Path
 from core.environment import DETECTED_OS, get_no_project_dir
 from core.limits import MAX_HTTP_BODY_BYTES
 from core.logging import console_error, log_event, timestamp_message
-from core.process import _kill_process_tree, _pid_alive, _process_start_token
+from core.live_events import notify_live_change
+from core.process import _kill_process_tree, _pid_alive, _process_start_token, wait_pid_exit
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcome, dispatch_table, rpc_error, rpc_result
 from security.context import SecurityContext
 from storage.db import (
@@ -54,17 +55,50 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 
 
+# Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: un proceso
+# terminado puede seguir figurando como vivo (zombi) hasta que lo recoge quien lo lanzó.
+_EXIT_WATCHED: set[tuple[int, str | None]] = set()
+_EXITED: set[tuple[int, str | None]] = set()
+_EXIT_LOCK = threading.Lock()
+
+
 def _run_process_alive(data: dict) -> bool:
     """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
     pid = data.get("pid")
+    saved_start = data.get("pid_start")
+    with _EXIT_LOCK:
+        if (pid, saved_start) in _EXITED:
+            return False
     if not _pid_alive(pid):
         return False
-    saved_start = data.get("pid_start")
     if saved_start:
         current_start = _process_start_token(pid)
         if current_start is not None and current_start != saved_start:
             return False
     return True
+
+
+def watch_run_exit(pid: int, pid_start: str | None) -> None:
+    """
+    Espera en un hilo, sin sondeo, a que termine el proceso de una ejecución en otro proceso y avisa del cambio del
+    estado vivo: su final (completada, a la espera del usuario o con error) ya está en SQLite cuando termina.
+    """
+    key = (pid, pid_start)
+    with _EXIT_LOCK:
+        if key in _EXIT_WATCHED or key in _EXITED:
+            return
+        _EXIT_WATCHED.add(key)
+
+    def wait():
+        exited = wait_pid_exit(pid, None)
+        if exited is None:
+            return  # No se puede esperar: se queda en _EXIT_WATCHED para no reintentarlo.
+        with _EXIT_LOCK:
+            _EXIT_WATCHED.discard(key)
+            _EXITED.add(key)
+        notify_live_change()
+
+    threading.Thread(target=wait, name=f"run-exit-{pid}", daemon=True).start()
 
 
 def write_run_state(session: RunSession) -> None:
@@ -119,7 +153,9 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             continue
 
         status = data.get("status")
-        if status == "running" and not _run_process_alive(data):
+        if status == "running" and _run_process_alive(data):
+            watch_run_exit(data["pid"], data.get("pid_start"))
+        elif status == "running":
             status = "error"
             data["status"] = "error"
             data["error"] = "El proceso de ejecución terminó inesperadamente."
