@@ -3783,6 +3783,19 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
             conn.execute("ROLLBACK;")
             raise
 
+
+def delete_project_storage(project_key: str) -> list[str]:
+    """Elimina entorno guardado, políticas de seguridad y conversaciones de un proyecto en SQLite."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    deleted_ids = delete_project_conversations(clean_key)
+    with open_storage() as conn:
+        conn.execute("DELETE FROM project_environments WHERE project_key = ?;", (clean_key,))
+        conn.execute("DELETE FROM security_policies WHERE id = ?;", (project_security_policy_id(clean_key),))
+        conn.commit()
+    return deleted_ids
+
 # --- browser.config ---
 """Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
 
@@ -7856,6 +7869,11 @@ class AccessController:
         with self._lock:
             self.sessions.clear()
 
+    def drop_project_session(self, project_key: str) -> None:
+        """Olvida la sesión en memoria de un proyecto concreto (p. ej. al borrarlo)."""
+        with self._lock:
+            self.sessions.pop(project_key, None)
+
     def apply_tool_decision(self, tool_decision: dict | None, context: SecurityContext, server_id: str = "") -> None:
         """Aplica en AccessController la decisión aprobada por el usuario antes de reanudar una ejecución."""
         if not isinstance(tool_decision, dict):
@@ -8985,6 +9003,19 @@ def create_project_directory(params: dict, ctx: SecurityContext) -> dict:
     except OSError as exc:
         raise ValueError(f"No se puede crear '{target}': {exc.strerror or exc}") from exc
     return {"path": str(target)}
+
+
+def validate_deletable_project_dir(ctx: SecurityContext) -> Path:
+    """Comprueba que la carpeta del proyecto puede borrarse sin tocar raíces, ~, general ni ~/zerochat."""
+    target = ctx.workspace_dir.resolve()
+    no_project = get_no_project_dir().resolve()
+    data_dir = get_data_dir().resolve()
+    home = Path.home().resolve()
+    if target == target.parent or target == home or target == no_project:
+        raise ValueError("No se puede borrar la carpeta general, la carpeta personal ni una raíz del sistema.")
+    if target == data_dir or target in data_dir.parents:
+        raise ValueError("No se puede borrar la carpeta de datos de ZeroChat.")
+    return target
 
 
 def _walk_project_files(target: Path) -> Iterator[Path]:
@@ -10225,6 +10256,24 @@ def _create_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
+def _delete_project(_params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        target = validate_deletable_project_dir(ctx)
+        if JOBS.running(ctx.key) or any(run.get("project") == ctx.key and run.get("status") == "running" for run in list_run_states()):
+            raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
+        if target.exists():
+            shutil.rmtree(target)
+        ACCESS_CONTROLLER.drop_project_session(ctx.key)
+        deleted_ids = delete_project_storage(ctx.key)
+        return rpc_result({
+            "deleted": ctx.key,
+            "deletedConversationIds": deleted_ids,
+            "fallback": str(get_no_project_dir()),
+        })
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
 def _open_diff(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         return rpc_result(open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))))
@@ -10272,6 +10321,7 @@ LOCAL_METHODS = {
     "zerochat/project/set_directory": _set_project_directory,
     "zerochat/project/browse": _browse_directories,
     "zerochat/project/create_directory": _create_directory,
+    "zerochat/project/delete": _delete_project,
     "zerochat/diff/open": _open_diff,
     "zerochat/diff/configure": _configure_diff,
     "zerochat/web/fetch": _web_fetch,

@@ -418,6 +418,11 @@ class AccessController:
         with self._lock:
             self.sessions.clear()
 
+    def drop_project_session(self, project_key: str) -> None:
+        """Olvida la sesión en memoria de un proyecto concreto (p. ej. al borrarlo)."""
+        with self._lock:
+            self.sessions.pop(project_key, None)
+
     def apply_tool_decision(self, tool_decision: dict | None, context: SecurityContext, server_id: str = "") -> None:
         """Aplica en AccessController la decisión aprobada por el usuario antes de reanudar una ejecución."""
         if not isinstance(tool_decision, dict):

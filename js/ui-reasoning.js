@@ -12,7 +12,6 @@
   const LEVEL_LABEL_KEYS = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
   // Acciones cuyo nombre no basta para saber qué hacen.
   const PROJECT_ACTION_TITLES = Object.freeze({
-    initializeAgent: 'project_action_initializeAgent_title',
     reload: 'project_action_reload_title',
     compact: 'project_action_compact_title'
   });
@@ -81,7 +80,7 @@
   /** Acciones disponibles para cada estado del modo proyecto (initialize y compact solo si se puede escribir). */
   function getProjectActions(project, { canInitialize = false, canCompact = false } = {}) {
     switch (project.status) {
-      case 'missing': return [...(canInitialize ? ['initialize', 'initializeAgent'] : []), 'decline'];
+      case 'missing': return [...(canInitialize ? ['initialize'] : []), 'decline'];
       case 'declined': return ['reactivate'];
       case 'ready': return ['reload', ...(canCompact ? ['compact'] : [])];
       case 'error':
@@ -125,44 +124,61 @@
     elements.welcomeProject.toggleAttribute('data-project-mode-off', !enabled);
   }
 
-  /** Pie del modal: interruptor del modo proyecto, su estado, el directorio y las acciones del estado. */
-  function renderProjectPanel(elements, { config, project, canInitialize, canCompact, canChangeDirectory, busy }) {
+  /** Cuerpo de proyecto del modal: tarjetas de directorio actual y normas en sistema. */
+  function renderProjectPanel(elements, { config, project, canInitialize, canCompact, canChangeDirectory, canDeleteProject, busy }) {
     const supported = project.status !== 'no_project';
     const enabled = supported && config.projectMode === true;
     const actions = enabled ? getProjectActions(project, { canInitialize, canCompact }) : [];
-    // La carpeta de trabajo es la base de todas las herramientas locales y el proyecto de los chats nuevos:
-    // va en su propio bloque, aparte del modo proyecto (la memoria .zerochat), y se ve aunque esté apagado.
     const cwd = String(project.cwd || '');
     const changeLabel = escapeHtml(t('project_action_change_directory'));
     const changeButton = canChangeDirectory
       ? `<button type="button" class="btn-project-directory" data-project-action="changeDirectory" title="${changeLabel}" aria-label="${changeLabel}"${busy ? ' disabled' : ''}>${Icons.get('folder', { size: 15 })}</button>`
       : '';
-    const directoryHtml = cwd
-      ? `<div class="project-directory-block">
+    const deleteLabel = escapeHtml(t('project_action_deleteProject'));
+    const deleteButton = canDeleteProject
+      ? `<button type="button" class="btn-project-directory btn-project-delete" data-project-action="deleteProject" title="${deleteLabel}" aria-label="${deleteLabel}"${busy ? ' disabled' : ''}>${Icons.get('trash', { size: 15 })}</button>`
+      : '';
+    const directoryCardHtml = cwd
+      ? `<div class="settings-section-card">
         <div class="reasoning-agent-toggle-title">${Icons.get('folder', { size: 13 })}<span>${escapeHtml(t('project_directory_heading'))}</span></div>
-        <div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}</div>
+        <div class="project-mode-directory"><span class="project-mode-path" title="${escapeHtml(cwd)}">${escapeHtml(shortenHomePath(cwd))}</span>${changeButton}${deleteButton}</div>
       </div>`
       : '';
-    const actionsHtml = actions.length
-      ? `<div class="project-mode-actions">${actions.map(action =>
-        `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>`
-      : '';
+    let actionsHtml = '';
+    if (enabled && project.status === 'missing' && canInitialize) {
+      const modeLabel = escapeHtml(t('project_init_mode_label'));
+      actionsHtml = `<div class="project-init-controls">
+        <select id="project-init-template" class="settings-select" aria-label="${modeLabel}">
+          <option value="default">${escapeHtml(t('project_init_mode_software'))}</option>
+          <option value="agent">${escapeHtml(t('project_init_mode_agent'))}</option>
+        </select>
+        <div class="project-mode-actions">
+          <button type="button" class="btn-secondary" data-project-action="initialize">${escapeHtml(t('project_action_initialize'))}</button>
+          <button type="button" class="btn-secondary" data-project-action="decline">${escapeHtml(t('project_action_decline'))}</button>
+        </div>
+      </div>`;
+    } else if (actions.length) {
+      actionsHtml = `<div class="project-mode-actions">${actions.map(action =>
+        `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>`;
+    }
     const statusText = getProjectStatusText(config, project);
     const statusAttr = supported ? (enabled ? project.status || '' : 'disabled') : 'no_project';
     const switchTitle = supported ? t('project_mode_tooltip') : statusText;
     elements.projectModePanel.innerHTML = `
-      ${directoryHtml}
-      <div class="reasoning-agent-toggle-wrapper">
-        <div class="reasoning-agent-toggle-info">
-          <div class="reasoning-agent-toggle-title">${Icons.get('layers', { size: 13 })}<span>${escapeHtml(t('project_mode_title'))}</span></div>
-          <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(statusAttr)}" aria-live="polite">${escapeHtml(statusText)}</div>
+      ${directoryCardHtml}
+      <div class="settings-section-card">
+        <div class="reasoning-agent-toggle-wrapper">
+          <div class="reasoning-agent-toggle-info">
+            <div class="reasoning-agent-toggle-title">${Icons.get('layers', { size: 13 })}<span>${escapeHtml(t('project_mode_title'))}</span></div>
+            <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(statusAttr)}" aria-live="polite">${escapeHtml(statusText)}</div>
+          </div>
+          <label class="switch switch-sm" title="${escapeHtml(switchTitle)}">
+            <input type="checkbox" id="chk-project-mode" aria-label="${escapeHtml(switchTitle)}"${enabled ? ' checked' : ''}${supported ? '' : ' disabled'}>
+            <span class="slider"></span>
+          </label>
         </div>
-        <label class="switch switch-sm" title="${escapeHtml(switchTitle)}">
-          <input type="checkbox" id="chk-project-mode" aria-label="${escapeHtml(switchTitle)}"${enabled ? ' checked' : ''}${supported ? '' : ' disabled'}>
-          <span class="slider"></span>
-        </label>
-      </div>
-      ${actionsHtml}`;
+        ${actionsHtml}
+      </div>`;
   }
 
   function updateReasoningUI(elements, level) {
@@ -209,7 +225,7 @@
     elements.projectModePanel.addEventListener('click', event => {
       const action = event.target.closest('[data-project-action]')?.dataset.projectAction;
       if (!action) return;
-      if (['decline', 'changeDirectory', 'initialize', 'compact'].includes(action)) {
+      if (['decline', 'changeDirectory', 'deleteProject', 'initialize', 'compact'].includes(action)) {
         closeReasoningMenu(elements);
       }
       projectHandlers[action]?.();

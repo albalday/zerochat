@@ -364,7 +364,7 @@
 }
 
 .reasoning-intensity-control {
-  padding: 1rem 1rem 0.85rem;
+  padding: 0;
 }
 
 .reasoning-intensity-heading,
@@ -460,26 +460,22 @@
   overflow-wrap: anywhere;
 }
 
-.project-directory-block {
-  margin-bottom: 0.75rem;
-}
-
 .project-mode-directory {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
-  margin-top: 0.3rem;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
   min-width: 0;
 }
 
 .project-mode-path {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
 }
 
@@ -504,6 +500,12 @@
   border-color: var(--border-color);
 }
 
+.btn-project-delete:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
 .btn-project-directory:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
@@ -514,22 +516,23 @@
   cursor: not-allowed;
 }
 
+.project-init-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
 .project-mode-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  margin-top: 0.45rem;
+  gap: 0.4rem;
+  margin-top: 0.65rem;
 }
 
 .project-mode-actions .btn-secondary {
-  padding: 0.35rem 0.7rem;
-  font-size: 0.8rem;
-}
-
-@media (max-width: 640px) {
-  .reasoning-intensity-control {
-    padding: 1rem;
-  }
+  padding: 0.4rem 0.75rem;
+  font-size: 0.82rem;
 }
 
 .chat-textarea,

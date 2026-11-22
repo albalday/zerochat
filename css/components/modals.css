@@ -1125,9 +1125,11 @@ input.form-input[readonly]:focus-visible {
 /* ==========================================================================
    Panel de Razonamiento y Proyecto (<dialog class="settings-modal reasoning-modal">)
    ========================================================================== */
-.reasoning-modal {
-  max-width: 420px;
-  width: min(420px, 94vw);
+@media (min-width: 769px) {
+  .reasoning-modal {
+    max-width: 460px;
+    width: min(460px, 94vw);
+  }
 }
 
 .reasoning-modal-title {
@@ -1137,18 +1139,15 @@ input.form-input[readonly]:focus-visible {
 }
 
 .reasoning-modal-body {
-  padding: 0;
   display: flex;
   flex-direction: column;
+  gap: 0.9rem;
 }
 
-.reasoning-modal-footer {
-  padding: 0.5rem 0.85rem;
-  border-top: 1px solid var(--border-color);
-  background-color: var(--bg-surface-subtle);
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  line-height: 1.4;
+.project-mode-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
 }
 
 /* ==========================================================================

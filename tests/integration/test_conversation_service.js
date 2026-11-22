@@ -365,10 +365,17 @@ test('ConversationService - switchToSession notifica onSessionSwitched con los m
   });
 
   let switchedConversation = null;
-  const options = appOptions({ onSessionSwitched: conv => { switchedConversation = conv; } });
+  let closedMobile = 0;
+  const options = appOptions({
+    onSessionSwitched: conv => { switchedConversation = conv; },
+    closeMobileSidebar: () => { closedMobile += 1; }
+  });
 
   const switched = await ConversationService.switchToSession('sess_history_server', options);
   assert.equal(switched, true);
+  assert.equal(closedMobile, 1);
+  assert.equal(await ConversationService.switchToSession('sess_history_server', options), true);
+  assert.equal(closedMobile, 2);
   assert.ok(switchedConversation);
   assert.equal(switchedConversation.id, 'sess_history_server');
   assert.equal(switchedConversation.serverRun, true);

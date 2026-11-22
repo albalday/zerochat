@@ -12,6 +12,7 @@ import subprocess
 from collections.abc import Iterator
 from pathlib import Path
 
+from core.environment import get_data_dir, get_no_project_dir
 from core.limits import MAX_PATH_LENGTH
 from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
@@ -395,6 +396,19 @@ def create_project_directory(params: dict, ctx: SecurityContext) -> dict:
     except OSError as exc:
         raise ValueError(f"No se puede crear '{target}': {exc.strerror or exc}") from exc
     return {"path": str(target)}
+
+
+def validate_deletable_project_dir(ctx: SecurityContext) -> Path:
+    """Comprueba que la carpeta del proyecto puede borrarse sin tocar raíces, ~, general ni ~/zerochat."""
+    target = ctx.workspace_dir.resolve()
+    no_project = get_no_project_dir().resolve()
+    data_dir = get_data_dir().resolve()
+    home = Path.home().resolve()
+    if target == target.parent or target == home or target == no_project:
+        raise ValueError("No se puede borrar la carpeta general, la carpeta personal ni una raíz del sistema.")
+    if target == data_dir or target in data_dir.parents:
+        raise ValueError("No se puede borrar la carpeta de datos de ZeroChat.")
+    return target
 
 
 def _walk_project_files(target: Path) -> Iterator[Path]:

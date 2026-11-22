@@ -84,11 +84,12 @@
       canInitialize: ProjectContext.canInitialize(),
       canCompact: ProjectContext.canCompact(),
       canChangeDirectory: ProjectContext.canChangeDirectory(),
+      canDeleteProject: ProjectContext.canDeleteProject(),
       busy: State.isConversationBusy()
     });
   }
 
-  function createPanelHandlers({ elements, createNewSession, getChatHistory, submitComposerText }) {
+  function createPanelHandlers({ elements, createNewSession, removeProjectSessions, getChatHistory, submitComposerText }) {
     const State = getState();
     const Config = getConfig();
     const Dialogs = getDialogs();
@@ -171,10 +172,27 @@
         }
       },
       initialize() {
-        return runInitialize('default');
+        const mode = elements.projectModePanel?.querySelector('#project-init-template')?.value === 'agent' ? 'agent' : 'default';
+        return runInitialize(mode);
       },
-      initializeAgent() {
-        return runInitialize('agent');
+      async deleteProject() {
+        try {
+          const result = await ProjectContext.deleteProject({
+            askConfirmation: ({ cwd, name }) => Dialogs.confirm(t('project_delete_confirm', { cwd, name })),
+            afterDelete: async deleted => {
+              if (typeof removeProjectSessions === 'function') {
+                await removeProjectSessions(deleted?.deleted, deleted?.deletedConversationIds || []);
+              }
+            },
+            isBusy
+          });
+          if (result?.reason === 'error') {
+            await Dialogs.alert(t('project_delete_error', { error: result.error }), { type: 'error' });
+          }
+        } catch (error) {
+          console.error('[App] Project deletion failed:', error);
+          await Dialogs.alert(error?.message || String(error), { type: 'error' });
+        }
       },
       async compact() {
         try {

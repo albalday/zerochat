@@ -84,7 +84,7 @@ class ProjectDirectoriesTest(unittest.TestCase):
 
     def test_la_credencial_del_runner_no_puede_explorar_ni_crear_carpetas(self):
         grant = zerochat.TokenGrant(token="t", kind="runner", date="2026-01-01", created_at=0, run_id="r", conversation_id="c")
-        for method in ("zerochat/project/browse", "zerochat/project/create_directory", "zerochat/project/context"):
+        for method in ("zerochat/project/browse", "zerochat/project/create_directory", "zerochat/project/delete", "zerochat/project/context"):
             self.assertFalse(grant.allows(method, {}))
             self.assertTrue(zerochat.TokenGrant(token="t", kind="remote", date="2026-01-01", created_at=0).allows(method, {}))
 
@@ -109,6 +109,37 @@ class ProjectDirectoriesTest(unittest.TestCase):
         # Si read_file está denegada, devuelve denied sin lanzar reto
         zerochat.ACCESS_CONTROLLER.import_state({"tools": {"read_file": {"policy": "deny"}}}, self.ctx)
         self.assertEqual(zerochat.read_project_context(self.ctx), {"status": "denied"})
+
+    def test_delete_project_elimina_directorio_entorno_seguridad_y_conversaciones(self):
+        proj_dir = self.home / "proj-del"
+        proj_dir.mkdir()
+        (proj_dir / "note.txt").write_text("hola", encoding="utf-8")
+        proj_ctx = zerochat.SecurityContext(proj_dir.resolve())
+        zerochat.save_project_environment(proj_ctx.key, {"enabledTools": {"read_file": True}})
+        zerochat.ACCESS_CONTROLLER.import_state({"allowAll": True}, proj_ctx)
+        zerochat.save_conversation({
+            "id": "conv_proj_del",
+            "title": "Chat del proyecto",
+            "project": proj_ctx.key,
+            "createdAt": 1,
+            "updatedAt": 2,
+            "messages": [{"id": "m1", "role": "user", "content": "hola"}],
+        })
+
+        # No permite borrar general, ~ ni raíz
+        for protected in (zerochat.get_no_project_dir(), self.home, zerochat.Path(proj_dir.anchor)):
+            _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {}, zerochat.SecurityContext(protected))
+            self.assertIsNotNone(err)
+
+        res, err, _ = zerochat.dispatch_local("zerochat/project/delete", {}, proj_ctx)
+        self.assertIsNone(err)
+        self.assertEqual(res["deleted"], proj_ctx.key)
+        self.assertEqual(res["deletedConversationIds"], ["conv_proj_del"])
+        self.assertFalse(proj_dir.exists())
+        self.assertFalse(zerochat.get_project_environment(proj_ctx.key)["saved"])
+        _, proj_policy = zerochat.get_security_policy_data(proj_ctx.key)
+        self.assertIsNone(proj_policy)
+        self.assertIsNone(zerochat.get_conversation("conv_proj_del"))
 
 
 if __name__ == "__main__":

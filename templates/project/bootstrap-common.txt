@@ -1,0 +1,34 @@
+{{LANGUAGE_INSTRUCTION}}
+
+Initialize project mode for the directory at {{CWD}}. {{RULES_FILE}} is the single place for this project's shared agent rules. Work in this order:
+1. Inspect without modifying anything: {{RULES_FILE}}; other agent instruction files (CLAUDE.md, GEMINI.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, .windsurfrules); {{MEMORY_DIR}}/; .git/; README*; CONTRIBUTING*; docs/; .env*; any existing scripts or agent definitions.
+2. Report briefly what already exists in {{CWD}}, including whether a local Git repository (.git) is present.
+3. Propose the changes with their exact text and wait for the user's explicit approval (use the ask_user tool when available):
+   - Local Git repository: if .git does not exist, offer to initialize a local Git repository (`git init`) and create or update `.gitignore` (ignoring `.env`, secrets, and local caches).
+{{MODE_INSTRUCTIONS}}
+   - Project memory ({{MEMORY_DIR}}/): create {{PLAN_FILE}}, {{LOG_FILE}}, and {{STATE_FILE}} from the templates below (unless the project already keeps them elsewhere), and {{TASK_HELPER_FILE}} last (its existence marks project mode as initialized). Leave no <placeholders> in {{STATE_FILE}} or {{PLAN_FILE}}.
+   Plans and logs grow, so they never go in {{RULES_FILE}} or the other agent files, which agents load in every session.
+4. After approval, apply the changes with absolute paths under {{CWD}}: first Git (if approved), then {{RULES_FILE}} and any agent/config files, then {{PLAN_FILE}}, {{LOG_FILE}}, and {{STATE_FILE}}, and {{TASK_HELPER_FILE}} last.
+5. Finish by listing the files created or modified.
+
+Memory section ({{RULES_FILE}}):
+```markdown
+{{MEMORY_SECTION_TEMPLATE}}```
+
+{{MODE_TEMPLATES}}
+
+Plan template ({{PLAN_FILE}}):
+```markdown
+{{PLAN_TEMPLATE}}```
+
+Log template ({{LOG_FILE}}):
+```markdown
+{{LOG_TEMPLATE}}```
+
+State template ({{STATE_FILE}}):
+```markdown
+{{STATE_TEMPLATE}}```
+
+Helper script template ({{TASK_HELPER_FILE}}):
+```python
+{{TASK_SCRIPT_TEMPLATE}}```

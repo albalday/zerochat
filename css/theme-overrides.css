@@ -60,11 +60,6 @@
   box-shadow: var(--shadow-composer), 0 0 0 2px var(--primary-soft-hover);
 }
 
-[data-theme="dark"] .reasoning-modal-footer {
-  background-color: var(--bg-app);
-  border-color: var(--border-color);
-}
-
 [data-theme="dark"] .thought-block {
   background-color: var(--bg-app);
   border-color: var(--border-color);

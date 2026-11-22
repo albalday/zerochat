@@ -961,6 +961,16 @@
       return result;
     }
 
+    /** Borra el directorio del proyecto actual, sus políticas, entorno y conversaciones, volviendo a general. */
+    async deleteProjectDirectory() {
+      this.liveStateSeq += 1;
+      const result = await this.requestExternalControl('zerochat/project/delete', {});
+      if (result?.fallback) {
+        await this.setProjectDirectory(result.fallback);
+      }
+      return result;
+    }
+
     /**
      * Lanza en segundo plano en el servidor local un turno de continuación (`zerochat --conversation <id>`).
      * Actualiza el estado vivo de `serverRuns` y mantiene activo el seguimiento por long-poll.

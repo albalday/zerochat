@@ -309,7 +309,7 @@
   function applySessionModeAndProfile(conversation) {
     if (!conversation) return;
     const serverMode = ServerRun.isServerConversation(conversation) && ServerRun.isAvailable();
-    if (serverMode && conversation.profileId) {
+    if (conversation.profileId) {
       const match = Profiles.get(conversation.profileId) || Profiles.findByName(conversation.profileId);
       if (match && match.id !== getRuntimeConfig().activeProfile?.id) {
         Config.activateProfile(match.id);
@@ -699,7 +699,14 @@
     // Razonamiento (Thinking)
     UIReasoning.mount(elements, {
       onSelectLevel: level => Config.updateRuntime({ reasoningEffort: level }),
-      handlers: UIProject.createPanelHandlers({ elements, createNewSession, getChatHistory, submitComposerText })
+      handlers: UIProject.createPanelHandlers({
+        elements,
+        createNewSession,
+        removeProjectSessions: (projectPath, deletedIds) =>
+          ConversationService.removeProjectSessions(projectPath, deletedIds, getConversationServiceOptions()),
+        getChatHistory,
+        submitComposerText
+      })
     });
     elements.btnReasoning.addEventListener('click', event => {
       event.stopPropagation();

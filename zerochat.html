@@ -650,12 +650,14 @@
       </div>
     </div>
     <div class="modal-body reasoning-modal-body">
-      <div class="reasoning-intensity-control">
-        <div class="reasoning-intensity-heading"><span data-i18n="reasoning_intensity_title">Intensidad</span><output id="reasoning-intensity-value" for="reasoning-intensity" aria-live="polite">Ninguno</output></div>
-        <input id="reasoning-intensity" class="reasoning-intensity-slider" type="range" min="0" max="4" step="1" value="0" data-i18n-aria="reasoning_intensity_aria" aria-label="Intensidad de razonamiento">
-        <div class="reasoning-intensity-scale" aria-hidden="true"><span data-i18n="reasoning_intensity_none">Ninguno</span><span data-i18n="reasoning_intensity_max">Máximo</span></div>
+      <div class="settings-section-card">
+        <div class="reasoning-intensity-control">
+          <div class="reasoning-intensity-heading"><span data-i18n="reasoning_intensity_title">Intensidad</span><output id="reasoning-intensity-value" for="reasoning-intensity" aria-live="polite">Ninguno</output></div>
+          <input id="reasoning-intensity" class="reasoning-intensity-slider" type="range" min="0" max="4" step="1" value="0" data-i18n-aria="reasoning_intensity_aria" aria-label="Intensidad de razonamiento">
+          <div class="reasoning-intensity-scale" aria-hidden="true"><span data-i18n="reasoning_intensity_none">Ninguno</span><span data-i18n="reasoning_intensity_max">Máximo</span></div>
+        </div>
       </div>
-      <div id="project-mode-panel" class="reasoning-modal-footer"></div>
+      <div id="project-mode-panel" class="project-mode-panel"></div>
     </div>
   </dialog>
   <dialog id="inspector-dialog" class="settings-modal" closedby="any" aria-labelledby="inspector-dialog-title">

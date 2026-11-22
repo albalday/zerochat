@@ -161,7 +161,10 @@
 
   async function switchToSession(sessionId, options) {
     const { force = false, saveCurrent = true, confirmProjectSwitch = false } = options;
-    if (!force && sessionId === getActiveSessionId()) return true;
+    if (!force && sessionId === getActiveSessionId()) {
+      options.closeMobileSidebar();
+      return true;
+    }
     if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
 
     const targetSession = getSavedSessions().find(session => session.id === sessionId);
@@ -395,6 +398,27 @@
     }
   }
 
+  /** Elimina localmente todas las conversaciones de un proyecto ya borrado en el servidor. */
+  async function removeProjectSessions(projectPath, deletedIds, options) {
+    const activeId = getActiveSessionId();
+    const ids = new Set(deletedIds || []);
+    for (const session of getSavedSessions()) {
+      if (session.project === projectPath) ids.add(session.id);
+    }
+    let activeDeleted = false;
+    for (const id of ids) {
+      if (id === activeId) activeDeleted = true;
+      await getStorage().deleteConversation(id).catch(() => {});
+      getState().removeSession(id);
+    }
+    const remaining = getSavedSessions();
+    if (remaining.length === 0 || activeDeleted) {
+      await createNewSession({ ...options, saveCurrent: false });
+    } else {
+      options.renderSidebarChats();
+    }
+  }
+
   /**
    * Borra las conversaciones del conjunto seleccionado en el filtro del historial: todas si
    * `getSelectedProject()` devuelve `null`, las de la carpeta general si devuelve `''`, o las de ese
@@ -458,6 +482,7 @@
     createNewSession,
     createConversationBranch,
     deleteSession,
+    removeProjectSessions,
     deleteAllSessions,
     renameSession
   };

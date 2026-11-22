@@ -7,6 +7,7 @@ decide quién atiende cada uno.
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 
 from auth.login import LoginError, login
 from browser.rpc import dispatch_browser
@@ -20,10 +21,17 @@ from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from server.state import live_state, wait_live_state
 from server.tool_calls import call_tool, dispatch_security
-from storage.db import get_project_environment, save_project_environment
+from storage.db import delete_project_storage, get_project_environment, list_run_states, save_project_environment
 from storage.rpc import dispatch_blobs, dispatch_conversations, dispatch_profiles
 from tools.diff import configure_gui_diff_tool, open_file_diff
-from tools.filesystem import browse_directories, create_project_directory, read_project_context, resolve_project_directory
+from tools.filesystem import (
+    browse_directories,
+    create_project_directory,
+    read_project_context,
+    resolve_project_directory,
+    validate_deletable_project_dir,
+)
+from tools.jobs import JOBS
 from tools.jobs_rpc import dispatch_jobs
 from tools.project_files import dispatch_files
 from tools.registry import LOCAL_TOOLS_DEFINITIONS
@@ -117,6 +125,24 @@ def _create_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
+def _delete_project(_params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        target = validate_deletable_project_dir(ctx)
+        if JOBS.running(ctx.key) or any(run.get("project") == ctx.key and run.get("status") == "running" for run in list_run_states()):
+            raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
+        if target.exists():
+            shutil.rmtree(target)
+        ACCESS_CONTROLLER.drop_project_session(ctx.key)
+        deleted_ids = delete_project_storage(ctx.key)
+        return rpc_result({
+            "deleted": ctx.key,
+            "deletedConversationIds": deleted_ids,
+            "fallback": str(get_no_project_dir()),
+        })
+    except (ValueError, OSError) as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
 def _open_diff(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         return rpc_result(open_file_diff(params.get("path"), ctx, bool(params.get("commit_fallback")), bool(params.get("gui"))))
@@ -164,6 +190,7 @@ LOCAL_METHODS = {
     "zerochat/project/set_directory": _set_project_directory,
     "zerochat/project/browse": _browse_directories,
     "zerochat/project/create_directory": _create_directory,
+    "zerochat/project/delete": _delete_project,
     "zerochat/diff/open": _open_diff,
     "zerochat/diff/configure": _configure_diff,
     "zerochat/web/fetch": _web_fetch,

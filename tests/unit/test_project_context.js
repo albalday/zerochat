@@ -55,9 +55,8 @@ test('ProjectContext.buildPromptBlock - inyecta en ready, delimita XML y avisa s
   assert.doesNotMatch(withState('- Milestone: M1 Setup\n- Next task: M1-T2 Add List<T> parser'), /still has template placeholders/);
 });
 
-test('ProjectContext - TASK_SCRIPT_TEMPLATE mantiene paridad exacta con .zerochat/task.py', () => {
+test('ProjectContext - templates/project/task.py mantiene paridad exacta con .zerochat/task.py', () => {
   const diskPath = path.resolve(__dirname, '../../.zerochat/task.py');
-  const diskContent = fs.readFileSync(diskPath, 'utf-8').trim();
-  const templateContent = ProjectContext.TASK_SCRIPT_TEMPLATE.trim();
-  assert.equal(templateContent, diskContent, 'TASK_SCRIPT_TEMPLATE en js/project-context.js debe ser idéntico a .zerochat/task.py');
+  const templatePath = path.resolve(__dirname, '../../templates/project/task.py');
+  assert.equal(fs.readFileSync(templatePath, 'utf-8').trim(), fs.readFileSync(diskPath, 'utf-8').trim());
 });

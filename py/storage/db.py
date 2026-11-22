@@ -1403,3 +1403,16 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
         except Exception:
             conn.execute("ROLLBACK;")
             raise
+
+
+def delete_project_storage(project_key: str) -> list[str]:
+    """Elimina entorno guardado, políticas de seguridad y conversaciones de un proyecto en SQLite."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    deleted_ids = delete_project_conversations(clean_key)
+    with open_storage() as conn:
+        conn.execute("DELETE FROM project_environments WHERE project_key = ?;", (clean_key,))
+        conn.execute("DELETE FROM security_policies WHERE id = ?;", (project_security_policy_id(clean_key),))
+        conn.commit()
+    return deleted_ids

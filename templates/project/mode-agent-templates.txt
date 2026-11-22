@@ -1,0 +1,24 @@
+Agent run-file template (agents/template.json):
+```json
+{
+  "conversation_id": "agent-role-daily",
+  "profile": "local",
+  "systemDataPrompt": "Read agents/<role>.md and follow its instructions strictly.",
+  "prompt": "Run the scheduled task.",
+  "maxSteps": 40,
+  "timeout": 600
+}
+```
+
+Agent launcher template (agents/template.sh):
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+set +e
+zerochat --run-file "agents/<role>.json"
+rc=$?
+set -e
+# 0: completed, 5: needs_input (Pending inbox in ZeroChat), 6: limit reached
+exit "$rc"
+```

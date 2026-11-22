@@ -1,0 +1,12 @@
+   - Create or update {{RULES_FILE}} with these clear sections:
+     a) Project memory: include the exact "## {{MEMORY_SECTION_TITLE}}" section below so ZeroChat project mode works seamlessly.
+     b) Project objective and rules: leave clear placeholders for the user to define what the agent system does, security/credential rules (e.g. secrets in .env outside Git, never in prompts or {{MEMORY_DIR}}/), and output/notification conventions.
+     c) Unattended execution in ZeroChat (`--run-file`): include the exact contract so any agent or script in this project knows how to use ZeroChat:
+        - Command (run from {{CWD}}): `zerochat --run-file <file.json>` (use `zerochat --list-profiles` to see available profiles).
+        - JSON schema (ONLY these keys are accepted; unknown keys fail with exit 4):
+          `conversation_id` (optional string: continues that SQLite conversation or creates it if new), `prompt` (string), `profile` (optional string: server profile name or id), `systemDataPrompt` (optional string: per-agent role instructions), `maxSteps` (optional int 1..1000), `timeout` (optional int 1..86400 seconds).
+        - Security contract: permissions, enabled tools, and MCP servers NEVER go in the JSON; they always come from the project's saved environment in ZeroChat (Settings > Project environment). A directory without a saved environment exits with code 3.
+        - Exit codes: `0` completed (stdout has final answer), `1` generation error, `2` runner exited without result, `3` setup error (missing saved environment), `4` invalid args or JSON, `5` paused in `needs_input` (visible in ZeroChat's Pending inbox), `6` reached `maxSteps` or `timeout` (`limit`, progress saved in SQLite).
+     d) Agent definitions and launching (`.sh`): explain the convention for one or multiple agents. Each agent has a focused definition file (`agents/<role>.md` so it only loads what it needs, or inline in {{RULES_FILE}} if there is only one), a run-file JSON (`agents/<role>.json`), and an executable launcher script (`agents/<role>.sh`) suitable for `cron` or chained execution.
+   - Create starter templates in `agents/template.json` (valid `--run-file` JSON template) and `agents/template.sh` (executable bash wrapper with `set -euo pipefail`, `cd "{{CWD}}"`, `zerochat --run-file`, and exit-code handling for 0/5/6).
+   - Focus M1 in {{PLAN_FILE}} on defining and testing the agent system, and invite the user to define the objective and first agent(s) interactively right after setup.

@@ -1,5 +1,7 @@
 const { test, mock } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const ChatState = require('../../js/state.js');
 const ChatConfig = require('../../js/config-store.js');
 const AgentCore = require('../../js/agent-core.js');
@@ -40,9 +42,20 @@ function contextResponse(files, cwd, decide) {
   };
 }
 
+function mockTemplateFetch() {
+  const templatesDir = path.resolve(__dirname, '../../templates/project');
+  mock.method(globalThis, 'fetch', async url => {
+    const prefix = 'templates/project/';
+    if (!String(url).startsWith(prefix)) return { ok: false, status: 404, text: async () => '' };
+    const filePath = path.join(templatesDir, String(url).slice(prefix.length));
+    return { ok: true, status: 200, text: async () => fs.readFileSync(filePath, 'utf-8') };
+  });
+}
+
 function createHarness({ config = {}, connected = true, cwd = '/repo', files = {}, approval = false, readTool = true, writeTool = true, directoryError = null, authorize = null, realSecurity = false, snapshot = null } = {}) {
   // Un caso puede crear varios arneses: se restaura antes para no apilar sustituciones.
   mock.restoreAll();
+  mockTemplateFetch();
   ChatState.set('mcp', connected ? { status: 'connected', serverInfo: { cwd } } : { status: 'disconnected', serverInfo: null });
   ChatState.setProjectContext({ cwd: '', status: 'disabled' });
   MCP.manager.projectSnapshot = snapshot ? { cwd, data: snapshot } : null;
@@ -236,7 +249,8 @@ test('ProjectContext.initialize - tras confirmar concede solo .zerochat y envía
   assert.equal(log.conversations, 1);
   assert.equal(log.prompts.length, 1);
   assert.match(log.prompts[0], /^Use (Spanish|English) for all messages to the user/);
-  assert.match(log.prompts[0], /repository at \/repo/);
+  assert.match(log.prompts[0], /git init/);
+  assert.match(log.prompts[0], /directory at \/repo/);
 
   const agentHarness = createHarness();
   await agentHarness.context.refresh();
@@ -245,7 +259,7 @@ test('ProjectContext.initialize - tras confirmar concede solo .zerochat y envía
   assert.deepEqual(agentResult, { ok: true, rule: 'RW:/repo/.zerochat' });
   assert.equal(agentInit.log.prompts.length, 1);
   assert.match(agentInit.log.prompts[0], /^Use (Spanish|English) for all messages to the user/);
-  assert.match(agentInit.log.prompts[0], /agent-project mode for the directory at \/repo/);
+  assert.match(agentInit.log.prompts[0], /Initialize project mode for the directory at \/repo/);
   assert.match(agentInit.log.prompts[0], /zerochat --run-file/);
   assert.match(agentInit.log.prompts[0], /agents\/template\.sh/);
 });
