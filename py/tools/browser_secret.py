@@ -14,14 +14,16 @@ from tools.common import _tool_error
 BROWSER_SECRET_MODES = ("input", "keypad")
 
 
+def _scrub_secret(text: str, secret_value: str) -> str:
+    return text.replace(secret_value, "***") if secret_value and text else text
+
+
 def _mcp_call_error(tool_name: str, arguments: dict, secret_value: str) -> str | None:
     result = GLOBAL_MCP_MANAGER.call(public_tool_name(PLAYWRIGHT_SERVER_ID, tool_name), arguments)
     if not (isinstance(result, dict) and result.get("isError")):
         return None
     parts = [str(item.get("text") or "") for item in (result.get("content") or []) if isinstance(item, dict)]
-    detail = " ".join(p for p in parts if p).strip()
-    if secret_value and detail:
-        detail = detail.replace(secret_value, "***")
+    detail = _scrub_secret(" ".join(p for p in parts if p).strip(), secret_value)
     return detail or f"Playwright {tool_name} failed."
 
 
@@ -94,7 +96,7 @@ def browser_fill_secret(
             else _fill_keypad_secret(secret_value, keypad_map)
         )
     except Exception as exc:
-        return _tool_error(f"Error ejecutando Playwright MCP: {exc}")
+        return _tool_error(f"Error ejecutando Playwright MCP: {_scrub_secret(str(exc), secret_value)}")
     if err:
         return _tool_error(err)
     payload: dict = {"success": True, "mode": mode, "secret": secret}

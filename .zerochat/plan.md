@@ -21,3 +21,9 @@
 Goal: que cada agente que trabaja en este repositorio traiga a .zerochat/ lo que solo guarda en su memoria privada.
 Done when: el usuario confirma que todos los agentes que usa lo han hecho.
 - [ ] M82-T1 Cada agente que lea esta tarea revisa su memoria privada de este proyecto frente al código y a .zerochat/, propone al usuario las tareas, decisiones y normas aún vigentes y no registradas (nunca secretos ni datos personales), las escribe una vez aprobadas y pregunta al usuario antes de marcar la tarea como hecha, porque otros agentes pueden faltar todavía
+
+## M86 Mejoras para proyectos de agentes y `--run-file`
+
+Goal: pulir la ejecución desatendida con `--run-file` y las plantillas de proyectos de agentes a partir de la experiencia práctica con agentes reales.
+Done when: las mejoras acordadas en M86 están implementadas con todos los niveles de §4 en verde.
+- [ ] M86-T1 Controlar en `--run-file` la inyección de normas en sistema del proyecto (`projectMode` booleano opcional en `RUN_FILE_KEYS` / runner, o desactivado por defecto cuando el agente define su propio manual operativo): decidir y aplicar si `--run-file` inyecta o excluye `AGENTS.md` y `.zerochat/state.md`, actualizando `templates/project/mode-agent.txt` y `mode-agent-templates.txt`

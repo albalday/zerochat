@@ -129,6 +129,9 @@
       elements.settingsProjectBadge.hidden = !inProjectSection;
     }
     syncDirectoryRulesProject(elements, scope);
+    if (elements.settingsDialog?.open && elements.settingsDialog?.dataset?.section === 'permissions') {
+      refreshProjectSecrets(elements);
+    }
   }
 
   /** Pinta el interruptor permitir todo del proyecto y las reglas de directorios guardadas en ChatToolSecurity. */

@@ -138,6 +138,26 @@ class ProjectDirectoriesTest(unittest.TestCase):
         self.assertIsNotNone(err)
         self.assertTrue(proj_dir.exists())
 
+        # Un nombre con '_' no confunde un hermano (my_proj vs myXproj/sub) gracias a substr exacto
+        underscore_dir = self.home / "my_proj"
+        sibling_sub = self.home / "myXproj" / "sub"
+        underscore_dir.mkdir(parents=True)
+        sibling_sub.mkdir(parents=True)
+        zerochat.save_project_secret(zerochat.SecurityContext(sibling_sub.resolve()).key, "SIB_SEC", "123")
+        u_ctx = zerochat.SecurityContext(underscore_dir.resolve())
+        res_u, err_u, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": u_ctx.key}, u_ctx)
+        self.assertIsNone(err_u)
+        self.assertTrue(res_u["deletedDirectory"])
+        self.assertFalse(underscore_dir.exists())
+
+        # Y si el subproyecto solo tiene secretos guardados, sí bloquea el borrado del padre
+        _, err_sib, _ = zerochat.dispatch_local(
+            "zerochat/project/delete",
+            {"deleteDirectory": True, "confirmPath": zerochat.SecurityContext((self.home / "myXproj").resolve()).key},
+            zerochat.SecurityContext((self.home / "myXproj").resolve()),
+        )
+        self.assertIsNotNone(err_sib)
+
         # Borrar solo datos de ZeroChat conserva el directorio en disco
         res_data, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": False}, proj_ctx)
         self.assertIsNone(err)

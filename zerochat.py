@@ -3816,13 +3816,32 @@ def list_project_secret_names(project_key: str) -> list[str]:
 
 def save_project_secret(project_key: str, name: str, value: str) -> list[str]:
     clean_name = validate_project_secret_name(name)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("El secreto no puede estar vacío")
+    clean_val = value.strip()
+    if len(clean_val) > MAX_SECRET_LENGTH:
+        raise ValueError(f"El secreto no puede superar {MAX_SECRET_LENGTH} caracteres")
     prefix = project_secret_prefix(project_key)
-    existing = secret_names(prefix)
     full_key = f"{prefix}{clean_name}"
-    if full_key not in existing and len(existing) >= MAX_PROJECT_SECRETS:
-        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_SECRETS} secretos")
-    save_secret(full_key, value)
-    return list_project_secret_names(project_key)
+    now = int(time.time() * 1000)
+    with open_storage() as conn:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            rows = conn.execute(
+                "SELECT name FROM secrets WHERE substr(name, 1, ?) = ?;",
+                (len(prefix), prefix),
+            ).fetchall()
+            existing = {row["name"] for row in rows}
+            if full_key not in existing and len(existing) >= MAX_PROJECT_SECRETS:
+                raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_SECRETS} secretos")
+            _write_secret_on_conn(conn, full_key, clean_val, now)
+            conn.execute("COMMIT;")
+            existing.add(full_key)
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+    return sorted(key[len(prefix):] for key in existing)
 
 
 def delete_project_secret(project_key: str, name: str) -> list[str]:
@@ -3850,28 +3869,47 @@ def delete_project_storage(project_key: str) -> list[str]:
     return deleted_ids
 
 
+def _has_prefix_match(conn: sqlite3.Connection, query: str, p1: str, p2: str) -> bool:
+    return conn.execute(query, (len(p1), p1, len(p2), p2)).fetchone() is not None
+
+
 def has_nested_project_data(project_key: str) -> bool:
-    """True si existen entornos, políticas o conversaciones guardadas de subproyectos bajo `project_key`."""
+    """True si existen entornos, políticas, secretos o conversaciones guardadas de subproyectos bajo `project_key`."""
     clean_key = str(project_key or "").strip().rstrip("/\\")
     if not clean_key:
         return False
-    prefixes = (f"{clean_key}/%", f"{clean_key}\\%")
-    policy_prefixes = (f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}/%", f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}\\%")
+    p_slash, p_back = f"{clean_key}/", f"{clean_key}\\"
+    pol_slash = f"{PROJECT_SECURITY_POLICY_PREFIX}{p_slash}"
+    pol_back = f"{PROJECT_SECURITY_POLICY_PREFIX}{p_back}"
+    sec_slash, sec_back = f"project:{p_slash}", f"project:{p_back}"
     with open_storage() as conn:
-        if conn.execute(
-            "SELECT 1 FROM project_environments WHERE project_key LIKE ? OR project_key LIKE ? LIMIT 1;",
-            prefixes,
-        ).fetchone():
+        if _has_prefix_match(
+            conn,
+            "SELECT 1 FROM project_environments WHERE substr(project_key, 1, ?) = ? OR substr(project_key, 1, ?) = ? LIMIT 1;",
+            p_slash,
+            p_back,
+        ):
             return True
-        if conn.execute(
-            "SELECT 1 FROM security_policies WHERE id LIKE ? OR id LIKE ? LIMIT 1;",
-            policy_prefixes,
-        ).fetchone():
+        if _has_prefix_match(
+            conn,
+            "SELECT 1 FROM security_policies WHERE substr(id, 1, ?) = ? OR substr(id, 1, ?) = ? LIMIT 1;",
+            pol_slash,
+            pol_back,
+        ):
             return True
-        if conn.execute(
-            "SELECT 1 FROM conversations WHERE json_extract(extra_json, '$.project') LIKE ? OR json_extract(extra_json, '$.project') LIKE ? LIMIT 1;",
-            prefixes,
-        ).fetchone():
+        if _has_prefix_match(
+            conn,
+            "SELECT 1 FROM secrets WHERE substr(name, 1, ?) = ? OR substr(name, 1, ?) = ? LIMIT 1;",
+            sec_slash,
+            sec_back,
+        ):
+            return True
+        if _has_prefix_match(
+            conn,
+            "SELECT 1 FROM conversations WHERE substr(json_extract(extra_json, '$.project'), 1, ?) = ? OR substr(json_extract(extra_json, '$.project'), 1, ?) = ? LIMIT 1;",
+            p_slash,
+            p_back,
+        ):
             return True
     return False
 
@@ -6117,14 +6155,16 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
 BROWSER_SECRET_MODES = ("input", "keypad")
 
 
+def _scrub_secret(text: str, secret_value: str) -> str:
+    return text.replace(secret_value, "***") if secret_value and text else text
+
+
 def _mcp_call_error(tool_name: str, arguments: dict, secret_value: str) -> str | None:
     result = GLOBAL_MCP_MANAGER.call(public_tool_name(PLAYWRIGHT_SERVER_ID, tool_name), arguments)
     if not (isinstance(result, dict) and result.get("isError")):
         return None
     parts = [str(item.get("text") or "") for item in (result.get("content") or []) if isinstance(item, dict)]
-    detail = " ".join(p for p in parts if p).strip()
-    if secret_value and detail:
-        detail = detail.replace(secret_value, "***")
+    detail = _scrub_secret(" ".join(p for p in parts if p).strip(), secret_value)
     return detail or f"Playwright {tool_name} failed."
 
 
@@ -6197,7 +6237,7 @@ def browser_fill_secret(
             else _fill_keypad_secret(secret_value, keypad_map)
         )
     except Exception as exc:
-        return _tool_error(f"Error ejecutando Playwright MCP: {exc}")
+        return _tool_error(f"Error ejecutando Playwright MCP: {_scrub_secret(str(exc), secret_value)}")
     if err:
         return _tool_error(err)
     payload: dict = {"success": True, "mode": mode, "secret": secret}

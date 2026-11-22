@@ -78,6 +78,12 @@ class BrowserFillSecretTest(unittest.TestCase):
         self.assertNotIn("4072", raw)
         self.assertIn("error", json.loads(raw))
 
+        # Si Playwright lanza una excepción cuyo mensaje contiene el secreto, también se sanea
+        with patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", side_effect=RuntimeError("fallo con 4072 en texto")):
+            raw_exc = zerochat.browser_fill_secret(secret="BANK_PIN", mode="input", ref="e1", ctx=self.ctx)
+        self.assertNotIn("4072", raw_exc)
+        self.assertIn("***", raw_exc)
+
     def test_comparte_browser_lease_con_playwright(self):
         zerochat.BROWSER_LEASES._holders.clear()
         self.addCleanup(zerochat.BROWSER_LEASES._holders.clear)
