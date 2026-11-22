@@ -23,5 +23,5 @@
 Goal: pulir la ejecución desatendida con `--run-file` y las plantillas de proyectos de agentes a partir de la experiencia práctica con agentes reales.
 Done when: las mejoras acordadas en M86 están implementadas con todos los niveles de §4 en verde.
 - [ ] M86-T1 Controlar en `--run-file` la inyección de normas en sistema del proyecto (`projectMode` booleano opcional en `RUN_FILE_KEYS` / runner, o desactivado por defecto cuando el agente define su propio manual operativo): decidir y aplicar si `--run-file` inyecta o excluye `AGENTS.md` y `.zerochat/state.md`, actualizando `templates/project/mode-agent.txt` y `mode-agent-templates.txt`
-- [ ] M86-T2 Persistir el último User-Agent real del navegador en SQLite y añadir en Ajustes › Navegador y py/browser/config.py modo automático/rotativo por sesión o personalizado (actualizando DEFAULT_USER_AGENT)
-- [ ] M86-T3 Permitir canal chrome/navegador del sistema en modo propio headless (--browser=chrome --headless --isolated) en py/browser/config.py y Ajustes › Navegador para ejecuciones desatendidas sin sesión gráfica
+- [x] M86-T2 Persistir el último User-Agent real del navegador en SQLite y añadir en Ajustes › Navegador y py/browser/config.py modo automático/rotativo por sesión o personalizado (actualizando DEFAULT_USER_AGENT) (2026-11-22)
+- [x] M86-T3 Permitir canal chrome/navegador del sistema en modo propio headless (--browser=chrome --headless --isolated) en py/browser/config.py y Ajustes › Navegador para ejecuciones desatendidas sin sesión gráfica (2026-11-22)

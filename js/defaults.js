@@ -39,6 +39,10 @@
   const BROWSER_TOOLS = Object.freeze(['none', 'browser_action', 'playwright']);
   /** Navegadores del usuario que maneja la extensión de Playwright. */
   const USER_BROWSERS = Object.freeze(['chrome', 'msedge', 'chromium']);
+  /** Canales del sistema que también pueden usarse en modo propio headless de Playwright. */
+  const OWN_SYSTEM_ENGINES = Object.freeze(['chrome', 'msedge']);
+  /** Modos de User-Agent para Playwright en modo propio. */
+  const USER_AGENT_MODES = Object.freeze(['auto', 'rotate', 'custom']);
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */
   // Servidor local de este equipo en su puerto por defecto: la conexión salvo que se elija otra.
@@ -69,6 +73,8 @@
     APP_VERSION,
     BROWSER_TOOLS,
     USER_BROWSERS,
+    OWN_SYSTEM_ENGINES,
+    USER_AGENT_MODES,
     DEFAULT_SYSTEM_DATA_PROMPT,
     CONFIG_DEFAULTS,
     LOCAL_BACKEND_URL,

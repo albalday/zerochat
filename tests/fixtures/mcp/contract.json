@@ -9,6 +9,15 @@
     "firefox",
     "webkit"
   ],
+  "ownSystemEngines": [
+    "chrome",
+    "msedge"
+  ],
+  "userAgentModes": [
+    "auto",
+    "rotate",
+    "custom"
+  ],
   "userBrowsers": [
     "chrome",
     "msedge",

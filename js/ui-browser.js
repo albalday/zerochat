@@ -27,9 +27,11 @@
   // ==========================================================================
 
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
-  const { USER_BROWSERS } = Defaults;
+  const SYSTEM_ENGINE_NAMES = { chrome: 'Google Chrome', msedge: 'Microsoft Edge' };
+  const { USER_BROWSERS, OWN_SYSTEM_ENGINES, USER_AGENT_MODES } = Defaults;
   const ENGINE_RETRY_DELAY_MS = 500;
-  const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken'];
+  const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken', 'userAgentMode', 'userAgent'];
+  const USER_AGENT_MAX_LEN = 512;
   // La extensión muestra el token como variable de entorno: se admite pegar la línea entera.
   const TOKEN_ENV_PREFIX = /^PLAYWRIGHT_MCP_EXTENSION_TOKEN\s*=\s*/;
   const TOKEN_PATTERN = /^[A-Za-z0-9_-]{0,256}$/;
@@ -64,6 +66,8 @@
   const shownTool = () => (selectable(section.tool) ? section.tool : 'none');
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
   const tokenValid = config => TOKEN_PATTERN.test(config.extensionToken);
+  const userAgentValid = config => config.userAgentMode !== 'custom'
+    || (typeof config.userAgent === 'string' && config.userAgent.trim().length > 0 && config.userAgent.length <= USER_AGENT_MAX_LEN && !/[\r\n\0]/.test(config.userAgent));
   const normalizeExtensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
 
   /**
@@ -73,9 +77,10 @@
    * parada de Playwright MCP los concilia `reconcileProjectServers`.
    */
   function getSavePlan({ tool, config, savedConfig }, status) {
-    const plan = { tokenInvalid: false, setConfig: false, offerRestart: false };
+    const plan = { tokenInvalid: false, userAgentInvalid: false, setConfig: false, offerRestart: false };
     if (tool !== 'playwright') return plan;
     if (config && !tokenValid(config)) return { ...plan, tokenInvalid: true };
+    if (config && !userAgentValid(config)) return { ...plan, userAgentInvalid: true };
     const setConfig = Boolean(config && savedConfig) && !sameConfig(config, savedConfig);
     return {
       ...plan,
@@ -115,14 +120,46 @@
       </div>`;
   }
 
+  function renderSystemEngine(id) {
+    const detected = section.engines.systemBrowsers?.[id] === true;
+    const checked = section.config.engine === id;
+    const name = SYSTEM_ENGINE_NAMES[id];
+    const statusClass = detected ? 'status-running' : 'status-stopped';
+    const statusText = t(detected ? 'browser_system_engine_detected' : 'browser_system_engine_missing');
+    return `<div class="browser-row${checked ? ' is-selected' : ''}">
+        <input type="radio" name="browser-engine" value="${escapeHtml(id)}" aria-label="${escapeHtml(name)}"${checked ? ' checked' : ''}${detected ? '' : ' disabled'}>
+        <span class="browser-row-text"><strong>${escapeHtml(name)}</strong><span class="label-hint">${escapeHtml(t('browser_system_engine_hint'))}</span></span>
+        <span class="mcp-server-badge ${statusClass}" role="status">${escapeHtml(statusText)}</span>
+      </div>`;
+  }
+
   function renderOwnMode() {
+    const engineName = ENGINE_NAMES[section.config.engine] || SYSTEM_ENGINE_NAMES[section.config.engine] || section.config.engine;
+    const uaMode = section.config.userAgentMode || 'auto';
+    const uaOptions = USER_AGENT_MODES.map(mode =>
+      `<option value="${escapeHtml(mode)}"${uaMode === mode ? ' selected' : ''}>${escapeHtml(t(`browser_user_agent_mode_${mode}`))}</option>`
+    ).join('');
+    const uaError = userAgentValid(section.config) ? ''
+      : `<p id="browser-user-agent-error" class="server-query-status status-error" role="alert">${escapeHtml(t('browser_user_agent_invalid'))}</p>`;
+    const customUaField = uaMode === 'custom'
+      ? `<div class="form-field">
+          <label for="browser-user-agent"><strong>${escapeHtml(t('browser_user_agent_custom'))}</strong><span class="label-hint">${escapeHtml(t('browser_user_agent_custom_hint'))}</span></label>
+          <input type="text" id="browser-user-agent" name="browser-user-agent" value="${escapeHtml(section.config.userAgent || '')}" spellcheck="false"${userAgentValid(section.config) ? '' : ' aria-invalid="true" aria-describedby="browser-user-agent-error"'}>
+          ${uaError}
+        </div>`
+      : '';
     return `${choice('browser-mode', 'own', section.config.mode === 'own', t('browser_mode_own'), t('browser_mode_own_hint'))}
       <div class="browser-card-body">
-        <span class="label-hint">${escapeHtml(t('browser_engines_hint'))}</span>${section.engines.engines.map(renderEngine).join('')}
+        <span class="label-hint">${escapeHtml(t('browser_engines_hint'))}</span>${section.engines.engines.map(renderEngine).join('')}${OWN_SYSTEM_ENGINES.map(renderSystemEngine).join('')}
         <div class="browser-row">
-          <span class="browser-row-text"><strong>${escapeHtml(t('browser_data_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_data_hint', { name: ENGINE_NAMES[section.config.engine] }))}</span></span>
+          <span class="browser-row-text"><strong>${escapeHtml(t('browser_data_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_data_hint', { name: engineName }))}</span></span>
           <button type="button" class="btn-secondary" data-browser-action="clear">${escapeHtml(t('browser_data_clear'))}</button>
         </div>
+        <div class="form-field">
+          <label for="browser-user-agent-mode"><strong>${escapeHtml(t('browser_user_agent_mode'))}</strong><span class="label-hint">${escapeHtml(t('browser_user_agent_mode_hint'))}</span></label>
+          <select id="browser-user-agent-mode" name="browser-user-agent-mode">${uaOptions}</select>
+        </div>
+        ${customUaField}
         <label class="browser-check"><input type="checkbox" name="browser-show-window"${section.config.headless ? '' : ' checked'}>${escapeHtml(t('browser_show_window'))}</label>
       </div>`;
   }
@@ -263,7 +300,7 @@
       return;
     }
     const engine = button.dataset.engine || section.config.engine;
-    const name = ENGINE_NAMES[engine];
+    const name = ENGINE_NAMES[engine] || SYSTEM_ENGINE_NAMES[engine] || engine;
     section.notice = null;
     try {
       if (action === 'install') {
@@ -297,15 +334,17 @@
     else if (target.name === 'browser-user-browser') section.config.userBrowser = target.value;
     else if (target.name === 'browser-show-window') section.config.headless = !target.checked;
     else if (target.name === 'browser-extension-token') section.config.extensionToken = normalizeExtensionToken(target.value);
+    else if (target.name === 'browser-user-agent-mode') section.config.userAgentMode = target.value;
+    else if (target.name === 'browser-user-agent') section.config.userAgent = target.value.trim();
     else return;
     render();
   }
 
   function validate() {
     const plan = getSavePlan(section, isConnected() ? playwrightStatus() : null);
-    if (!plan.tokenInvalid) return true;
+    if (!plan.tokenInvalid && !plan.userAgentInvalid) return true;
     render();
-    container.querySelector('#browser-extension-token')?.focus();
+    container.querySelector(plan.tokenInvalid ? '#browser-extension-token' : '#browser-user-agent')?.focus();
     return false;
   }
 

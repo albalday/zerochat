@@ -35,6 +35,7 @@ import json
 import math
 import os
 import queue
+import random
 import re
 import secrets
 import select
@@ -3921,25 +3922,57 @@ def has_nested_project_data(project_key: str) -> bool:
 
 
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
-# Modo propio: un motor de Playwright en memoria (--isolated), o con almacenamiento persistente con nombre
-# en ~/zerochat/playwright/profile/<motor>/<nombre>.
+# Modo propio: un motor de Playwright o canal del sistema en memoria (--isolated), o con almacenamiento
+# persistente con nombre en ~/zerochat/playwright/profile/<motor>/<nombre>.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
+OWN_SYSTEM_ENGINES = ("chrome", "msedge")
+ALL_OWN_ENGINES = (*OWN_BROWSER_ENGINES, *OWN_SYSTEM_ENGINES)
 USER_BROWSERS = ("chrome", "msedge", "chromium")
-BROWSER_CONFIG_DEFAULTS = {"mode": "own", "engine": "chromium", "userBrowser": "chrome", "headless": True, "extensionToken": ""}
+USER_AGENT_MODES = ("auto", "rotate", "custom")
+USER_AGENT_MAX_LEN = 512
+BROWSER_CONFIG_DEFAULTS = {
+    "mode": "own",
+    "engine": "chromium",
+    "userBrowser": "chrome",
+    "headless": True,
+    "extensionToken": "",
+    "userAgentMode": "auto",
+    "userAgent": "",
+}
 BROWSER_CONFIG_KEY = "browser"
+LAST_FRONTEND_USER_AGENT_KEY = "browser:last_user_agent"
 BROWSER_EXTENSION_TOKEN_KEY = "browser:extension_token"  # noqa: S105 - nombre de fila en la tabla secrets
 # Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
 PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
 _EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
-_BROWSER_CONFIG_CHOICES = {"mode": BROWSER_MODES, "engine": OWN_BROWSER_ENGINES, "userBrowser": USER_BROWSERS}
+_BROWSER_CONFIG_CHOICES = {
+    "mode": BROWSER_MODES,
+    "engine": ALL_OWN_ENGINES,
+    "userBrowser": USER_BROWSERS,
+    "userAgentMode": USER_AGENT_MODES,
+}
+MODERN_USER_AGENTS = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0",
+)
 
 
 def own_browser_profile_dir(engine: str) -> Path:
     return get_data_dir() / "playwright" / "profile" / engine
+
+
+def _validate_user_agent(value) -> str:
+    if not isinstance(value, str):
+        raise ValueError("userAgent debe ser una cadena")
+    if len(value) > USER_AGENT_MAX_LEN or any(ch in value for ch in ("\r", "\n", "\x00")):
+        raise ValueError(f"userAgent debe tener hasta {USER_AGENT_MAX_LEN} caracteres sin saltos de línea")
+    return value.strip()
 
 
 def validate_browser_config(raw) -> dict:
@@ -3957,6 +3990,9 @@ def validate_browser_config(raw) -> dict:
         raise ValueError("headless debe ser un booleano")
     if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
         raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
+    config["userAgent"] = _validate_user_agent(config["userAgent"])
+    if config["userAgentMode"] == "custom" and not config["userAgent"]:
+        raise ValueError("userAgent es obligatorio cuando userAgentMode es custom")
     return config
 
 
@@ -4027,20 +4063,65 @@ def playwright_launch_env(config: dict) -> dict[str, str]:
     return {}
 
 
-def _playwright_launch(user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
+def _playwright_launch(service_user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
     """Argumentos y entorno de Playwright MCP según la configuración guardada."""
     config = load_browser_config()
-    return playwright_launch_args(config, user_agent), playwright_launch_env(config)
+    effective_ua = resolve_playwright_user_agent(config, service_user_agent)
+    return playwright_launch_args(config, effective_ua), playwright_launch_env(config)
 
 
 # User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
-# activo de las salidas web (ff-server) para que ambos compartan el mismo fingerprint.
+# activo de las salidas web (web/fetch) para que ambos compartan el mismo fingerprint.
 SERVICE_USER_AGENT: str | None = None
+_FRONTEND_USER_AGENT_CAPTURED: bool = False
 
 
-def set_service_user_agent(user_agent: str | None) -> None:
-    global SERVICE_USER_AGENT
+def set_service_user_agent(user_agent: str | None, *, from_frontend: bool = False) -> None:
+    global SERVICE_USER_AGENT, _FRONTEND_USER_AGENT_CAPTURED
     SERVICE_USER_AGENT = user_agent
+    _FRONTEND_USER_AGENT_CAPTURED = from_frontend
+
+
+def load_last_frontend_user_agent() -> str | None:
+    """Último User-Agent real capturado del navegador y guardado en SQLite, o None si no hay."""
+    try:
+        stored = get_setting(LAST_FRONTEND_USER_AGENT_KEY)
+    except (OSError, ValueError, TypeError, sqlite3.Error):
+        return None
+    if not isinstance(stored, str):
+        return None
+    cleaned = stored.strip()
+    if not cleaned or len(cleaned) > USER_AGENT_MAX_LEN or any(ch in cleaned for ch in ("\r", "\n", "\x00")):
+        return None
+    return cleaned
+
+
+def save_last_frontend_user_agent(user_agent: str) -> None:
+    """Persiste en SQLite el User-Agent real del navegador para reutilizarlo en ejecuciones desatendidas."""
+    try:
+        cleaned = _validate_user_agent(user_agent)
+        if cleaned:
+            set_setting(LAST_FRONTEND_USER_AGENT_KEY, cleaned)
+    except (OSError, ValueError, TypeError, sqlite3.Error):
+        return
+
+
+def resolve_playwright_user_agent(config: dict, service_user_agent: str | None = None) -> str | None:
+    """User-Agent efectivo para un arranque de Playwright en modo propio según userAgentMode."""
+    mode = config.get("userAgentMode", "auto")
+    if mode == "custom":
+        custom = config.get("userAgent", "").strip()
+        if custom:
+            return custom
+    if mode == "rotate":
+        candidates: list[str] = []
+        for candidate in (load_last_frontend_user_agent(), *MODERN_USER_AGENTS, service_user_agent):
+            if isinstance(candidate, str) and candidate.strip() and candidate not in candidates:
+                candidates.append(candidate)
+        return random.choice(candidates) if candidates else service_user_agent  # noqa: S311 - rotación de fingerprint, no criptografía
+    if _FRONTEND_USER_AGENT_CAPTURED and service_user_agent:
+        return service_user_agent
+    return load_last_frontend_user_agent() or service_user_agent
 
 
 # Argumentos y entorno que añade ZeroChat al arrancar un servicio gestionado,
@@ -4070,8 +4151,8 @@ def _playwright_active() -> bool:
 
 def clear_own_browser_data(engine) -> dict:
     """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
-    if engine not in OWN_BROWSER_ENGINES:
-        raise ValueError(f"engine debe ser uno de: {', '.join(OWN_BROWSER_ENGINES)}")
+    if engine not in ALL_OWN_ENGINES:
+        raise ValueError(f"engine debe ser uno de: {', '.join(ALL_OWN_ENGINES)}")
     # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
     if _playwright_active():
         raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")
@@ -10195,18 +10276,27 @@ METADATA_HOSTS = frozenset({
     "instance-data",
     "100.100.100.200",
 })
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 # El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
-# fingerprint); sin frontend (--prompt/--conversation) se queda el valor por defecto.
+# fingerprint); sin frontend (--prompt/--conversation) se usa el último guardado o el por defecto.
 ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
 
 
 def capture_frontend_user_agent(user_agent: str) -> None:
-    """Adopta el User-Agent de la primera petición del frontend como User-Agent de las salidas web."""
+    """Adopta y persiste el User-Agent de la primera petición del frontend para las salidas web y Playwright."""
     global ACTIVE_USER_AGENT
-    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and isinstance(user_agent, str) and user_agent.strip():
-        ACTIVE_USER_AGENT = user_agent.strip()
-        set_service_user_agent(ACTIVE_USER_AGENT)
+    cleaned = user_agent.strip() if isinstance(user_agent, str) else ""
+    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and cleaned:
+        ACTIVE_USER_AGENT = cleaned
+        set_service_user_agent(ACTIVE_USER_AGENT, from_frontend=True)
+        save_last_frontend_user_agent(cleaned)
+
+
+def effective_user_agent() -> str:
+    """User-Agent activo del servidor o, en desatendido sin frontend, el último capturado del navegador."""
+    if ACTIVE_USER_AGENT is not DEFAULT_USER_AGENT:
+        return ACTIVE_USER_AGENT
+    return load_last_frontend_user_agent() or DEFAULT_USER_AGENT
 
 
 # Los motores propios de Playwright arrancan con el User-Agent por defecto hasta que el
@@ -10336,7 +10426,7 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, t
     as_binary = bool(params.get("binary", False))
     accept = params.get("accept")
     req_headers = {
-        "User-Agent": ACTIVE_USER_AGENT,
+        "User-Agent": effective_user_agent(),
         "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate",

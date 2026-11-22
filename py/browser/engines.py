@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 
 from browser.config import (
-    OWN_BROWSER_ENGINES,
+    ALL_OWN_ENGINES,
     PLAYWRIGHT_EXTENSION_ID,
     USER_BROWSERS,
     chromium_install,
@@ -41,8 +41,8 @@ def _playwright_active() -> bool:
 
 def clear_own_browser_data(engine) -> dict:
     """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
-    if engine not in OWN_BROWSER_ENGINES:
-        raise ValueError(f"engine debe ser uno de: {', '.join(OWN_BROWSER_ENGINES)}")
+    if engine not in ALL_OWN_ENGINES:
+        raise ValueError(f"engine debe ser uno de: {', '.join(ALL_OWN_ENGINES)}")
     # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
     if _playwright_active():
         raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")

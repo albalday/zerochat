@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 import zlib
 
-from browser.config import set_service_user_agent
+from browser.config import load_last_frontend_user_agent, save_last_frontend_user_agent, set_service_user_agent
 from core.rate_limit import RATE_LIMITER, RateLimitBusy, RatePolicy
 
 METADATA_HOSTS = frozenset({
@@ -20,18 +20,27 @@ METADATA_HOSTS = frozenset({
     "instance-data",
     "100.100.100.200",
 })
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 # El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
-# fingerprint); sin frontend (--prompt/--conversation) se queda el valor por defecto.
+# fingerprint); sin frontend (--prompt/--conversation) se usa el último guardado o el por defecto.
 ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
 
 
 def capture_frontend_user_agent(user_agent: str) -> None:
-    """Adopta el User-Agent de la primera petición del frontend como User-Agent de las salidas web."""
+    """Adopta y persiste el User-Agent de la primera petición del frontend para las salidas web y Playwright."""
     global ACTIVE_USER_AGENT
-    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and isinstance(user_agent, str) and user_agent.strip():
-        ACTIVE_USER_AGENT = user_agent.strip()
-        set_service_user_agent(ACTIVE_USER_AGENT)
+    cleaned = user_agent.strip() if isinstance(user_agent, str) else ""
+    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and cleaned:
+        ACTIVE_USER_AGENT = cleaned
+        set_service_user_agent(ACTIVE_USER_AGENT, from_frontend=True)
+        save_last_frontend_user_agent(cleaned)
+
+
+def effective_user_agent() -> str:
+    """User-Agent activo del servidor o, en desatendido sin frontend, el último capturado del navegador."""
+    if ACTIVE_USER_AGENT is not DEFAULT_USER_AGENT:
+        return ACTIVE_USER_AGENT
+    return load_last_frontend_user_agent() or DEFAULT_USER_AGENT
 
 
 # Los motores propios de Playwright arrancan con el User-Agent por defecto hasta que el
@@ -161,7 +170,7 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, t
     as_binary = bool(params.get("binary", False))
     accept = params.get("accept")
     req_headers = {
-        "User-Agent": ACTIVE_USER_AGENT,
+        "User-Agent": effective_user_agent(),
         "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
         "Accept-Encoding": "gzip, deflate",

@@ -4,8 +4,8 @@ const UIBrowser = require('../../js/ui-browser.js');
 const Defaults = require('../../js/defaults.js');
 const CONTRACT = require('../fixtures/mcp/contract.json');
 
-const SAVED = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' };
-const NOTHING = { tokenInvalid: false, setConfig: false, offerRestart: false };
+const SAVED = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '', userAgentMode: 'auto', userAgent: '' };
+const NOTHING = { tokenInvalid: false, userAgentInvalid: false, setConfig: false, offerRestart: false };
 const plan = (changes, status) => UIBrowser.getSavePlan({ tool: 'playwright', config: SAVED, savedConfig: SAVED, ...changes }, status);
 
 test('UIBrowser.getSavePlan - decide validación, envío y reinicio según herramienta, cambios y estado', () => {
@@ -21,11 +21,16 @@ test('UIBrowser.getSavePlan - decide validación, envío y reinicio según herra
   assert.deepEqual(plan({}, 'running'), NOTHING);
   assert.deepEqual(plan({ config: null, savedConfig: null }, 'running'), NOTHING);
   assert.deepEqual(plan({ config: { ...SAVED, engine: 'firefox' } }, 'error'), { ...NOTHING, setConfig: true });
+  assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: '' } }, 'running'), { ...NOTHING, userAgentInvalid: true });
+  assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'UA\ninject' } }, 'running'), { ...NOTHING, userAgentInvalid: true });
+  assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'Mozilla/5.0 Test/1.0' } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
 });
 
 test('UIBrowser - motores, navegadores del usuario y tokens de la extensión coinciden con el backend (tests/fixtures/mcp/contract.json)', () => {
   assert.deepEqual(Defaults.BROWSER_TOOLS, CONTRACT.browserTools);
   assert.deepEqual(Defaults.USER_BROWSERS, CONTRACT.userBrowsers);
+  assert.deepEqual(Defaults.OWN_SYSTEM_ENGINES, CONTRACT.ownSystemEngines);
+  assert.deepEqual(Defaults.USER_AGENT_MODES, CONTRACT.userAgentModes);
   for (const extensionToken of CONTRACT.extensionTokens.valid) {
     assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, setConfig: extensionToken !== '', offerRestart: extensionToken !== '' }, extensionToken);
   }

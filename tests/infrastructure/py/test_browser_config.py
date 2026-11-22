@@ -127,7 +127,15 @@ class PlaywrightLaunchTest(unittest.TestCase):
 
     def test_lo_guardado_se_valida_solo_lo_lee_el_usuario_y_lo_usa_el_siguiente_arranque(self):
         saved = zerochat.save_browser_config({"engine": "webkit", "headless": False, "extensionToken": "tok_secret_1"})
-        self.assertEqual(saved, {"mode": "own", "engine": "webkit", "userBrowser": "chrome", "headless": False, "extensionToken": "tok_secret_1"})
+        self.assertEqual(saved, {
+            "mode": "own",
+            "engine": "webkit",
+            "userBrowser": "chrome",
+            "headless": False,
+            "extensionToken": "tok_secret_1",
+            "userAgentMode": "auto",
+            "userAgent": "",
+        })
         if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
             self.assertEqual(zerochat.get_storage_db_path().stat().st_mode & 0o777, 0o600)
         # extensionToken vive ofuscado en secrets y no en settings['browser'].
@@ -148,15 +156,62 @@ class PlaywrightLaunchTest(unittest.TestCase):
             ({"mode": "remote"}, "mode"),
             ({"userBrowser": "firefox"}, "userBrowser"),
             ({"headless": "no"}, "headless"),
+            ({"userAgentMode": "invalid"}, "userAgentMode"),
+            ({"userAgentMode": "custom", "userAgent": "  "}, "obligatorio"),
+            ({"userAgent": "UA\nEvil"}, "saltos"),
+            ({"userAgent": "x" * (zerochat.USER_AGENT_MAX_LEN + 1)}, str(zerochat.USER_AGENT_MAX_LEN)),
         ):
             with self.subTest(raw=raw), self.assertRaisesRegex(ValueError, message):
                 zerochat.save_browser_config(raw)
         self.assertEqual(zerochat.load_browser_config(), saved, "un valor rechazado no cambia lo guardado")
 
+    def test_canal_chrome_y_modos_de_user_agent_en_modo_propio(self):
+        # Canal chrome del sistema en modo propio headless (sin sesión gráfica ni extensión).
+        chrome_cfg = zerochat.save_browser_config({"mode": "own", "engine": "chrome", "headless": True})
+        self.assertEqual(self.launch_args(chrome_cfg), self.own_args("chrome") + ["--headless"])
+
+        # Custom User-Agent prevalece sobre el del servidor.
+        custom_cfg = zerochat.save_browser_config({"userAgentMode": "custom", "userAgent": "Mozilla/5.0 Custom/99.0"})
+        self.assertEqual(
+            self.launch_args(custom_cfg),
+            ["--browser=chromium", "--isolated", "--user-agent=Mozilla/5.0 Custom/99.0", "--headless"],
+        )
+
+        # Rotate elige dentro del conjunto de UAs modernos (y el guardado si existe).
+        rotate_cfg = zerochat.save_browser_config({"userAgentMode": "rotate"})
+        args_rotate = self.launch_args(rotate_cfg)
+        ua_flag = next(a for a in args_rotate if a.startswith("--user-agent="))
+        self.assertIn(ua_flag.split("=", 1)[1], (*zerochat.MODERN_USER_AGENTS, zerochat.SERVICE_USER_AGENT))
+
+        # Auto en desatendido reutiliza el último User-Agent real guardado en SQLite.
+        orig_active, orig_service, orig_captured = (
+            zerochat.ACTIVE_USER_AGENT,
+            zerochat.SERVICE_USER_AGENT,
+            zerochat._FRONTEND_USER_AGENT_CAPTURED,
+        )
+        try:
+            zerochat.ACTIVE_USER_AGENT = zerochat.DEFAULT_USER_AGENT
+            zerochat.capture_frontend_user_agent("Mozilla/5.0 RealBrowser/144.0")
+            self.assertEqual(zerochat.load_last_frontend_user_agent(), "Mozilla/5.0 RealBrowser/144.0")
+            # Simulamos un arranque desatendido nuevo donde no hubo petición del frontend.
+            zerochat.ACTIVE_USER_AGENT = zerochat.DEFAULT_USER_AGENT
+            zerochat.set_service_user_agent(zerochat.DEFAULT_USER_AGENT, from_frontend=False)
+            self.assertEqual(zerochat.effective_user_agent(), "Mozilla/5.0 RealBrowser/144.0")
+            auto_cfg = zerochat.save_browser_config({"userAgentMode": "auto"})
+            self.assertEqual(
+                self.launch_args(auto_cfg),
+                ["--browser=chromium", "--isolated", "--user-agent=Mozilla/5.0 RealBrowser/144.0", "--headless"],
+            )
+        finally:
+            zerochat.ACTIVE_USER_AGENT = orig_active
+            zerochat.set_service_user_agent(orig_service, from_frontend=orig_captured)
+
     def test_motores_navegadores_y_tokens_coinciden_con_el_cliente(self):
         # Fixture compartido con tests/unit/test_ui_browser.js.
         self.assertEqual(list(zerochat.BROWSER_TOOLS), CONTRACT["browserTools"])
         self.assertEqual(list(zerochat.OWN_BROWSER_ENGINES), CONTRACT["playwrightEngines"])
+        self.assertEqual(list(zerochat.OWN_SYSTEM_ENGINES), CONTRACT["ownSystemEngines"])
+        self.assertEqual(list(zerochat.USER_AGENT_MODES), CONTRACT["userAgentModes"])
         self.assertEqual(list(zerochat.ENGINE_CACHE_ENTRIES), CONTRACT["playwrightEngines"])
         self.assertEqual(list(zerochat.USER_BROWSERS), CONTRACT["userBrowsers"])
         for token in CONTRACT["extensionTokens"]["valid"]:
