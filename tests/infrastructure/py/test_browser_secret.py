@@ -80,6 +80,7 @@ class BrowserFillSecretTest(unittest.TestCase):
 
     def test_comparte_browser_lease_con_playwright(self):
         zerochat.BROWSER_LEASES._holders.clear()
+        self.addCleanup(zerochat.BROWSER_LEASES._holders.clear)
         self.assertTrue(zerochat.BROWSER_LEASES.acquire(zerochat.PLAYWRIGHT_SERVER_ID, "conv_a"))
         res, err, _ = zerochat.execute_tool(
             "local",
