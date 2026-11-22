@@ -354,7 +354,7 @@
         // check_command: su tarjeta muestra la espera y abortar el turno corta la espera, no el comando.
         const isLocalWait = isProxy && toolName === LOCAL_WAIT_TOOL;
         const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
-        const usesBrowser = isBrowserAction || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
+        const usesBrowser = isBrowserAction || (isProxy && toolName === 'browser_fill_secret') || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
