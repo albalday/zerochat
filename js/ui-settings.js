@@ -555,32 +555,35 @@ zerochat</code></pre>
         <!-- Sección: Permisos de ejecución MCP -->
         <div id="settings-permissions" class="settings-section-pane">
           <!-- Tarjeta 1: Política Global de Ejecución -->
-          <div class="mcp-status-card">
-            <div class="mcp-status-header">
+          <details class="mcp-status-card settings-collapsible-card" open>
+            <summary class="mcp-status-header settings-collapsible-summary">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
                   <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
                 </span>
                 <strong data-i18n="mcp_security_section_title">Seguridad y Autorización de Ejecución</strong>
               </div>
-            </div>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.</p>
+              ${Icons.get('chevron-right', { size: 16, className: 'settings-collapsible-chevron' })}
+            </summary>
+            <div class="settings-collapsible-body">
+              <p class="label-hint mcp-section-hint" data-i18n="mcp_security_desc">Controla cuándo se ejecutan las herramientas del servidor MCP en tu sistema local.</p>
 
-            <div class="setting-toggle-card">
-              <div class="toggle-card-info">
-                <div class="toggle-card-title"><span data-i18n="mcp_security_allow_all">Permitir todo en este proyecto</span></div>
-                <p class="toggle-card-desc" data-i18n="mcp_security_allow_all_hint">Ejecuta inmediatamente cualquier herramienta o comando en este proyecto sin pedir confirmación, salvo lo denegado explícitamente.</p>
+              <div class="setting-toggle-card">
+                <div class="toggle-card-info">
+                  <div class="toggle-card-title"><span data-i18n="mcp_security_allow_all">Permitir todo en este proyecto</span></div>
+                  <p class="toggle-card-desc" data-i18n="mcp_security_allow_all_hint">Ejecuta inmediatamente cualquier herramienta o comando en este proyecto sin pedir confirmación, salvo lo denegado explícitamente.</p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="mcp-allow-all" data-i18n-aria="mcp_security_allow_all" aria-label="Permitir todo en este proyecto">
+                  <span class="slider"></span>
+                </label>
               </div>
-              <label class="switch">
-                <input type="checkbox" id="mcp-allow-all" data-i18n-aria="mcp_security_allow_all" aria-label="Permitir todo en este proyecto">
-                <span class="slider"></span>
-              </label>
             </div>
-          </div>
+          </details>
 
           <!-- Tarjeta 2: Directorios Permitidos -->
-          <div class="mcp-status-card">
-            <div class="mcp-status-header">
+          <details class="mcp-status-card settings-collapsible-card" open>
+            <summary class="mcp-status-header settings-collapsible-summary">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
                   ${Icons.get('folder', { size: 20 })}
@@ -588,46 +591,59 @@ zerochat</code></pre>
                 <strong data-i18n="mcp_directory_rules_title">Directorios permitidos</strong>
               </div>
               <span id="mcp-directory-rules-project" class="mcp-server-details" hidden></span>
+              ${Icons.get('chevron-right', { size: 16, className: 'settings-collapsible-chevron' })}
+            </summary>
+            <div class="settings-collapsible-body">
+              <p class="label-hint mcp-section-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y X: para ejecutar comandos (RWX:/** da acceso completo). Usa * para un segmento y ** para subdirectorios.</p>
+              <div class="form-field">
+                <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos"></textarea>
+              </div>
+              <p id="mcp-directory-rules-error" class="label-hint" role="status" aria-live="polite"></p>
             </div>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_directory_rules_hint">Una regla por línea: R: para leer, W: para modificar y X: para ejecutar comandos (RWX:/** da acceso completo). Usa * para un segmento y ** para subdirectorios.</p>
-            <div class="form-field">
-              <textarea id="mcp-directory-rules" rows="4" spellcheck="false" data-i18n-aria-label="mcp_directory_rules_title" aria-label="Directorios permitidos"></textarea>
-            </div>
-            <p id="mcp-directory-rules-error" class="label-hint" role="status" aria-live="polite"></p>
-          </div>
+          </details>
 
           <!-- Tarjeta 3: Herramientas y Servidores Autorizados -->
-          <div class="mcp-status-card">
-            <div class="mcp-status-header">
+          <details class="mcp-status-card settings-collapsible-card">
+            <summary class="mcp-status-header settings-collapsible-summary">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
                   ${Icons.get('check', { size: 20 })}
                 </span>
                 <strong data-i18n="mcp_security_saved_auths_title">Herramientas y Servidores Autorizados</strong>
               </div>
-              <button type="button" id="btn-mcp-clear-auths" class="btn-danger-outline btn-mcp-clear-auths" hidden data-i18n-title="mcp_security_btn_clear_all" data-i18n-aria="mcp_security_btn_clear_all" title="Restablecer todas" aria-label="Restablecer todas">
-                <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-trash"></use></svg>
-                <span data-i18n="mcp_security_btn_clear_all">Restablecer todas</span>
-              </button>
+              ${Icons.get('chevron-right', { size: 16, className: 'settings-collapsible-chevron' })}
+            </summary>
+            <div class="settings-collapsible-body">
+              <p class="label-hint mcp-section-hint" data-i18n="mcp_security_saved_auths_desc">Decisiones recordadas en esta sesión o de forma permanente, y servidores MCP de confianza.</p>
+              <div class="settings-collapsible-actions">
+                <button type="button" id="btn-mcp-clear-auths" class="btn-danger-outline btn-mcp-clear-auths" hidden data-i18n-title="mcp_security_btn_clear_all" data-i18n-aria="mcp_security_btn_clear_all" title="Restablecer todas" aria-label="Restablecer todas">
+                  <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-trash"></use></svg>
+                  <span data-i18n="mcp_security_btn_clear_all">Restablecer todas</span>
+                </button>
+              </div>
+              <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
             </div>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_security_saved_auths_desc">Decisiones recordadas en esta sesión o de forma permanente, y servidores MCP de confianza.</p>
-            <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
-          </div>
+          </details>
 
           <!-- Tarjeta 4: Secretos del proyecto -->
-          <div id="project-secrets-card" class="mcp-status-card">
-            <div class="mcp-status-header">
+          <details id="project-secrets-card" class="mcp-status-card settings-collapsible-card">
+            <summary class="mcp-status-header settings-collapsible-summary">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
                   ${Icons.get('shield', { size: 20 })}
                 </span>
                 <strong data-i18n="project_secrets_title">Secretos del proyecto</strong>
               </div>
-              <button type="button" id="btn-project-secret-add" class="btn-secondary" data-i18n="project_secrets_add">Añadir secreto</button>
+              ${Icons.get('chevron-right', { size: 16, className: 'settings-collapsible-chevron' })}
+            </summary>
+            <div class="settings-collapsible-body">
+              <p class="label-hint mcp-section-hint" data-i18n="project_secrets_desc">Credenciales guardadas en el servidor local para este proyecto. Nunca se muestran ni viajan al modelo: solo se usan con browser_fill_secret.</p>
+              <div class="settings-collapsible-actions">
+                <button type="button" id="btn-project-secret-add" class="btn-secondary" data-i18n="project_secrets_add">Añadir secreto</button>
+              </div>
+              <div id="project-secrets-list"></div>
             </div>
-            <p class="label-hint mcp-section-hint" data-i18n="project_secrets_desc">Credenciales guardadas en el servidor local para este proyecto. Nunca se muestran ni viajan al modelo: solo se usan con browser_fill_secret.</p>
-            <div id="project-secrets-list"></div>
-          </div>
+          </details>
         </div>
 
       </div>

@@ -353,6 +353,37 @@
   overflow-wrap: anywhere;
 }
 
+.settings-collapsible-summary {
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.settings-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-collapsible-chevron {
+  margin-left: auto;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.settings-collapsible-card[open] > .settings-collapsible-summary .settings-collapsible-chevron {
+  transform: rotate(90deg);
+}
+
+.settings-collapsible-body {
+  margin-top: 0.55rem;
+}
+
+.settings-collapsible-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.65rem;
+}
+
 .mcp-header-icon {
   font-size: 1.4rem;
   line-height: 1;
