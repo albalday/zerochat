@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 import urllib.request
 
-from backend import zerochat
+from backend import use_data_dir, zerochat
 
 
 class LoopbackTest(unittest.TestCase):
@@ -172,6 +172,7 @@ class WebFetchTest(unittest.TestCase):
                 zerochat.fetch_web_resource({"url": url})
 
     def test_duckduckgo_lleva_cabeceras_pasa_por_el_limitador_y_detecta_reto_202(self):
+        use_data_dir(self)
         class MockResponse:
             def __init__(self, status=200, headers=None, body=b"<html>OK</html>"):
                 self.status = status
@@ -239,11 +240,13 @@ class WebFetchTest(unittest.TestCase):
 
     def test_capture_frontend_user_agent(self):
         """El User-Agent de la primera petición del frontend se adopta; el resto no lo toca."""
+        use_data_dir(self)
         original = zerochat.ACTIVE_USER_AGENT
         original_service = zerochat.SERVICE_USER_AGENT
+        original_captured = zerochat._FRONTEND_USER_AGENT_CAPTURED
         try:
             zerochat.ACTIVE_USER_AGENT = zerochat.DEFAULT_USER_AGENT
-            zerochat.SERVICE_USER_AGENT = zerochat.DEFAULT_USER_AGENT
+            zerochat.set_service_user_agent(zerochat.DEFAULT_USER_AGENT, from_frontend=False)
             zerochat.capture_frontend_user_agent("  Mozilla/5.0 (FrontendTest/1.0)  ")
             self.assertEqual(zerochat.ACTIVE_USER_AGENT, "Mozilla/5.0 (FrontendTest/1.0)")
             self.assertEqual(zerochat.SERVICE_USER_AGENT, "Mozilla/5.0 (FrontendTest/1.0)")
@@ -257,4 +260,4 @@ class WebFetchTest(unittest.TestCase):
             self.assertIs(zerochat.ACTIVE_USER_AGENT, zerochat.DEFAULT_USER_AGENT)
         finally:
             zerochat.ACTIVE_USER_AGENT = original
-            zerochat.SERVICE_USER_AGENT = original_service
+            zerochat.set_service_user_agent(original_service, from_frontend=original_captured)
