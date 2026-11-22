@@ -236,6 +236,16 @@ test('ProjectContext.initialize - tras confirmar concede solo .zerochat y envía
   assert.equal(log.conversations, 1);
   assert.equal(log.prompts.length, 1);
   assert.match(log.prompts[0], /repository at \/repo/);
+
+  const agentHarness = createHarness();
+  await agentHarness.context.refresh();
+  const agentInit = initCallbacks();
+  const agentResult = await agentHarness.context.initialize({ ...agentInit.callbacks, template: 'agent' });
+  assert.deepEqual(agentResult, { ok: true, rule: 'RW:/repo/.zerochat' });
+  assert.equal(agentInit.log.prompts.length, 1);
+  assert.match(agentInit.log.prompts[0], /agent-project mode for the directory at \/repo/);
+  assert.match(agentInit.log.prompts[0], /zerochat --run-file/);
+  assert.match(agentInit.log.prompts[0], /agents\/template\.sh/);
 });
 
 test('ProjectContext.initialize - cancelar, cambiar de estado o sin herramientas/missing no concede permisos', async () => {

@@ -101,6 +101,24 @@
       await submitComposerText(prompt);
     };
 
+    const runInitialize = async template => {
+      try {
+        const confirmKey = template === 'agent' ? 'project_initialize_agent_confirm' : 'project_initialize_confirm';
+        await ProjectContext.initialize({
+          template,
+          askConfirmation: ({ cwd, rule }) => Dialogs.confirm(t(confirmKey, { cwd, dir: rule.slice(3) })),
+          isBusy,
+          startConversation: async () => {
+            if (getChatHistory().some(message => message.role !== 'system')) await createNewSession();
+          },
+          sendPrompt: startPromptTurn
+        });
+      } catch (error) {
+        console.error('[App] Project initialization failed:', error);
+        await Dialogs.alert(error?.message || String(error), { type: 'error' });
+      }
+    };
+
     return {
       toggle(enabled) {
         Config.updateRuntime({ projectMode: Boolean(enabled) });
@@ -152,20 +170,11 @@
           await Dialogs.alert(error?.message || String(error), { type: 'error' });
         }
       },
-      async initialize() {
-        try {
-          await ProjectContext.initialize({
-            askConfirmation: ({ cwd, rule }) => Dialogs.confirm(t('project_initialize_confirm', { cwd, dir: rule.slice(3) })),
-            isBusy,
-            startConversation: async () => {
-              if (getChatHistory().some(message => message.role !== 'system')) await createNewSession();
-            },
-            sendPrompt: startPromptTurn
-          });
-        } catch (error) {
-          console.error('[App] Project initialization failed:', error);
-          await Dialogs.alert(error?.message || String(error), { type: 'error' });
-        }
+      initialize() {
+        return runInitialize('default');
+      },
+      initializeAgent() {
+        return runInitialize('agent');
       },
       async compact() {
         try {

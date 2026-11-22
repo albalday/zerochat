@@ -382,6 +382,73 @@ Helper script template (${TASK_HELPER_FILE}):
 ${TASK_SCRIPT_TEMPLATE}\`\`\``;
   }
 
+  function buildAgentBootstrapPrompt(cwd) {
+    return `Initialize agent-project mode for the directory at ${cwd}. ${RULES_FILE} is the single place for this project's shared rules and ZeroChat unattended execution reference. Work in this order:
+1. Inspect without modifying anything: ${RULES_FILE}; other agent instruction files (CLAUDE.md, GEMINI.md, .cursorrules); ${MEMORY_DIR}/; README*; .env*; any existing scripts or agent definitions.
+2. Report briefly what already exists in ${cwd}.
+3. Propose the changes with their exact text and wait for the user's explicit approval (use the ask_user tool when available):
+   - Create or update ${RULES_FILE} with these clear sections:
+     a) Project memory: include the exact "## ${MEMORY_SECTION_TITLE}" section below so ZeroChat project mode works seamlessly.
+     b) Project objective and rules: leave clear placeholders for the user to define what the agent system does, security/credential rules (e.g. secrets in .env outside Git, never in prompts or ${MEMORY_DIR}/), and output/notification conventions.
+     c) Unattended execution in ZeroChat (\`--run-file\`): include the exact contract so any agent or script in this project knows how to use ZeroChat:
+        - Command (run from ${cwd}): \`zerochat --run-file <file.json>\` (use \`zerochat --list-profiles\` to see available profiles).
+        - JSON schema (ONLY these keys are accepted; unknown keys fail with exit 4):
+          \`conversation_id\` (optional string: continues that SQLite conversation or creates it if new), \`prompt\` (string), \`profile\` (optional string: server profile name or id), \`systemDataPrompt\` (optional string: per-agent role instructions), \`maxSteps\` (optional int 1..1000), \`timeout\` (optional int 1..86400 seconds).
+        - Security contract: permissions, enabled tools, and MCP servers NEVER go in the JSON; they always come from the project's saved environment in ZeroChat (Settings > Project environment). A directory without a saved environment exits with code 3.
+        - Exit codes: \`0\` completed (stdout has final answer), \`1\` generation error, \`2\` runner exited without result, \`3\` setup error (missing saved environment), \`4\` invalid args or JSON, \`5\` paused in \`needs_input\` (visible in ZeroChat's Pending inbox), \`6\` reached \`maxSteps\` or \`timeout\` (\`limit\`, progress saved in SQLite).
+     d) Agent definitions and launching (\`.sh\`): explain the convention for one or multiple agents. Each agent has a focused definition file (\`agents/<role>.md\` so it only loads what it needs, or inline in ${RULES_FILE} if there is only one), a run-file JSON (\`agents/<role>.json\`), and an executable launcher script (\`agents/<role>.sh\`) suitable for \`cron\` or chained execution.
+   - Create starter templates in \`agents/template.json\` (valid \`--run-file\` JSON template) and \`agents/template.sh\` (executable bash wrapper with \`set -euo pipefail\`, \`cd "${cwd}"\`, \`zerochat --run-file\`, and exit-code handling for 0/5/6).
+   - Ask the user for the project's objective, rules, and first agent(s) to start filling them in together right after setup.
+   - Create ${PLAN_FILE}, ${LOG_FILE} and ${STATE_FILE} from the templates (with M1 focused on defining and testing the agent system), and ${TASK_HELPER_FILE} last (its existence marks project mode as initialized). Leave no <placeholders> in ${STATE_FILE} or ${PLAN_FILE}.
+4. After approval, apply the changes with absolute paths under ${cwd} (${TASK_HELPER_FILE} last) and mark \`agents/template.sh\` executable if appropriate.
+5. Finish by listing the files created or modified and inviting the user to define the objective and first agent in chat.
+
+Memory section (${RULES_FILE}):
+\`\`\`markdown
+${MEMORY_SECTION_TEMPLATE}\`\`\`
+
+Agent run-file template (agents/template.json):
+\`\`\`json
+{
+  "conversation_id": "agent-role-daily",
+  "profile": "local",
+  "systemDataPrompt": "Read agents/<role>.md and follow its instructions strictly.",
+  "prompt": "Run the scheduled task.",
+  "maxSteps": 40,
+  "timeout": 600
+}
+\`\`\`
+
+Agent launcher template (agents/template.sh):
+\`\`\`bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+set +e
+zerochat --run-file "agents/<role>.json"
+rc=$?
+set -e
+# 0: completed, 5: needs_input (Pending inbox in ZeroChat), 6: limit reached
+exit "$rc"
+\`\`\`
+
+Plan template (${PLAN_FILE}):
+\`\`\`markdown
+${PLAN_TEMPLATE}\`\`\`
+
+Log template (${LOG_FILE}):
+\`\`\`markdown
+${LOG_TEMPLATE}\`\`\`
+
+State template (${STATE_FILE}):
+\`\`\`markdown
+${STATE_TEMPLATE}\`\`\`
+
+Helper script template (${TASK_HELPER_FILE}):
+\`\`\`python
+${TASK_SCRIPT_TEMPLATE}\`\`\``;
+  }
+
   function buildCompactPrompt(cwd) {
     return `Perform project memory housekeeping for the repository at ${cwd}. It has two goals:
 1. Compact: keep ${PLAN_FILE} and ${LOG_FILE} short, holding only what an agent must read before working (open work and decisions still in force), with the full history preserved verbatim in ${ARCHIVE_DIR}/.
@@ -593,7 +660,7 @@ ${stateBody}
      * solo en <cwd>/.zerochat y envía el prompt de arranque como mensaje visible. El resto de
      * escrituras, como AGENTS.md, siguen pasando por la política de seguridad vigente.
      */
-    async function initialize({ askConfirmation, sendPrompt, startConversation, isBusy } = {}) {
+    async function initialize({ askConfirmation, sendPrompt, startConversation, isBusy, template = 'default' } = {}) {
       if (typeof askConfirmation !== 'function' || typeof sendPrompt !== 'function') throw new TypeError('initialize requires askConfirmation and sendPrompt');
       const State = getState();
       const project = State.get('project');
@@ -610,7 +677,7 @@ ${stateBody}
       }
       await getSecurity().addDirectoryRule(rule);
       if (typeof startConversation === 'function') await startConversation();
-      await sendPrompt(buildBootstrapPrompt(cwd));
+      await sendPrompt(template === 'agent' ? buildAgentBootstrapPrompt(cwd) : buildBootstrapPrompt(cwd));
       return { ok: true, rule };
     }
 
@@ -686,6 +753,7 @@ ${stateBody}
     computeStatus,
     buildPromptBlock,
     buildBootstrapPrompt,
+    buildAgentBootstrapPrompt,
     buildCompactPrompt,
     refresh: defaultContext.refresh,
     canInitialize: defaultContext.canInitialize,

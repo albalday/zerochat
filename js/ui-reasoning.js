@@ -12,6 +12,7 @@
   const LEVEL_LABEL_KEYS = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
   // Acciones cuyo nombre no basta para saber qué hacen.
   const PROJECT_ACTION_TITLES = Object.freeze({
+    initializeAgent: 'project_action_initializeAgent_title',
     reload: 'project_action_reload_title',
     compact: 'project_action_compact_title'
   });
@@ -80,7 +81,7 @@
   /** Acciones disponibles para cada estado del modo proyecto (initialize y compact solo si se puede escribir). */
   function getProjectActions(project, { canInitialize = false, canCompact = false } = {}) {
     switch (project.status) {
-      case 'missing': return [...(canInitialize ? ['initialize'] : []), 'decline'];
+      case 'missing': return [...(canInitialize ? ['initialize', 'initializeAgent'] : []), 'decline'];
       case 'declined': return ['reactivate'];
       case 'ready': return ['reload', ...(canCompact ? ['compact'] : [])];
       case 'error':
