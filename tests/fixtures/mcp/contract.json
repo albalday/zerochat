@@ -11,7 +11,8 @@
   ],
   "ownSystemEngines": [
     "chrome",
-    "msedge"
+    "msedge",
+    "system-chromium"
   ],
   "userAgentModes": [
     "auto",

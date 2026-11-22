@@ -21,7 +21,7 @@ from storage.db import get_secret, get_setting, set_setting
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
-OWN_SYSTEM_ENGINES = ("chrome", "msedge")
+OWN_SYSTEM_ENGINES = ("chrome", "msedge", "system-chromium")
 ALL_OWN_ENGINES = (*OWN_BROWSER_ENGINES, *OWN_SYSTEM_ENGINES)
 USER_BROWSERS = ("chrome", "msedge", "chromium")
 USER_AGENT_MODES = ("auto", "rotate", "custom")
@@ -128,6 +128,13 @@ def chromium_install() -> tuple[str, Path] | None:
     return (executable, data_dir) if executable and os.path.isfile(executable) else None
 
 
+def _require_chromium_install() -> tuple[str, Path]:
+    install = chromium_install()
+    if not install:
+        raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
+    return install
+
+
 def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[str]:
     """Argumentos de Playwright MCP para la configuración del navegador."""
     if config["mode"] == "user":
@@ -136,12 +143,13 @@ def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[
             return ["--extension", f"--browser={config['userBrowser']}"]
         # Chromium no es un canal de Playwright: se da su ejecutable y su perfil, con el canal chrome
         # para que no lo lance sin sandbox si no está abierto.
-        install = chromium_install()
-        if not install:
-            raise RuntimeError("No se encuentra Chromium en el sistema: elige otro navegador en Ajustes › Navegador.")
-        executable, data_dir = install
+        executable, data_dir = _require_chromium_install()
         return ["--extension", "--browser=chrome", f"--executable-path={executable}", f"--user-data-dir={data_dir}"]
-    args = [f"--browser={config['engine']}", "--isolated"]
+    if config["engine"] == "system-chromium":
+        executable, _ = _require_chromium_install()
+        args = ["--browser=chrome", "--isolated", f"--executable-path={executable}"]
+    else:
+        args = [f"--browser={config['engine']}", "--isolated"]
     # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
     if user_agent:
         args.append(f"--user-agent={user_agent}")

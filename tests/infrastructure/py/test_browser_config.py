@@ -166,9 +166,17 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.assertEqual(zerochat.load_browser_config(), saved, "un valor rechazado no cambia lo guardado")
 
     def test_canal_chrome_y_modos_de_user_agent_en_modo_propio(self):
-        # Canal chrome del sistema en modo propio headless (sin sesión gráfica ni extensión).
+        # Canal chrome del sistema y Chromium del sistema en modo propio headless (sin sesión gráfica ni extensión).
         chrome_cfg = zerochat.save_browser_config({"mode": "own", "engine": "chrome", "headless": True})
         self.assertEqual(self.launch_args(chrome_cfg), self.own_args("chrome") + ["--headless"])
+        sys_chromium_cfg = zerochat.save_browser_config({"mode": "own", "engine": "system-chromium", "headless": True})
+        with patch.object(zerochat, "chromium_install", return_value=("/usr/bin/chromium", Path("/home/u/.config/chromium"))):
+            self.assertEqual(
+                self.launch_args(sys_chromium_cfg),
+                ["--browser=chrome", "--isolated", "--executable-path=/usr/bin/chromium", f"--user-agent={zerochat.SERVICE_USER_AGENT}", "--headless"],
+            )
+        with patch.object(zerochat, "chromium_install", return_value=None), self.assertRaisesRegex(RuntimeError, "Chromium"):
+            zerochat.playwright_launch_args(sys_chromium_cfg)
 
         # Custom User-Agent prevalece sobre el del servidor.
         custom_cfg = zerochat.save_browser_config({"userAgentMode": "custom", "userAgent": "Mozilla/5.0 Custom/99.0"})

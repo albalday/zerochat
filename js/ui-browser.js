@@ -28,6 +28,9 @@
 
   const ENGINE_NAMES = { chromium: 'Chromium', firefox: 'Firefox', webkit: 'WebKit' };
   const SYSTEM_ENGINE_NAMES = { chrome: 'Google Chrome', msedge: 'Microsoft Edge' };
+  const systemEngineName = id => SYSTEM_ENGINE_NAMES[id] || (id === 'system-chromium' ? t('browser_system_chromium') : id);
+  const systemEngineKey = id => (id === 'system-chromium' ? 'chromium' : id);
+  const ownEngineName = id => ENGINE_NAMES[id] || systemEngineName(id);
   const { USER_BROWSERS, OWN_SYSTEM_ENGINES, USER_AGENT_MODES } = Defaults;
   const ENGINE_RETRY_DELAY_MS = 500;
   const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken', 'userAgentMode', 'userAgent'];
@@ -121,9 +124,9 @@
   }
 
   function renderSystemEngine(id) {
-    const detected = section.engines.systemBrowsers?.[id] === true;
+    const detected = section.engines.systemBrowsers?.[systemEngineKey(id)] === true;
     const checked = section.config.engine === id;
-    const name = SYSTEM_ENGINE_NAMES[id];
+    const name = systemEngineName(id);
     const statusClass = detected ? 'status-running' : 'status-stopped';
     const statusText = t(detected ? 'browser_system_engine_detected' : 'browser_system_engine_missing');
     return `<div class="browser-row${checked ? ' is-selected' : ''}">
@@ -134,7 +137,7 @@
   }
 
   function renderOwnMode() {
-    const engineName = ENGINE_NAMES[section.config.engine] || SYSTEM_ENGINE_NAMES[section.config.engine] || section.config.engine;
+    const engineName = ownEngineName(section.config.engine);
     const uaMode = section.config.userAgentMode || 'auto';
     const uaOptions = USER_AGENT_MODES.map(mode =>
       `<option value="${escapeHtml(mode)}"${uaMode === mode ? ' selected' : ''}>${escapeHtml(t(`browser_user_agent_mode_${mode}`))}</option>`
@@ -300,7 +303,7 @@
       return;
     }
     const engine = button.dataset.engine || section.config.engine;
-    const name = ENGINE_NAMES[engine] || SYSTEM_ENGINE_NAMES[engine] || engine;
+    const name = ownEngineName(engine);
     section.notice = null;
     try {
       if (action === 'install') {
