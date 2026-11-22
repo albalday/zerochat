@@ -176,8 +176,9 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
       await setHidden(true);
       await page.evaluate(() => window.__resolveTurn({ accumulatedText: 'Hecho', toolCalls: null, stats: null }));
       await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
-
-      assert.equal(await page.title(), await page.evaluate(title => window.ChatI18n.t('tab_alert_done', { title }), baseTitle));
+      const expectedDoneTitle = await page.evaluate(title => window.ChatI18n.t('tab_alert_done', { title }), baseTitle);
+      await page.waitForFunction(expected => document.title === expected, expectedDoneTitle);
+      assert.equal(await page.title(), expectedDoneTitle);
       const doneFavicon = decodeURIComponent(await page.getAttribute('#app-favicon', 'href'));
       assert.ok(doneFavicon.includes('<circle'));
 
