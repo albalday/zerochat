@@ -383,6 +383,13 @@ test('ConversationService - switchToSession notifica onSessionSwitched con los m
   const storedInState = State.get('sessions')?.list?.find(s => s.id === 'sess_history_server');
   assert.equal(storedInState?.serverRun, true);
   assert.equal(storedInState?.profileId, 'claude');
+
+  // Cambiar a otro chat sin modificar el actual conserva su updatedAt original.
+  const originalUpdatedAt = storedInState.updatedAt;
+  await Storage.saveConversation({ id: 'sess_other', title: 'Local Chat', createdAt: 1000, updatedAt: 2000 }, [{ id: 'm_other', role: 'user', content: 'local' }]);
+  assert.equal(await ConversationService.switchToSession('sess_other', options), true);
+  assert.equal(State.get('sessions')?.list?.find(s => s.id === 'sess_history_server')?.updatedAt, originalUpdatedAt);
+  assert.equal((await Storage.getConversation('sess_history_server')).updatedAt, originalUpdatedAt);
 });
 
 test('ConversationService - confirmProjectSwitch avisa solo al abrir un chat de otro proyecto estando conectado y respeta cancelar', async t => {

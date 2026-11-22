@@ -123,6 +123,10 @@
     return session;
   }
 
+  let cleanSession = null;
+
+  const historySignature = history => JSON.stringify(history);
+
   async function saveCurrentSession(options, overrides = {}) {
     const State = getState();
     const Storage = getStorage();
@@ -147,11 +151,17 @@
       return;
     }
 
+    const signature = historySignature(history);
+    if (Object.keys(overrides).length === 0 && existing && cleanSession?.id === sessionId && cleanSession.signature === signature) {
+      return;
+    }
+
     const session = buildSessionMetadata({ sessionId, existing, history, options, overrides });
 
     State.saveSessionMetadata(session);
     try {
       await Storage.saveConversation(session, history);
+      cleanSession = { id: sessionId, signature };
     } catch (error) {
       console.warn('[ConversationService] Could not save conversation:', error);
       await getDialogs().alert(t('chat_storage_save_error'), { type: 'error' });
@@ -194,6 +204,7 @@
     getEngine().ensureConversationDate(history, conversation.createdAt);
 
     if (!await activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
+    cleanSession = { id: conversation.id, signature: historySignature(history) };
     // La cabecera leída se fusiona con la guardada en la lista.
     const { history: _history, ...header } = conversation;
     getState().saveSessionMetadata({ ...header, messageCount: history.length });
