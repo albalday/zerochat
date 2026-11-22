@@ -6107,6 +6107,102 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
     except Exception as e:
         return _tool_error(str(e))
 
+# --- tools.browser_secret ---
+"""Relleno seguro de secretos del proyecto en Playwright MCP sin exponer valores al modelo."""
+
+
+
+
+
+BROWSER_SECRET_MODES = ("input", "keypad")
+
+
+def _mcp_call_failed(tool_name: str, arguments: dict) -> bool:
+    result = GLOBAL_MCP_MANAGER.call(public_tool_name(PLAYWRIGHT_SERVER_ID, tool_name), arguments)
+    return isinstance(result, dict) and bool(result.get("isError"))
+
+
+def _fill_input_secret(secret_value: str, ref: str, element: str, submit: bool) -> str | None:
+    clean_ref = ref.strip() if isinstance(ref, str) else ""
+    if not clean_ref:
+        return "El modo 'input' requiere un 'ref' no vacío."
+    label = element.strip() if isinstance(element, str) and element.strip() else "input field"
+    failed = _mcp_call_failed("browser_type", {
+        "element": label,
+        "ref": clean_ref,
+        "text": secret_value,
+        "submit": bool(submit),
+    })
+    return "Playwright browser_type falló al rellenar el secreto." if failed else None
+
+
+def _is_xy_target(target) -> bool:
+    if not isinstance(target, (list, tuple)) or len(target) != 2:
+        return False
+    return all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in target)
+
+
+def _click_keypad_target(target) -> str | None:
+    if isinstance(target, str) and target.strip():
+        failed = _mcp_call_failed("browser_click", {"element": "keypad button", "ref": target.strip()})
+        return "Playwright browser_click falló al pulsar el teclado virtual." if failed else None
+    if _is_xy_target(target):
+        failed = _mcp_call_failed("browser_mouse_click_xy", {
+            "element": "keypad button",
+            "x": float(target[0]),
+            "y": float(target[1]),
+        })
+        return "Playwright browser_mouse_click_xy falló al pulsar el teclado virtual." if failed else None
+    return "Cada entrada de keypad_map debe ser un 'ref' de texto o coordenadas [x, y]."
+
+
+def _fill_keypad_secret(secret_value: str, keypad_map) -> str | None:
+    if not isinstance(keypad_map, dict) or not keypad_map:
+        return "El modo 'keypad' requiere un objeto keypad_map no vacío."
+    if any(ch not in keypad_map for ch in secret_value):
+        return "keypad_map no cubre todos los caracteres del secreto."
+    for ch in secret_value:
+        err = _click_keypad_target(keypad_map[ch])
+        if err:
+            return err
+    return None
+
+
+def browser_fill_secret(
+    secret: str,
+    mode: str,
+    ref: str = "",
+    element: str = "",
+    submit: bool = False,
+    keypad_map: dict | None = None,
+    ctx: SecurityContext | None = None,
+) -> str:
+    """Introduce un secreto guardado del proyecto en un campo input o teclado virtual de Playwright MCP."""
+    if ctx is None:
+        return _tool_error("Se requiere contexto de proyecto para leer secretos.")
+    if mode not in BROWSER_SECRET_MODES:
+        return _tool_error(f"Modalidad no válida: {mode}")
+    try:
+        secret_value = get_project_secret(ctx.key, secret)
+    except ValueError as exc:
+        return _tool_error(str(exc))
+    if secret_value is None:
+        return _tool_error(f"El secreto '{secret}' no está guardado en este proyecto.")
+    try:
+        err = (
+            _fill_input_secret(secret_value, ref, element, submit)
+            if mode == "input"
+            else _fill_keypad_secret(secret_value, keypad_map)
+        )
+    except Exception as exc:
+        return _tool_error(f"Error ejecutando Playwright MCP: {exc}")
+    if err:
+        return _tool_error(err)
+    payload: dict = {"success": True, "mode": mode, "secret": secret}
+    if mode == "keypad":
+        payload["steps"] = len(secret_value)
+    return json.dumps(payload)
+
 # --- tools.diff ---
 """Visor de diferencias (zerochat/diff/open): diff frente a Git HEAD en HTML propio o con git difftool."""
 
@@ -9670,6 +9766,26 @@ LOCAL_TOOLS_DEFINITIONS = [
             },
             "required": ["action"]
         }
+    },
+    {
+        "name": "browser_fill_secret",
+        "description": (
+            "Fill a saved project secret into Playwright MCP without exposing its value to the model or chat history. "
+            "Use mode='input' with ref (for text/password inputs via browser_type) or mode='keypad' with keypad_map "
+            "mapping each character (e.g. '0'..'9') to its button ref or [x, y] coordinates for virtual keypads."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "secret": {"type": "string", "maxLength": 64, "description": "Name of the saved project secret"},
+                "mode": {"type": "string", "enum": list(BROWSER_SECRET_MODES), "maxLength": 16, "description": "Target mode: 'input' or 'keypad'"},
+                "ref": {"type": "string", "maxLength": 128, "description": "Playwright snapshot element ref for mode='input'"},
+                "element": {"type": "string", "maxLength": 256, "description": "Human-readable description of the input element"},
+                "submit": {"type": "boolean", "description": "Press Enter after typing in mode='input'", "default": False},
+                "keypad_map": {"type": "object", "description": "Map of character -> button ref string or [x, y] coordinates for mode='keypad'"}
+            },
+            "required": ["secret", "mode"]
+        }
     }
 ]
 LOCAL_TOOL_HANDLERS = {
@@ -9681,11 +9797,12 @@ LOCAL_TOOL_HANDLERS = {
     "check_command": check_command,
     "search_files": search_files,
     "get_diagnostics": get_diagnostics,
-    "browser_action": browser_action
+    "browser_action": browser_action,
+    "browser_fill_secret": browser_fill_secret,
 }
 
 
-ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool}
+ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool, "object": dict}
 
 
 def _argument_error(name: str, value, prop: dict | None) -> str | None:
@@ -9724,6 +9841,9 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
     if tool_name == "browser_action":
         if arguments.get("action") not in BROWSER_ACTIONS:
             return f"Acción de navegador no permitida: {arguments.get('action')}"
+    if tool_name == "browser_fill_secret":
+        if arguments.get("mode") not in BROWSER_SECRET_MODES:
+            return f"Modalidad no permitida: {arguments.get('mode')}"
 
     return None
 
@@ -9751,7 +9871,12 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
     ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
     """
     if origin == "local":
-        browser = tool_name if tool_name == "browser_action" else None
+        if tool_name == "browser_action":
+            browser = tool_name
+        elif tool_name == "browser_fill_secret":
+            browser = PLAYWRIGHT_SERVER_ID
+        else:
+            browser = None
     else:
         browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
     if browser and not BROWSER_LEASES.acquire(browser, conversation_id):

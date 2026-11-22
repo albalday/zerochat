@@ -82,7 +82,7 @@
    */
   function browserOfTool(tool) {
     if (tool.name === 'browser_action') return 'browser_action';
-    if (tool.metadata.mcpServerId === 'playwright') return 'playwright';
+    if (tool.name === 'browser_fill_secret' || tool.metadata.mcpServerId === 'playwright') return 'playwright';
     return null;
   }
 

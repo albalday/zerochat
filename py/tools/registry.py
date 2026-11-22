@@ -5,6 +5,7 @@ from __future__ import annotations
 from core.environment import DETECTED_OS
 from core.limits import MAX_COMMAND_LENGTH, MAX_HTTP_BODY_BYTES, MAX_PATH_LENGTH
 from tools.browser_action import BROWSER_ACTIONS, browser_action
+from tools.browser_secret import BROWSER_SECRET_MODES, browser_fill_secret
 from tools.filesystem import edit_file, get_diagnostics, list_directory, read_file, search_files, write_file
 from tools.jobs import (
     COMMAND_DEFAULT_TIMEOUT,
@@ -186,6 +187,26 @@ LOCAL_TOOLS_DEFINITIONS = [
             },
             "required": ["action"]
         }
+    },
+    {
+        "name": "browser_fill_secret",
+        "description": (
+            "Fill a saved project secret into Playwright MCP without exposing its value to the model or chat history. "
+            "Use mode='input' with ref (for text/password inputs via browser_type) or mode='keypad' with keypad_map "
+            "mapping each character (e.g. '0'..'9') to its button ref or [x, y] coordinates for virtual keypads."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "secret": {"type": "string", "maxLength": 64, "description": "Name of the saved project secret"},
+                "mode": {"type": "string", "enum": list(BROWSER_SECRET_MODES), "maxLength": 16, "description": "Target mode: 'input' or 'keypad'"},
+                "ref": {"type": "string", "maxLength": 128, "description": "Playwright snapshot element ref for mode='input'"},
+                "element": {"type": "string", "maxLength": 256, "description": "Human-readable description of the input element"},
+                "submit": {"type": "boolean", "description": "Press Enter after typing in mode='input'", "default": False},
+                "keypad_map": {"type": "object", "description": "Map of character -> button ref string or [x, y] coordinates for mode='keypad'"}
+            },
+            "required": ["secret", "mode"]
+        }
     }
 ]
 LOCAL_TOOL_HANDLERS = {
@@ -197,11 +218,12 @@ LOCAL_TOOL_HANDLERS = {
     "check_command": check_command,
     "search_files": search_files,
     "get_diagnostics": get_diagnostics,
-    "browser_action": browser_action
+    "browser_action": browser_action,
+    "browser_fill_secret": browser_fill_secret,
 }
 
 
-ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool}
+ARGUMENT_TYPES = {"string": str, "integer": int, "boolean": bool, "object": dict}
 
 
 def _argument_error(name: str, value, prop: dict | None) -> str | None:
@@ -240,5 +262,8 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
     if tool_name == "browser_action":
         if arguments.get("action") not in BROWSER_ACTIONS:
             return f"Acción de navegador no permitida: {arguments.get('action')}"
+    if tool_name == "browser_fill_secret":
+        if arguments.get("mode") not in BROWSER_SECRET_MODES:
+            return f"Modalidad no permitida: {arguments.get('mode')}"
 
     return None

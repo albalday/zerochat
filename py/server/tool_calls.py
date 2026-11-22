@@ -35,7 +35,12 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
     ejecutar, para la conversación que lo usa: pedirlo sin llegar a ejecutar no lo ocupa.
     """
     if origin == "local":
-        browser = tool_name if tool_name == "browser_action" else None
+        if tool_name == "browser_action":
+            browser = tool_name
+        elif tool_name == "browser_fill_secret":
+            browser = PLAYWRIGHT_SERVER_ID
+        else:
+            browser = None
     else:
         browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
     if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
