@@ -36,7 +36,7 @@ class BrowserFillSecretTest(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertEqual(data["mode"], "input")
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0][1], {"element": "Clave", "ref": "e12", "text": "4072", "submit": True})
+        self.assertEqual(calls[0][1], {"element": "Clave", "target": "e12", "text": "4072", "submit": True})
 
     def test_modalidad_keypad_pulsa_refs_y_coordenadas_en_orden_sin_exponer_secreto(self):
         calls = []
@@ -57,7 +57,7 @@ class BrowserFillSecretTest(unittest.TestCase):
         data = json.loads(raw)
         self.assertTrue(data["success"])
         self.assertEqual(data["steps"], 4)
-        self.assertEqual([c[1].get("ref") or (c[1].get("x"), c[1].get("y")) for c in calls], [
+        self.assertEqual([c[1].get("target") or (c[1].get("x"), c[1].get("y")) for c in calls], [
             "e4",
             (120.0, 240.0),
             "e7",
