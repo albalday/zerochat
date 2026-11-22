@@ -141,6 +141,67 @@
     elements.mcpDirectoryRulesError.textContent = '';
   }
 
+  function renderProjectSecretsList(elements, secrets, connected) {
+    const list = elements.settingsDialog.querySelector('#project-secrets-list');
+    const addBtn = elements.settingsDialog.querySelector('#btn-project-secret-add');
+    if (!list) return;
+    if (addBtn) addBtn.disabled = !connected;
+    list.replaceChildren();
+    if (!connected) {
+      const hint = document.createElement('p');
+      hint.className = 'label-hint';
+      hint.textContent = t('project_secrets_offline');
+      list.appendChild(hint);
+      return;
+    }
+    if (!secrets.length) {
+      const empty = document.createElement('p');
+      empty.className = 'label-hint';
+      empty.textContent = t('project_secrets_empty');
+      list.appendChild(empty);
+      return;
+    }
+    const container = document.createElement('div');
+    container.className = 'mcp-server-secrets';
+    for (const name of secrets) {
+      const row = document.createElement('div');
+      row.className = 'mcp-server-secret-row';
+      const label = document.createElement('span');
+      label.className = 'mcp-server-option-label';
+      label.textContent = name;
+      const status = document.createElement('span');
+      status.className = 'mcp-server-secret-status configured';
+      status.textContent = t('mcp_secret_configured');
+      const setBtn = document.createElement('button');
+      setBtn.type = 'button';
+      setBtn.className = 'btn-secondary';
+      setBtn.dataset.projectSecretSet = name;
+      setBtn.textContent = t('mcp_secret_set');
+      const delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.className = 'btn-danger-outline';
+      delBtn.dataset.projectSecretDelete = name;
+      delBtn.textContent = t('mcp_secret_delete');
+      row.append(label, status, setBtn, delBtn);
+      container.appendChild(row);
+    }
+    list.appendChild(container);
+  }
+
+  async function refreshProjectSecrets(elements) {
+    const connected = getState().get('mcp').status === 'connected';
+    if (!connected) {
+      renderProjectSecretsList(elements, [], false);
+      return;
+    }
+    try {
+      const res = await getMCP().manager.listProjectSecrets();
+      renderProjectSecretsList(elements, Array.isArray(res?.secrets) ? res.secrets : [], true);
+    } catch (_) {
+      renderProjectSecretsList(elements, [], false);
+    }
+  }
+
   const setSettingsFormDirty = (elements, dirty) => { elements.settingsDialog.dataset.settingsDirty = String(Boolean(dirty)); };
   const isSettingsFormDirty = elements => elements.settingsDialog.dataset.settingsDirty === 'true';
 
@@ -161,6 +222,9 @@
       loadPermissionControls(elements);
     } else if (targetId === 'browser') {
       getUIBrowser().ensureLoaded();
+    }
+    if (targetId === 'permissions') {
+      refreshProjectSecrets(elements);
     }
     getUIMcp().syncSecurityControls();
     elements.settingsDialog.querySelectorAll('.settings-section-pane').forEach(section => {
@@ -293,6 +357,39 @@
       closeSettingsPanelOnly(elements);
     });
     listen(elements.btnClearAllData, 'click', () => getDataResetService().resetAllData());
+    const secretsCard = dialog.querySelector('#project-secrets-card');
+    if (secretsCard) {
+      listen(secretsCard, 'click', async event => {
+        const addBtn = event.target.closest('#btn-project-secret-add');
+        const setBtn = event.target.closest('[data-project-secret-set]');
+        const delBtn = event.target.closest('[data-project-secret-delete]');
+        if (!addBtn && !setBtn && !delBtn) return;
+        const Dialogs = getDialogs();
+        try {
+          if (addBtn) {
+            const name = await Dialogs.prompt(t('project_secret_name_prompt'), '', { type: 'info' });
+            if (!name || !name.trim()) return;
+            const value = await Dialogs.prompt(t('project_secret_value_prompt', { name: name.trim() }), '', { type: 'info', inputType: 'password' });
+            if (!value) return;
+            const res = await getMCP().manager.setProjectSecret(name.trim(), value);
+            renderProjectSecretsList(elements, res?.secrets || [], true);
+          } else if (setBtn) {
+            const name = setBtn.dataset.projectSecretSet;
+            const value = await Dialogs.prompt(t('project_secret_value_prompt', { name }), '', { type: 'info', inputType: 'password' });
+            if (!value) return;
+            const res = await getMCP().manager.setProjectSecret(name, value);
+            renderProjectSecretsList(elements, res?.secrets || [], true);
+          } else if (delBtn) {
+            const name = delBtn.dataset.projectSecretDelete;
+            if (!await Dialogs.confirm(t('project_secret_delete_confirm', { name }), { type: 'warning' })) return;
+            const res = await getMCP().manager.deleteProjectSecret(name);
+            renderProjectSecretsList(elements, res?.secrets || [], true);
+          }
+        } catch (error) {
+          await Dialogs.alert(error?.message || String(error), { type: 'error' });
+        }
+      });
+    }
   }
 
   function getSettingsDialogHTML() {
@@ -515,6 +612,21 @@ zerochat</code></pre>
             </div>
             <p class="label-hint mcp-section-hint" data-i18n="mcp_security_saved_auths_desc">Decisiones recordadas en esta sesión o de forma permanente, y servidores MCP de confianza.</p>
             <div id="mcp-saved-auths-list" class="mcp-saved-auths-list"></div>
+          </div>
+
+          <!-- Tarjeta 4: Secretos del proyecto -->
+          <div id="project-secrets-card" class="mcp-status-card">
+            <div class="mcp-status-header">
+              <div class="mcp-title-group">
+                <span class="mcp-header-icon">
+                  ${Icons.get('shield', { size: 20 })}
+                </span>
+                <strong data-i18n="project_secrets_title">Secretos del proyecto</strong>
+              </div>
+              <button type="button" id="btn-project-secret-add" class="btn-secondary" data-i18n="project_secrets_add">Añadir secreto</button>
+            </div>
+            <p class="label-hint mcp-section-hint" data-i18n="project_secrets_desc">Credenciales guardadas en el servidor local para este proyecto. Nunca se muestran ni viajan al modelo: solo se usan con browser_fill_secret.</p>
+            <div id="project-secrets-list"></div>
           </div>
         </div>
 

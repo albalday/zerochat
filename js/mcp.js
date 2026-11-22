@@ -972,6 +972,18 @@
       return result;
     }
 
+    listProjectSecrets() {
+      return this.requestExternalControl('zerochat/project/secrets/list', {});
+    }
+
+    setProjectSecret(name, value) {
+      return this.requestExternalControl('zerochat/project/secrets/set', { name, value });
+    }
+
+    deleteProjectSecret(name) {
+      return this.requestExternalControl('zerochat/project/secrets/delete', { name });
+    }
+
     /**
      * Lanza en segundo plano en el servidor local un turno de continuación (`zerochat --conversation <id>`).
      * Actualiza el estado vivo de `serverRuns` y mantiene activo el seguimiento por long-poll.

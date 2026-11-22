@@ -1,6 +1,6 @@
    - Create or update {{RULES_FILE}} with these clear sections:
      a) Project memory: include the exact "## {{MEMORY_SECTION_TITLE}}" section below so ZeroChat project mode works seamlessly.
-     b) Project objective and rules: leave clear placeholders for the user to define what the agent system does, security/credential rules (e.g. secrets in .env outside Git, never in prompts or {{MEMORY_DIR}}/), and output/notification conventions.
+     b) Project objective and rules: leave clear placeholders for the user to define what the agent system does, security/credential rules (use ZeroChat project secrets in Settings > Permissions with `browser_fill_secret` for `input` or `keypad` virtual keypads so credentials never enter the model context or remote requests; or `.env` outside Git for local-only CLI scripts), and output/notification conventions.
      c) Unattended execution in ZeroChat (`--run-file`): include the exact contract so any agent or script in this project knows how to use ZeroChat:
         - Command (run from {{CWD}}): `zerochat --run-file <file.json>` (use `zerochat --list-profiles` to see available profiles).
         - JSON schema (ONLY these keys are accepted; unknown keys fail with exit 4):
