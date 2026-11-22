@@ -16,11 +16,7 @@
 
 ## M85 Secretos por proyecto y relleno seguro en navegador: closed 2026-11-22
 
-## M82 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-20
-
-Goal: que cada agente que trabaja en este repositorio traiga a .zerochat/ lo que solo guarda en su memoria privada.
-Done when: el usuario confirma que todos los agentes que usa lo han hecho.
-- [ ] M82-T1 Cada agente que lea esta tarea revisa su memoria privada de este proyecto frente al código y a .zerochat/, propone al usuario las tareas, decisiones y normas aún vigentes y no registradas (nunca secretos ni datos personales), las escribe una vez aprobadas y pregunta al usuario antes de marcar la tarea como hecha, porque otros agentes pueden faltar todavía
+## M82 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-20: closed 2026-11-22
 
 ## M86 Mejoras para proyectos de agentes y `--run-file`
 
