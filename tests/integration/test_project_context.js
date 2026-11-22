@@ -235,6 +235,7 @@ test('ProjectContext.initialize - tras confirmar concede solo .zerochat y envía
   assert.deepEqual(log.confirms, [{ cwd: '/repo', rule: 'RW:/repo/.zerochat' }]);
   assert.equal(log.conversations, 1);
   assert.equal(log.prompts.length, 1);
+  assert.match(log.prompts[0], /^Use (Spanish|English) for all messages to the user/);
   assert.match(log.prompts[0], /repository at \/repo/);
 
   const agentHarness = createHarness();
@@ -243,6 +244,7 @@ test('ProjectContext.initialize - tras confirmar concede solo .zerochat y envía
   const agentResult = await agentHarness.context.initialize({ ...agentInit.callbacks, template: 'agent' });
   assert.deepEqual(agentResult, { ok: true, rule: 'RW:/repo/.zerochat' });
   assert.equal(agentInit.log.prompts.length, 1);
+  assert.match(agentInit.log.prompts[0], /^Use (Spanish|English) for all messages to the user/);
   assert.match(agentInit.log.prompts[0], /agent-project mode for the directory at \/repo/);
   assert.match(agentInit.log.prompts[0], /zerochat --run-file/);
   assert.match(agentInit.log.prompts[0], /agents\/template\.sh/);

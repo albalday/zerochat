@@ -348,8 +348,18 @@ if __name__ == "__main__":
     return new RegExp(`^#{2,3}\\s+${MEMORY_SECTION_TITLE}\\s*$`, 'mi').test(String(content || ''));
   }
 
-  function buildBootstrapPrompt(cwd) {
-    return `Initialize project mode for the repository at ${cwd}. ${RULES_FILE} is the single place for this project's agent rules: ZeroChat, Codex, Cursor, Copilot and other agents read it, and Claude Code reads it when CLAUDE.md imports it. Work in this order:
+  const getI18n = () => resolveDep('ChatI18n', './i18n.js');
+
+  function formatLanguageInstruction(language) {
+    const code = String(language || getI18n().getLanguage() || 'en').toLowerCase();
+    const label = code.startsWith('es') ? 'Spanish' : 'English';
+    return `Use ${label} for all messages to the user and for all project files you create or update (titles, objectives, rules, agent definitions, milestones, and tasks; keep the "## ${MEMORY_SECTION_TITLE}" heading and commands intact).`;
+  }
+
+  function buildBootstrapPrompt(cwd, language) {
+    return `${formatLanguageInstruction(language)}
+
+Initialize project mode for the repository at ${cwd}. ${RULES_FILE} is the single place for this project's agent rules: ZeroChat, Codex, Cursor, Copilot and other agents read it, and Claude Code reads it when CLAUDE.md imports it. Work in this order:
 1. Inspect without modifying anything: ${RULES_FILE}; other agent instruction files (CLAUDE.md, GEMINI.md, .cursorrules, .cursor/rules/, .github/copilot-instructions.md, .windsurfrules); ${MEMORY_DIR}/; README*, CONTRIBUTING*, docs/.
 2. Report: (a) whether ${RULES_FILE} exists; (b) which other agent files exist, and whether they point to ${RULES_FILE} or hold rules of their own; (c) where the project already keeps a plan, tasks or a decision log (including any existing ${MEMORY_DIR}/ files to migrate). Quote file and section.
 3. Propose the changes with their exact text and wait for the user's explicit approval (use the ask_user tool for it when available):
@@ -382,8 +392,10 @@ Helper script template (${TASK_HELPER_FILE}):
 ${TASK_SCRIPT_TEMPLATE}\`\`\``;
   }
 
-  function buildAgentBootstrapPrompt(cwd) {
-    return `Initialize agent-project mode for the directory at ${cwd}. ${RULES_FILE} is the single place for this project's shared rules and ZeroChat unattended execution reference. Work in this order:
+  function buildAgentBootstrapPrompt(cwd, language) {
+    return `${formatLanguageInstruction(language)}
+
+Initialize agent-project mode for the directory at ${cwd}. ${RULES_FILE} is the single place for this project's shared rules and ZeroChat unattended execution reference. Work in this order:
 1. Inspect without modifying anything: ${RULES_FILE}; other agent instruction files (CLAUDE.md, GEMINI.md, .cursorrules); ${MEMORY_DIR}/; README*; .env*; any existing scripts or agent definitions.
 2. Report briefly what already exists in ${cwd}.
 3. Propose the changes with their exact text and wait for the user's explicit approval (use the ask_user tool when available):
