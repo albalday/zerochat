@@ -22,11 +22,14 @@ from security.controller import ACCESS_CONTROLLER
 from server.state import live_state, wait_live_state
 from server.tool_calls import call_tool, dispatch_security
 from storage.db import (
+    delete_project_secret,
     delete_project_storage,
     get_project_environment,
     has_nested_project_data,
+    list_project_secret_names,
     list_run_states,
     save_project_environment,
+    save_project_secret,
 )
 from storage.rpc import dispatch_blobs, dispatch_conversations, dispatch_profiles
 from tools.diff import configure_gui_diff_tool, open_file_diff
@@ -131,6 +134,31 @@ def _create_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
+def _list_project_secrets(_params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result({"secrets": list_project_secret_names(ctx.key)})
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
+def _set_project_secret(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    name, value = params.get("name"), params.get("value")
+    if value is not None and not isinstance(value, str):
+        return rpc_error(INVALID_PARAMS, "value debe ser texto o null")
+    try:
+        secrets = delete_project_secret(ctx.key, name) if value is None else save_project_secret(ctx.key, name, value)
+        return rpc_result({"secrets": secrets})
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
+def _delete_project_secret(params: dict, ctx: SecurityContext) -> RpcOutcome:
+    try:
+        return rpc_result({"secrets": delete_project_secret(ctx.key, params.get("name"))})
+    except ValueError as exc:
+        return rpc_error(INVALID_PARAMS, str(exc))
+
+
 def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         delete_directory = bool(params.get("deleteDirectory"))
@@ -205,6 +233,9 @@ LOCAL_METHODS = {
     "zerochat/project/browse": _browse_directories,
     "zerochat/project/create_directory": _create_directory,
     "zerochat/project/delete": _delete_project,
+    "zerochat/project/secrets/list": _list_project_secrets,
+    "zerochat/project/secrets/set": _set_project_secret,
+    "zerochat/project/secrets/delete": _delete_project_secret,
     "zerochat/diff/open": _open_diff,
     "zerochat/diff/configure": _configure_diff,
     "zerochat/web/fetch": _web_fetch,

@@ -1405,15 +1405,68 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
             raise
 
 
+MAX_PROJECT_SECRETS = 50
+PROJECT_SECRET_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
+
+
+def project_secret_prefix(project_key: str) -> str:
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    return f"project:{clean_key}:"
+
+
+def validate_project_secret_name(name) -> str:
+    if not isinstance(name, str):
+        raise ValueError("El nombre del secreto debe ser texto")
+    clean = name.strip()
+    if not PROJECT_SECRET_NAME_PATTERN.match(clean):
+        raise ValueError("El nombre del secreto debe empezar por letra y usar solo letras, cifras o _ (máximo 64)")
+    return clean
+
+
+def project_secret_key(project_key: str, name: str) -> str:
+    return f"{project_secret_prefix(project_key)}{validate_project_secret_name(name)}"
+
+
+def list_project_secret_names(project_key: str) -> list[str]:
+    """Nombres de los secretos guardados del proyecto, sin leer ni devolver sus valores."""
+    prefix = project_secret_prefix(project_key)
+    return sorted(key[len(prefix):] for key in secret_names(prefix))
+
+
+def save_project_secret(project_key: str, name: str, value: str) -> list[str]:
+    clean_name = validate_project_secret_name(name)
+    prefix = project_secret_prefix(project_key)
+    existing = secret_names(prefix)
+    full_key = f"{prefix}{clean_name}"
+    if full_key not in existing and len(existing) >= MAX_PROJECT_SECRETS:
+        raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_SECRETS} secretos")
+    save_secret(full_key, value)
+    return list_project_secret_names(project_key)
+
+
+def delete_project_secret(project_key: str, name: str) -> list[str]:
+    delete_secret(project_secret_key(project_key, name))
+    return list_project_secret_names(project_key)
+
+
+def get_project_secret(project_key: str, name: str) -> str | None:
+    """Valor real del secreto del proyecto, solo para uso interno del backend."""
+    return get_secret(project_secret_key(project_key, name))
+
+
 def delete_project_storage(project_key: str) -> list[str]:
-    """Elimina entorno guardado, políticas de seguridad y conversaciones de un proyecto en SQLite."""
+    """Elimina entorno guardado, políticas de seguridad, secretos y conversaciones de un proyecto en SQLite."""
     clean_key = str(project_key or "").strip()
     if not clean_key:
         raise ValueError("project_key es obligatorio")
     deleted_ids = delete_project_conversations(clean_key)
+    prefix = project_secret_prefix(clean_key)
     with open_storage() as conn:
         conn.execute("DELETE FROM project_environments WHERE project_key = ?;", (clean_key,))
         conn.execute("DELETE FROM security_policies WHERE id = ?;", (project_security_policy_id(clean_key),))
+        conn.execute("DELETE FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix))
         conn.commit()
     return deleted_ids
 
