@@ -111,9 +111,11 @@ class ProjectDirectoriesTest(unittest.TestCase):
         self.assertEqual(zerochat.read_project_context(self.ctx), {"status": "denied"})
 
     def test_delete_project_elimina_directorio_entorno_seguridad_y_conversaciones(self):
-        proj_dir = self.home / "proj-del"
-        proj_dir.mkdir()
+        parent_dir = self.home / "parent-proj"
+        proj_dir = parent_dir / "proj-del"
+        proj_dir.mkdir(parents=True)
         (proj_dir / "note.txt").write_text("hola", encoding="utf-8")
+        parent_ctx = zerochat.SecurityContext(parent_dir.resolve())
         proj_ctx = zerochat.SecurityContext(proj_dir.resolve())
         zerochat.save_project_environment(proj_ctx.key, {"enabledTools": {"read_file": True}})
         zerochat.ACCESS_CONTROLLER.import_state({"allowAll": True}, proj_ctx)
@@ -126,20 +128,39 @@ class ProjectDirectoriesTest(unittest.TestCase):
             "messages": [{"id": "m1", "role": "user", "content": "hola"}],
         })
 
-        # No permite borrar general, ~ ni raíz
-        for protected in (zerochat.get_no_project_dir(), self.home, zerochat.Path(proj_dir.anchor)):
-            _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {}, zerochat.SecurityContext(protected))
-            self.assertIsNotNone(err)
+        # Sin confirmPath o con ruta distinta no borra el directorio
+        _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": "otro"}, proj_ctx)
+        self.assertIsNotNone(err)
+        self.assertTrue(proj_dir.exists())
 
-        res, err, _ = zerochat.dispatch_local("zerochat/project/delete", {}, proj_ctx)
+        # Un directorio padre con subproyectos debajo tampoco se puede borrar en disco
+        _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": parent_ctx.key}, parent_ctx)
+        self.assertIsNotNone(err)
+        self.assertTrue(proj_dir.exists())
+
+        # Borrar solo datos de ZeroChat conserva el directorio en disco
+        res_data, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": False}, proj_ctx)
         self.assertIsNone(err)
-        self.assertEqual(res["deleted"], proj_ctx.key)
-        self.assertEqual(res["deletedConversationIds"], ["conv_proj_del"])
-        self.assertFalse(proj_dir.exists())
+        self.assertFalse(res_data["deletedDirectory"])
+        self.assertIsNone(res_data["fallback"])
+        self.assertTrue(proj_dir.exists())
         self.assertFalse(zerochat.get_project_environment(proj_ctx.key)["saved"])
         _, proj_policy = zerochat.get_security_policy_data(proj_ctx.key)
         self.assertIsNone(proj_policy)
         self.assertIsNone(zerochat.get_conversation("conv_proj_del"))
+
+        # No permite borrar general, ~ ni raíz
+        for protected in (zerochat.get_no_project_dir(), self.home, zerochat.Path(proj_dir.anchor)):
+            p_ctx = zerochat.SecurityContext(protected)
+            _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": p_ctx.key}, p_ctx)
+            self.assertIsNotNone(err)
+
+        # Con deleteDirectory=True y confirmPath exacto sí borra el directorio
+        res, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": proj_ctx.key}, proj_ctx)
+        self.assertIsNone(err)
+        self.assertEqual(res["deleted"], proj_ctx.key)
+        self.assertTrue(res["deletedDirectory"])
+        self.assertFalse(proj_dir.exists())
 
 
 if __name__ == "__main__":

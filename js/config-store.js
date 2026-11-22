@@ -94,19 +94,6 @@
     return updateRuntime(projectEnvironmentPatch(source));
   }
 
-  const MAX_DECLINED_PROJECTS = 50;
-  const MAX_PROJECT_PATH_LENGTH = 4096;
-
-  /** Rutas cwd rechazadas para el modo proyecto: únicas, acotadas y conservando las más recientes. */
-  function normalizeDeclinedProjects(value) {
-    const paths = Array.isArray(value) ? value : [];
-    const unique = [...new Set(paths
-      .filter(item => typeof item === 'string')
-      .map(item => item.trim())
-      .filter(item => item && item.length <= MAX_PROJECT_PATH_LENGTH))];
-    return unique.slice(-MAX_DECLINED_PROJECTS);
-  }
-
   function normalize(config = {}) {
     const next = { ...clone(DEFAULTS), ...clone(config) };
     delete next.activeProfileName;
@@ -130,7 +117,6 @@
     next.enableContextCache = next.enableContextCache !== false;
     Object.assign(next, Utils.normalizeConnectionSettings(next));
     next.projectMode = next.projectMode !== false;
-    next.projectDeclined = normalizeDeclinedProjects(next.projectDeclined);
     next.activeRagBranchIds = normalizeUniqueIdList(next.activeRagBranchIds);
     next.mcpServers = normalizeMcpServers(next.mcpServers);
     next.browser = Defaults.BROWSER_TOOLS.includes(next.browser) ? next.browser : DEFAULTS.browser;
@@ -165,8 +151,7 @@
     'backendUrl',
     'useProxy',
     'proxyKey',
-    'projectMode',
-    'projectDeclined'
+    'projectMode'
   ]);
 
   function pickGlobalPreferences(source) {

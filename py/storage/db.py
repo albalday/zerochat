@@ -1416,3 +1416,29 @@ def delete_project_storage(project_key: str) -> list[str]:
         conn.execute("DELETE FROM security_policies WHERE id = ?;", (project_security_policy_id(clean_key),))
         conn.commit()
     return deleted_ids
+
+
+def has_nested_project_data(project_key: str) -> bool:
+    """True si existen entornos, políticas o conversaciones guardadas de subproyectos bajo `project_key`."""
+    clean_key = str(project_key or "").strip().rstrip("/\\")
+    if not clean_key:
+        return False
+    prefixes = (f"{clean_key}/%", f"{clean_key}\\%")
+    policy_prefixes = (f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}/%", f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}\\%")
+    with open_storage() as conn:
+        if conn.execute(
+            "SELECT 1 FROM project_environments WHERE project_key LIKE ? OR project_key LIKE ? LIMIT 1;",
+            prefixes,
+        ).fetchone():
+            return True
+        if conn.execute(
+            "SELECT 1 FROM security_policies WHERE id LIKE ? OR id LIKE ? LIMIT 1;",
+            policy_prefixes,
+        ).fetchone():
+            return True
+        if conn.execute(
+            "SELECT 1 FROM conversations WHERE json_extract(extra_json, '$.project') LIKE ? OR json_extract(extra_json, '$.project') LIKE ? LIMIT 1;",
+            prefixes,
+        ).fetchone():
+            return True
+    return False

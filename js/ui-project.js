@@ -124,18 +124,6 @@
       toggle(enabled) {
         Config.updateRuntime({ projectMode: Boolean(enabled) });
       },
-      async decline() {
-        const cwd = State.get('project').cwd;
-        if (!cwd) return;
-        const confirmed = await Dialogs.confirm(t('project_decline_confirm', { cwd }));
-        // El servidor puede haber cambiado de directorio mientras se esperaba la respuesta.
-        if (!confirmed || State.get('project').cwd !== cwd) return;
-        Config.updateRuntime({ projectDeclined: [...Config.getActive().projectDeclined, cwd] });
-      },
-      reactivate() {
-        const cwd = State.get('project').cwd;
-        Config.updateRuntime({ projectDeclined: Config.getActive().projectDeclined.filter(path => path !== cwd) });
-      },
       async reload() {
         try {
           await ProjectContext.refresh();
@@ -178,7 +166,12 @@
       async deleteProject() {
         try {
           const result = await ProjectContext.deleteProject({
-            askConfirmation: ({ cwd, name }) => Dialogs.confirm(t('project_delete_confirm', { cwd, name })),
+            askDeleteOptions: ({ cwd, name }) => Dialogs.confirm(t('project_delete_confirm', { cwd, name }), {
+              type: 'warning',
+              checkbox: t('project_delete_dir_checkbox'),
+              checkboxDefault: false
+            }),
+            askConfirmPath: ({ cwd }) => Dialogs.prompt(t('project_delete_dir_prompt', { cwd }), '', { type: 'warning' }),
             afterDelete: async deleted => {
               if (typeof removeProjectSessions === 'function') {
                 await removeProjectSessions(deleted?.deleted, deleted?.deletedConversationIds || []);
@@ -186,7 +179,9 @@
             },
             isBusy
           });
-          if (result?.reason === 'error') {
+          if (result?.reason === 'path-mismatch') {
+            await Dialogs.alert(t('project_delete_dir_mismatch'), { type: 'warning' });
+          } else if (result?.reason === 'error') {
             await Dialogs.alert(t('project_delete_error', { error: result.error }), { type: 'error' });
           }
         } catch (error) {
@@ -239,8 +234,7 @@
       render();
     });
     Config.subscribe((nextConfig, previousConfig) => {
-      if (nextConfig.projectMode !== previousConfig.projectMode ||
-          JSON.stringify(nextConfig.projectDeclined) !== JSON.stringify(previousConfig.projectDeclined)) {
+      if (nextConfig.projectMode !== previousConfig.projectMode) {
         refreshProjectContext();
       }
       render();

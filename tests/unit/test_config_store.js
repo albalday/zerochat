@@ -110,22 +110,13 @@ test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credencia
 
 test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activar un perfil', () => {
   assert.equal(ChatConfig.normalize({}).projectMode, true, 'Activo por defecto: .zerochat/state.md ya es una decisión explícita');
-  assert.deepEqual(ChatConfig.normalize({}).projectDeclined, []);
-  const declined = Array.from({ length: 60 }, (_, index) => `/repo/${index}`);
-  const normalized = ChatConfig.normalize({
-    projectMode: false,
-    projectDeclined: [' /a ', '/a', '', 42, 'x'.repeat(5000), ...declined]
-  });
+  const normalized = ChatConfig.normalize({ projectMode: false });
   assert.equal(normalized.projectMode, false, 'Desactivarlo se respeta');
-  assert.equal(normalized.projectDeclined.length, 50);
-  assert.equal(normalized.projectDeclined[49], '/repo/59');
-  assert.ok(!normalized.projectDeclined.includes(''));
 
   initializeWithOffice();
-  ChatConfig.updateRuntime({ projectMode: false, projectDeclined: ['/home/u/repo'] });
+  ChatConfig.updateRuntime({ projectMode: false });
   const config = ChatConfig.activateProfile('office');
   assert.equal(config.projectMode, false);
-  assert.deepEqual(config.projectDeclined, ['/home/u/repo']);
 });
 
 test('ChatDefaults - el contexto WebLLM predeterminado es 4K en móviles y 16K en el resto', () => {

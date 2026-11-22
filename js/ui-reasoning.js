@@ -80,8 +80,7 @@
   /** Acciones disponibles para cada estado del modo proyecto (initialize y compact solo si se puede escribir). */
   function getProjectActions(project, { canInitialize = false, canCompact = false } = {}) {
     switch (project.status) {
-      case 'missing': return [...(canInitialize ? ['initialize'] : []), 'decline'];
-      case 'declined': return ['reactivate'];
+      case 'missing': return canInitialize ? ['initialize'] : [];
       case 'ready': return ['reload', ...(canCompact ? ['compact'] : [])];
       case 'error':
       case 'no_access': return ['reload'];
@@ -154,7 +153,6 @@
         </select>
         <div class="project-mode-actions">
           <button type="button" class="btn-secondary" data-project-action="initialize">${escapeHtml(t('project_action_initialize'))}</button>
-          <button type="button" class="btn-secondary" data-project-action="decline">${escapeHtml(t('project_action_decline'))}</button>
         </div>
       </div>`;
     } else if (actions.length) {
@@ -192,7 +190,7 @@
 
   /**
    * Conecta el panel modal: el control deslizante llama a `onSelectLevel` con el nivel elegido y el panel
-   * del proyecto a `handlers` (toggle, initialize, compact, decline, reactivate, reload, changeDirectory).
+   * del proyecto a `handlers` (toggle, initialize, compact, reload, changeDirectory, deleteProject).
    */
   function mount(elements, { onSelectLevel, handlers }) {
     projectHandlers = handlers;
@@ -225,7 +223,7 @@
     elements.projectModePanel.addEventListener('click', event => {
       const action = event.target.closest('[data-project-action]')?.dataset.projectAction;
       if (!action) return;
-      if (['decline', 'changeDirectory', 'deleteProject', 'initialize', 'compact'].includes(action)) {
+      if (['changeDirectory', 'deleteProject', 'initialize', 'compact'].includes(action)) {
         closeReasoningMenu(elements);
       }
       projectHandlers[action]?.();

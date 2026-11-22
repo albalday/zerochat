@@ -961,12 +961,13 @@
       return result;
     }
 
-    /** Borra el directorio del proyecto actual, sus políticas, entorno y conversaciones, volviendo a general. */
-    async deleteProjectDirectory() {
+    /** Borra los datos de ZeroChat del proyecto actual y, si se confirma, también su directorio en disco. */
+    async deleteProjectDirectory({ deleteDirectory = false, confirmPath = '' } = {}) {
       this.liveStateSeq += 1;
-      const result = await this.requestExternalControl('zerochat/project/delete', {});
-      if (result?.fallback) {
-        await this.setProjectDirectory(result.fallback);
+      const result = await this.requestExternalControl('zerochat/project/delete', { deleteDirectory, confirmPath });
+      const nextDir = result?.fallback || this.currentProject();
+      if (nextDir) {
+        await this.setProjectDirectory(nextDir);
       }
       return result;
     }

@@ -3796,6 +3796,32 @@ def delete_project_storage(project_key: str) -> list[str]:
         conn.commit()
     return deleted_ids
 
+
+def has_nested_project_data(project_key: str) -> bool:
+    """True si existen entornos, políticas o conversaciones guardadas de subproyectos bajo `project_key`."""
+    clean_key = str(project_key or "").strip().rstrip("/\\")
+    if not clean_key:
+        return False
+    prefixes = (f"{clean_key}/%", f"{clean_key}\\%")
+    policy_prefixes = (f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}/%", f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}\\%")
+    with open_storage() as conn:
+        if conn.execute(
+            "SELECT 1 FROM project_environments WHERE project_key LIKE ? OR project_key LIKE ? LIMIT 1;",
+            prefixes,
+        ).fetchone():
+            return True
+        if conn.execute(
+            "SELECT 1 FROM security_policies WHERE id LIKE ? OR id LIKE ? LIMIT 1;",
+            policy_prefixes,
+        ).fetchone():
+            return True
+        if conn.execute(
+            "SELECT 1 FROM conversations WHERE json_extract(extra_json, '$.project') LIKE ? OR json_extract(extra_json, '$.project') LIKE ? LIMIT 1;",
+            prefixes,
+        ).fetchone():
+            return True
+    return False
+
 # --- browser.config ---
 """Navegador de Playwright MCP: configuración guardada y argumentos de arranque."""
 
@@ -10256,19 +10282,27 @@ def _create_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
-def _delete_project(_params: dict, ctx: SecurityContext) -> RpcOutcome:
+def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
-        target = validate_deletable_project_dir(ctx)
+        delete_directory = bool(params.get("deleteDirectory"))
+        confirm_path = str(params.get("confirmPath") or "").strip()
         if JOBS.running(ctx.key) or any(run.get("project") == ctx.key and run.get("status") == "running" for run in list_run_states()):
             raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
-        if target.exists():
-            shutil.rmtree(target)
+        if delete_directory:
+            target = validate_deletable_project_dir(ctx)
+            if confirm_path != ctx.key and confirm_path != str(target):
+                raise ValueError("La ruta de confirmación no coincide con el directorio del proyecto.")
+            if has_nested_project_data(ctx.key):
+                raise ValueError("Existen subproyectos guardados dentro de este directorio: borra primero sus datos.")
+            if target.exists():
+                shutil.rmtree(target)
         ACCESS_CONTROLLER.drop_project_session(ctx.key)
         deleted_ids = delete_project_storage(ctx.key)
         return rpc_result({
             "deleted": ctx.key,
+            "deletedDirectory": delete_directory,
             "deletedConversationIds": deleted_ids,
-            "fallback": str(get_no_project_dir()),
+            "fallback": str(get_no_project_dir()) if delete_directory else None,
         })
     except (ValueError, OSError) as exc:
         return rpc_error(INVALID_PARAMS, str(exc))

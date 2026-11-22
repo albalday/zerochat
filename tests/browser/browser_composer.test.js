@@ -86,17 +86,12 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       actions: [...document.querySelectorAll('[data-project-action]')].map(button => button.dataset.projectAction)
     }));
     assert.match(missing.text, /repo/);
-    assert.deepEqual(missing.actions, ['decline'], 'Sin herramientas de escritura no se ofrece inicializar');
-
-    await page.click('[data-project-action="decline"]');
-    await page.locator('#notice-accept').click();
-    await page.waitForFunction(() => window.ChatConfig.getActive().projectDeclined.includes('/home/u/repo'));
+    assert.deepEqual(missing.actions, [], 'Sin herramientas de escritura no se ofrece inicializar');
 
     await page.reload({ waitUntil: 'load' });
     await waitForAppReady(page);
     await page.click('#btn-reasoning');
     assert.equal(await page.locator('#chk-project-mode').isChecked(), true, 'El modo proyecto persiste tras recargar');
-    assert.deepEqual(await page.evaluate(() => window.ChatConfig.getActive().projectDeclined), ['/home/u/repo']);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();

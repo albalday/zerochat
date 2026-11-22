@@ -40,7 +40,7 @@
     'project'
   ]);
 
-  const PROJECT_STATUSES = Object.freeze(['disabled', 'unavailable', 'no_project', 'declined', 'no_access', 'missing', 'ready', 'error']);
+  const PROJECT_STATUSES = Object.freeze(['disabled', 'unavailable', 'no_project', 'no_access', 'missing', 'ready', 'error']);
 
   function createInitialState() {
     const defaultState = {

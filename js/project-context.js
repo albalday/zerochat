@@ -207,12 +207,11 @@ ${stateBody}
    * .zerochat/task.py, cuya existencia marca el proyecto como inicializado
    * (`helperRead.status`: ok | missing | denied | unavailable | error).
    */
-  function computeStatus({ projectMode = false, declined = [], cwd = '', noProject = false, readAvailable = false, helperRead = null } = {}) {
+  function computeStatus({ projectMode = false, cwd = '', noProject = false, readAvailable = false, helperRead = null } = {}) {
     // La carpeta general solo agrupa chats sueltos: nunca tiene memoria de proyecto.
     if (noProject) return 'no_project';
     if (!projectMode) return 'disabled';
     if (!cwd || !readAvailable) return 'unavailable';
-    if (Array.isArray(declined) && declined.includes(cwd)) return 'declined';
     switch (helperRead?.status) {
       case 'ok': return 'ready';
       case 'missing': return 'missing';
@@ -261,7 +260,6 @@ ${stateBody}
       const empty = { rules: { content: '', truncated: false }, state: { content: '', truncated: false } };
       const base = {
         projectMode: config.projectMode === true,
-        declined: config.projectDeclined || [],
         cwd,
         noProject: isNoProject(cwd),
         readAvailable: Boolean(getAvailableTool(READ_TOOL))
@@ -398,18 +396,31 @@ ${stateBody}
       return Boolean(cwd && !isNoProject(cwd));
     }
 
-    async function deleteProject({ askConfirmation, afterDelete, isBusy } = {}) {
-      if (typeof askConfirmation !== 'function') throw new TypeError('deleteProject requires askConfirmation');
+    async function deleteProject({ askDeleteOptions, askConfirmPath, afterDelete, isBusy } = {}) {
+      if (typeof askDeleteOptions !== 'function' || typeof askConfirmPath !== 'function') {
+        throw new TypeError('deleteProject requires askDeleteOptions and askConfirmPath');
+      }
       const cwd = getCwd();
       if (!cwd || !canDeleteProject() || isBusy?.()) return { ok: false, reason: 'unavailable' };
 
       const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
       const name = parts[parts.length - 1] || String(cwd || '');
-      if (!await askConfirmation({ cwd, name })) return { ok: false, reason: 'cancelled' };
+      const choice = await askDeleteOptions({ cwd, name });
+      if (!choice?.accepted) return { ok: false, reason: 'cancelled' };
+
+      const deleteDirectory = choice.checkboxChecked === true;
+      let confirmPath = '';
+      if (deleteDirectory) {
+        const typed = await askConfirmPath({ cwd, name });
+        if (typed === null) return { ok: false, reason: 'cancelled' };
+        if (String(typed).trim() !== cwd) return { ok: false, reason: 'path-mismatch' };
+        confirmPath = cwd;
+      }
+
       if (getCwd() !== cwd || isBusy?.() || !canDeleteProject()) return { ok: false, reason: 'state-changed' };
 
       try {
-        const result = await getMcp().deleteProjectDirectory();
+        const result = await getMcp().deleteProjectDirectory({ deleteDirectory, confirmPath });
         if (typeof afterDelete === 'function') await afterDelete(result);
         return { ok: true, ...result };
       } catch (error) {

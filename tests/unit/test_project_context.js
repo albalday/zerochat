@@ -5,11 +5,10 @@ const path = require('node:path');
 const ProjectContext = require('../../js/project-context.js');
 
 test('ProjectContext.computeStatus - resuelve cada estado según configuración, servidor y lectura', () => {
-  const base = { projectMode: true, declined: [], cwd: '/repo', readAvailable: true };
+  const base = { projectMode: true, cwd: '/repo', readAvailable: true };
   assert.equal(ProjectContext.computeStatus({ ...base, projectMode: false, helperRead: { status: 'ok' } }), 'disabled');
   assert.equal(ProjectContext.computeStatus({ ...base, cwd: '', helperRead: { status: 'ok' } }), 'unavailable');
   assert.equal(ProjectContext.computeStatus({ ...base, readAvailable: false, helperRead: { status: 'ok' } }), 'unavailable');
-  assert.equal(ProjectContext.computeStatus({ ...base, declined: ['/repo'], helperRead: { status: 'ok' } }), 'declined');
   assert.equal(ProjectContext.computeStatus({ ...base, noProject: true, helperRead: { status: 'ok' } }), 'no_project');
   assert.equal(ProjectContext.computeStatus({ ...base, projectMode: false, noProject: true, helperRead: { status: 'ok' } }), 'no_project');
   assert.equal(ProjectContext.computeStatus({ ...base, helperRead: { status: 'denied' } }), 'no_access');
@@ -21,7 +20,7 @@ test('ProjectContext.computeStatus - resuelve cada estado según configuración,
 });
 
 test('ProjectContext.buildPromptBlock - inyecta en ready, delimita XML y avisa si faltan AGENTS/memoria o hay marcadores', () => {
-  for (const status of ['disabled', 'unavailable', 'declined', 'no_access', 'missing', 'error']) {
+  for (const status of ['disabled', 'unavailable', 'no_access', 'missing', 'error']) {
     assert.equal(ProjectContext.buildPromptBlock({ status, cwd: '/repo', rules: { content: 'x' } }), '');
   }
   assert.equal(ProjectContext.buildPromptBlock(null), '');

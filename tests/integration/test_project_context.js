@@ -59,7 +59,7 @@ function createHarness({ config = {}, connected = true, cwd = '/repo', files = {
   ChatState.set('mcp', connected ? { status: 'connected', serverInfo: { cwd } } : { status: 'disconnected', serverInfo: null });
   ChatState.setProjectContext({ cwd: '', status: 'disabled' });
   MCP.manager.projectSnapshot = snapshot ? { cwd, data: snapshot } : null;
-  mock.method(ChatConfig, 'getActive', () => ({ projectMode: true, projectDeclined: [], ...config }));
+  mock.method(ChatConfig, 'getActive', () => ({ projectMode: true, ...config }));
   const calls = [];
   mock.method(AgentCore.registry, 'getTool', name => {
     if (readTool && name === 'read_file') return { name: 'read_file', isAvailable: () => true };
@@ -102,11 +102,6 @@ test('ProjectContext.refresh - estados previos (desactivado, sin servidor o read
   await noTool.context.refresh();
   assert.equal(noTool.state.get('project').status, 'unavailable');
   assert.equal(noTool.calls.length, 0);
-
-  const declined = createHarness({ config: { projectDeclined: ['/repo'] } });
-  await declined.context.refresh();
-  assert.equal(declined.state.get('project').status, 'declined');
-  assert.equal(declined.calls.length, 0);
 
   const ask = createHarness({ approval: true, files: { '/repo/.zerochat/task.py': 'helper' } });
   await ask.context.refresh();

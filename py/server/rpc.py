@@ -21,7 +21,13 @@ from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from server.state import live_state, wait_live_state
 from server.tool_calls import call_tool, dispatch_security
-from storage.db import delete_project_storage, get_project_environment, list_run_states, save_project_environment
+from storage.db import (
+    delete_project_storage,
+    get_project_environment,
+    has_nested_project_data,
+    list_run_states,
+    save_project_environment,
+)
 from storage.rpc import dispatch_blobs, dispatch_conversations, dispatch_profiles
 from tools.diff import configure_gui_diff_tool, open_file_diff
 from tools.filesystem import (
@@ -125,19 +131,27 @@ def _create_directory(params: dict, ctx: SecurityContext) -> RpcOutcome:
         return rpc_error(INVALID_PARAMS, str(exc))
 
 
-def _delete_project(_params: dict, ctx: SecurityContext) -> RpcOutcome:
+def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
-        target = validate_deletable_project_dir(ctx)
+        delete_directory = bool(params.get("deleteDirectory"))
+        confirm_path = str(params.get("confirmPath") or "").strip()
         if JOBS.running(ctx.key) or any(run.get("project") == ctx.key and run.get("status") == "running" for run in list_run_states()):
             raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
-        if target.exists():
-            shutil.rmtree(target)
+        if delete_directory:
+            target = validate_deletable_project_dir(ctx)
+            if confirm_path != ctx.key and confirm_path != str(target):
+                raise ValueError("La ruta de confirmación no coincide con el directorio del proyecto.")
+            if has_nested_project_data(ctx.key):
+                raise ValueError("Existen subproyectos guardados dentro de este directorio: borra primero sus datos.")
+            if target.exists():
+                shutil.rmtree(target)
         ACCESS_CONTROLLER.drop_project_session(ctx.key)
         deleted_ids = delete_project_storage(ctx.key)
         return rpc_result({
             "deleted": ctx.key,
+            "deletedDirectory": delete_directory,
             "deletedConversationIds": deleted_ids,
-            "fallback": str(get_no_project_dir()),
+            "fallback": str(get_no_project_dir()) if delete_directory else None,
         })
     except (ValueError, OSError) as exc:
         return rpc_error(INVALID_PARAMS, str(exc))

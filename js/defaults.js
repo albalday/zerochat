@@ -58,7 +58,7 @@
     browser: 'browser_action',
     // Conexión: el servidor local por defecto o uno remoto (su URL y, tras un proxy inverso, la clave del proxy).
     localBackend: true, backendUrl: '', useProxy: false, proxyKey: '',
-    projectMode: true, projectDeclined: Object.freeze([]),
+    projectMode: true,
     webllmConfig: Object.freeze({
       context_window_size: String(getWebllmDefaultContextWindowSize()),
       prefill_chunk_size: 'default'
