@@ -55,6 +55,8 @@ MODERN_USER_AGENTS = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0",
 )
+# User-Agent por defecto de las salidas web y de los motores propios hasta que el frontend fija el suyo.
+DEFAULT_USER_AGENT = MODERN_USER_AGENTS[0]
 
 
 def own_browser_profile_dir(engine: str) -> Path:
@@ -174,7 +176,7 @@ def _playwright_launch(service_user_agent: str | None = None) -> tuple[list[str]
 
 # User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
 # activo de las salidas web (web/fetch) para que ambos compartan el mismo fingerprint.
-SERVICE_USER_AGENT: str | None = None
+SERVICE_USER_AGENT: str | None = DEFAULT_USER_AGENT
 _FRONTEND_USER_AGENT_CAPTURED: bool = False
 
 
@@ -190,12 +192,10 @@ def load_last_frontend_user_agent() -> str | None:
         stored = get_setting(LAST_FRONTEND_USER_AGENT_KEY)
     except (OSError, ValueError, TypeError, sqlite3.Error):
         return None
-    if not isinstance(stored, str):
+    try:
+        return _validate_user_agent(stored) or None
+    except ValueError:
         return None
-    cleaned = stored.strip()
-    if not cleaned or len(cleaned) > USER_AGENT_MAX_LEN or any(ch in cleaned for ch in ("\r", "\n", "\x00")):
-        return None
-    return cleaned
 
 
 def save_last_frontend_user_agent(user_agent: str) -> None:

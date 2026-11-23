@@ -3960,6 +3960,8 @@ MODERN_USER_AGENTS = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0",
 )
+# User-Agent por defecto de las salidas web y de los motores propios hasta que el frontend fija el suyo.
+DEFAULT_USER_AGENT = MODERN_USER_AGENTS[0]
 
 
 def own_browser_profile_dir(engine: str) -> Path:
@@ -4079,7 +4081,7 @@ def _playwright_launch(service_user_agent: str | None = None) -> tuple[list[str]
 
 # User-Agent que usan los motores propios de Playwright; lo fija el servidor con el User-Agent
 # activo de las salidas web (web/fetch) para que ambos compartan el mismo fingerprint.
-SERVICE_USER_AGENT: str | None = None
+SERVICE_USER_AGENT: str | None = DEFAULT_USER_AGENT
 _FRONTEND_USER_AGENT_CAPTURED: bool = False
 
 
@@ -4095,12 +4097,10 @@ def load_last_frontend_user_agent() -> str | None:
         stored = get_setting(LAST_FRONTEND_USER_AGENT_KEY)
     except (OSError, ValueError, TypeError, sqlite3.Error):
         return None
-    if not isinstance(stored, str):
+    try:
+        return _validate_user_agent(stored) or None
+    except ValueError:
         return None
-    cleaned = stored.strip()
-    if not cleaned or len(cleaned) > USER_AGENT_MAX_LEN or any(ch in cleaned for ch in ("\r", "\n", "\x00")):
-        return None
-    return cleaned
 
 
 def save_last_frontend_user_agent(user_agent: str) -> None:
@@ -10283,32 +10283,35 @@ METADATA_HOSTS = frozenset({
     "instance-data",
     "100.100.100.200",
 })
-DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
 # El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
 # fingerprint); sin frontend (--prompt/--conversation) se usa el último guardado o el por defecto.
 ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
+# Último User-Agent real guardado en SQLite: se lee una sola vez por proceso, no en cada petición web.
+_STORED_USER_AGENT: str | None = None
+_STORED_USER_AGENT_LOADED = False
 
 
 def capture_frontend_user_agent(user_agent: str) -> None:
     """Adopta y persiste el User-Agent de la primera petición del frontend para las salidas web y Playwright."""
-    global ACTIVE_USER_AGENT
+    global ACTIVE_USER_AGENT, _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED
     cleaned = user_agent.strip() if isinstance(user_agent, str) else ""
     if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and cleaned:
         ACTIVE_USER_AGENT = cleaned
         set_service_user_agent(ACTIVE_USER_AGENT, from_frontend=True)
         save_last_frontend_user_agent(cleaned)
+        _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED = cleaned, True
 
 
 def effective_user_agent() -> str:
     """User-Agent activo del servidor o, en desatendido sin frontend, el último capturado del navegador."""
+    global _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED
     if ACTIVE_USER_AGENT is not DEFAULT_USER_AGENT:
         return ACTIVE_USER_AGENT
-    return load_last_frontend_user_agent() or DEFAULT_USER_AGENT
+    if not _STORED_USER_AGENT_LOADED:
+        _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED = load_last_frontend_user_agent(), True
+    return _STORED_USER_AGENT or DEFAULT_USER_AGENT
 
 
-# Los motores propios de Playwright arrancan con el User-Agent por defecto hasta que el
-# frontend fija el suyo en la primera petición.
-set_service_user_agent(DEFAULT_USER_AGENT)
 WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
 WEB_FETCH_MAX_REDIRECTS = 5
 WEB_FETCH_READ_CHUNK = 64 * 1024

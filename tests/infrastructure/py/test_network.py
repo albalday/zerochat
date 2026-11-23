@@ -215,7 +215,7 @@ class WebFetchTest(unittest.TestCase):
             self.assertTrue(res["ok"])
             self.assertLess(timeouts[-1], 5 - 0.2)
             req = captured_requests[0]
-            self.assertEqual(req.headers.get("User-agent"), zerochat.ACTIVE_USER_AGENT)
+            self.assertEqual(req.headers.get("User-agent"), zerochat.effective_user_agent())
             self.assertEqual(req.headers.get("Referer"), "https://html.duckduckgo.com/")
             self.assertEqual(req.headers.get("Sec-fetch-dest"), "document")
             self.assertEqual(req.headers.get("Sec-fetch-mode"), "navigate")

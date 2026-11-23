@@ -205,6 +205,12 @@ class PlaywrightLaunchTest(unittest.TestCase):
             zerochat.ACTIVE_USER_AGENT = zerochat.DEFAULT_USER_AGENT
             zerochat.set_service_user_agent(zerochat.DEFAULT_USER_AGENT, from_frontend=False)
             self.assertEqual(zerochat.effective_user_agent(), "Mozilla/5.0 RealBrowser/144.0")
+            # Sin captura en este proceso, SQLite se lee una sola vez y no en cada petición web.
+            with patch.object(zerochat, "_STORED_USER_AGENT_LOADED", False), \
+                    patch.object(zerochat, "load_last_frontend_user_agent", wraps=zerochat.load_last_frontend_user_agent) as load:
+                for _ in range(2):
+                    self.assertEqual(zerochat.effective_user_agent(), "Mozilla/5.0 RealBrowser/144.0")
+                self.assertEqual(load.call_count, 1)
             auto_cfg = zerochat.save_browser_config({"userAgentMode": "auto"})
             self.assertEqual(
                 self.launch_args(auto_cfg),
