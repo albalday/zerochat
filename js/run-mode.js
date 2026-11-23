@@ -18,6 +18,7 @@
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
+  const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
@@ -134,8 +135,11 @@
         export: exportFormat,
         conversation_id: conversationId,
         new_conversation_id: newConversationId,
-        max_steps: maxSteps = null
+        max_steps: maxSteps = null,
+        project_mode: projectMode = null
       } = await send('zerochat/run/prompt');
+      // --run-file decide si se inyectan las normas y el estado del proyecto; --prompt y --conversation, no (null).
+      if (typeof projectMode === 'boolean') getConfig().updateRuntime({ projectMode });
 
       const isConversationMode = Boolean(conversationId);
       if (!isConversationMode && (typeof prompt !== 'string' || !prompt)) {

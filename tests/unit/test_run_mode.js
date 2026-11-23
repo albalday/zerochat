@@ -4,6 +4,7 @@ const RunMode = require('../../js/run-mode.js');
 const MCP = require('../../js/mcp.js');
 const Profiles = require('../../js/profile-repository.js');
 const State = require('../../js/state.js');
+const Config = require('../../js/config-store.js');
 const ToolCards = require('../../js/tool-cards.js');
 
 test('RunMode.createProgressReporter limita el streaming al intervalo y envía siempre los demás avisos', t => {
@@ -123,7 +124,8 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
       profiles: [{ id: 'p1', name: 'local', settings: {} }],
       export: 'md',
       new_conversation_id: 'session_nueva_1',
-      max_steps: 5
+      max_steps: 5,
+      project_mode: false
     },
     submitResult: { text: 'Listo' },
     afterSubmitMessages: [{ role: 'user', content: 'Hola' }, { role: 'assistant', content: 'Listo' }]
@@ -131,16 +133,18 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.equal(ok.startedNew, 'session_nueva_1');
   assert.equal(ok.activated, 'p1');
   assert.equal(ok.submitted.opts.maxSteps, 5);
+  assert.equal(Config.getActive().projectMode, false, '--run-file sin projectMode no inyecta las normas del proyecto');
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', text: 'Listo' });
 
-  // 2. Límite de pasos.
+  // 2. Límite de pasos; projectMode true vuelve a inyectarlas.
   const limit = await runScenario({
-    promptPayload: { prompt: 'Lee', new_conversation_id: 'session_lim', max_steps: 2 },
+    promptPayload: { prompt: 'Lee', new_conversation_id: 'session_lim', max_steps: 2, project_mode: true },
     submitResult: { limit: 'steps' },
     afterSubmitMessages: [{ role: 'user', content: 'Lee' }, { role: 'tool', content: '{}' }]
   });
   assert.deepEqual(limit.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', limit: 'steps' });
+  assert.equal(Config.getActive().projectMode, true);
 
   // 3. Pausa por ask_user.
   const ask = await runScenario({

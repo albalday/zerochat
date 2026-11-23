@@ -5149,7 +5149,7 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
-RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt",) + tuple(RUN_FILE_LIMIT_KEYS))
+RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS))
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -5193,6 +5193,10 @@ def parse_run_request(raw: bytes) -> dict:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
         request["systemDataPrompt"] = validate_project_prompt(data["systemDataPrompt"])
+    # Sin projectMode, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual.
+    if "projectMode" in data and not isinstance(data["projectMode"], bool):
+        raise ValueError("projectMode debe ser true o false")
+    request["projectMode"] = data.get("projectMode", False)
     for key, maximum in RUN_FILE_LIMIT_KEYS.items():
         if key in data:
             value = data[key]
@@ -5472,7 +5476,7 @@ class RunSession:
                  conversation_id: str | None = None, run_id: str | None = None,
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
-                 max_steps: int | None = None, timeout_seconds: int | None = None):
+                 max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -5486,6 +5490,9 @@ class RunSession:
         self.prompt = prompt
         # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
         self.system_data_prompt = system_data_prompt
+        # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
+        # --conversation) deja el modo proyecto por defecto del runner.
+        self.project_mode = project_mode
         # Límites de --run-file: el de pasos lo aplica el bucle del runner y el de tiempo, run_supervisor.
         self.max_steps = max_steps
         self.timeout_seconds = timeout_seconds
@@ -5641,7 +5648,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
-                       "export": export_format, "max_steps": session.max_steps})
+                       "export": export_format, "max_steps": session.max_steps, "project_mode": session.project_mode})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
@@ -11224,7 +11231,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, systemDataPrompt, maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, systemDataPrompt, projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
@@ -11349,7 +11356,8 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         mark_conversation_server_run(conversation_id, profile_name)
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=request.get("systemDataPrompt"),
-                      max_steps=request.get("maxSteps"), timeout_seconds=request.get("timeout"))
+                      max_steps=request.get("maxSteps"), timeout_seconds=request.get("timeout"),
+                      project_mode=request.get("projectMode"))
 
 
 def redirect_log(args):

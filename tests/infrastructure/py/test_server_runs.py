@@ -252,7 +252,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         # Tope del fichero en el borde exacto: N bytes se aceptan y N+1 no.
         body = json.dumps({"prompt": "Hola"})
         at_limit = (body + " " * (zerochat.RUN_FILE_MAX_BYTES - len(body))).encode()
-        self.assertEqual(zerochat.parse_run_request(at_limit), {"prompt": "Hola"})
+        self.assertEqual(zerochat.parse_run_request(at_limit), {"prompt": "Hola", "projectMode": False})
         with self.assertRaisesRegex(ValueError, "no puede superar"):
             zerochat.parse_run_request(at_limit + b" ")
 
@@ -263,12 +263,18 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, f"{key} debe ser un entero"):
                     zerochat.parse_run_request(json.dumps({"prompt": "Hola", key: invalid}).encode())
 
+        # projectMode: por defecto no se inyectan las normas del proyecto; solo admite booleanos.
+        self.assertTrue(zerochat.parse_run_request(json.dumps({"prompt": "Hola", "projectMode": True}).encode())["projectMode"])
+        for invalid in ("true", 1, None):
+            with self.assertRaisesRegex(ValueError, "projectMode debe ser true o false"):
+                zerochat.parse_run_request(json.dumps({"prompt": "Hola", "projectMode": invalid}).encode())
+
         # Un conversation_id que no existe es el de la conversación nueva; sin prompt no hay con qué empezarla.
         session = session_from(["--run-file", write_request({
             "conversation_id": "session_orquestador_1", "prompt": " Redacta el informe ", "systemDataPrompt": "Eres el agente de informes.",
             "maxSteps": 20, "timeout": 600})])
         self.assertEqual((session.conversation_id, session.new_conversation_id), (None, "session_orquestador_1"))
-        self.assertEqual((session.max_steps, session.timeout_seconds), (20, 600))
+        self.assertEqual((session.max_steps, session.timeout_seconds, session.project_mode), (20, 600, False))
         self.assertEqual((session.prompt, session.profile, session.system_data_prompt), ("Redacta el informe", "local", "Eres el agente de informes."))
         rejects(["--run-file", write_request({"conversation_id": "session_orquestador_2"})])
 
@@ -356,7 +362,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(err["code"], zerochat.INVALID_PARAMS)
         session = zerochat.RunSession("Hola", new_conversation_id="session_pasos", max_steps=20)
         zerochat.RUN_SESSION = session
-        self.assertEqual(dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})[0]["max_steps"], 20)
+        delivered = dispatch_run("zerochat/run/prompt", {"run_id": session.run_id})[0]
+        self.assertEqual((delivered["max_steps"], delivered["project_mode"]), (20, None))
         _, err, _ = dispatch_run("zerochat/run/result", {"run_id": session.run_id, "limit": "timeout"})
         self.assertEqual(err["code"], zerochat.INVALID_PARAMS)
         self.assertEqual(dispatch_run("zerochat/run/result", {"run_id": session.run_id, "limit": "steps"})[0], {"ok": True})
