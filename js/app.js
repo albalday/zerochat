@@ -468,9 +468,7 @@
       return;
     }
     try {
-      const nextRecord = { ...profile, settings: { ...profile.settings, contextLimitOverride } };
-      const savedProfile = Profiles.save(nextRecord);
-      UIProfiles.activateConnectionProfile(savedProfile.id);
+      await UIProfiles.saveProfileSettings(profile.id, { contextLimitOverride });
       updateConnectionTokensBadge(null, { forcePopover: true });
     } catch (error) {
       console.error('[App] Could not save the context limit override:', error);
@@ -922,6 +920,8 @@
         await MCP.manager.syncProfiles(serverId, {
           onServerChange: UIProfiles.confirmServerProfileSync
         });
+        // Reaplicar el perfil activo cambiado en otro dispositivo deja sin el límite publicado del catálogo.
+        loadCachedModels();
         UIProfiles.renderProfileMenu();
         UIProfiles.syncActiveProfileTrigger();
       } catch (error) {

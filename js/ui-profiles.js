@@ -464,6 +464,36 @@
     };
   }
 
+  /**
+   * Sube al servidor conectado un perfil ya guardado en el navegador y lo marca sincronizado; sin conexión o si falla,
+   * queda para la siguiente sincronización. Sin apiKey en settings el servidor conserva la suya. Devuelve true si
+   * quedó pendiente por un fallo.
+   */
+  async function pushSavedProfile(saved, settings) {
+    if (!getMCP().manager.isProxyConnected()) return false;
+    try {
+      await getMCP().manager.saveServerProfile({
+        id: saved.id, name: saved.name, description: saved.description, updatedAt: saved.updatedAt, settings
+      });
+      getProfiles().save(saved, { synced: true, preserveUpdatedAt: true });
+      return false;
+    } catch (error) {
+      console.warn('[UIProfiles] Could not save profile to server; queued for sync:', error);
+      return true;
+    }
+  }
+
+  /** Cambia ajustes de un perfil guardado sin pasar por el editor (p. ej. la capacidad asumida), lo replica y lo activa. */
+  async function saveProfileSettings(profileId, patch) {
+    const profile = getProfiles().get(profileId);
+    const saved = getProfiles().save({ ...profile, settings: { ...profile.settings, ...patch } });
+    const settings = { ...saved.settings };
+    delete settings.apiKey; // La local va cifrada: el servidor conserva la suya.
+    await pushSavedProfile(saved, settings);
+    activateConnectionProfile(saved.id);
+    return saved;
+  }
+
   /** Guarda el perfil editado en el navegador y, si hay conexión, también en el servidor; devuelve true si puede cerrarse. */
   async function handleSaveProfile() {
     const Profiles = getProfiles();
@@ -490,22 +520,7 @@
       settings
     }, { synced: false });
 
-    let pendingSync = false;
-    if (getMCP().manager.isProxyConnected()) {
-      try {
-        await getMCP().manager.saveServerProfile({
-          id: saved.id,
-          name,
-          description,
-          updatedAt: saved.updatedAt,
-          settings: { ...settings, apiKey: settings.apiKey || '' }
-        });
-        Profiles.save(saved, { synced: true, preserveUpdatedAt: true });
-      } catch (error) {
-        console.warn('[UIProfiles] Could not save profile to server; queued for sync:', error);
-        pendingSync = true;
-      }
-    }
+    const pendingSync = await pushSavedProfile(saved, { ...settings, apiKey: settings.apiKey || '' });
 
     populateProfileSelector(saved.id);
     updateEditor({ dirty: false, loadedApiKey: settings.apiKey });
@@ -977,6 +992,7 @@
     setProfileQueryState,
     closeProfilesModal,
     activateConnectionProfile,
+    saveProfileSettings,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
     startImportMode,

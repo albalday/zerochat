@@ -401,6 +401,77 @@ test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fu
   }
 });
 
+test('Browser UI - la capacidad asumida se replica al servidor conectado sin la clave local y deja el perfil sincronizado', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await openProfilesPage(browser);
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:remote"]');
+    await page.evaluate(() => {
+      const manager = window.ChatMCP.manager;
+      window.__savedRemote = [];
+      manager.isProxyConnected = () => true;
+      manager.saveServerProfile = async profile => { window.__savedRemote.push(profile); return profile; };
+    });
+    await page.evaluate(() => {
+      document.getElementById('context-limit-override-input').value = '64K';
+      document.getElementById('btn-save-context-limit-override').click();
+    });
+    await page.waitForFunction(() => window.__savedRemote.length === 1);
+    const result = await page.evaluate(() => {
+      const [sent] = window.__savedRemote;
+      const local = window.ChatProfileRepository.get('profile:remote');
+      return {
+        sentLimit: sent.settings.contextLimitOverride,
+        sentHasKey: Object.prototype.hasOwnProperty.call(sent.settings, 'apiKey'),
+        sameUpdatedAt: sent.updatedAt === local.updatedAt,
+        synced: local.synced,
+        active: window.ChatConfig.getActive().contextLimitOverride
+      };
+    });
+    assert.deepEqual(result, { sentLimit: 64000, sentHasKey: false, sameUpdatedAt: true, synced: true, active: 64000 });
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - al sincronizar un cambio del perfil activo hecho en otro dispositivo se conserva el límite publicado', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5000);
+    await page.addInitScript(() => {
+      localStorage.setItem('zerochat_cached_models', JSON.stringify({
+        version: 1,
+        connections: { 'openai:http://localhost:1234/v1': [{ id: 'google/gemma-4-26b-a4b-qat', details: { loaded_context_length: 90112 } }] }
+      }));
+    });
+    await seedConnectionProfiles(page);
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:local"]');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().modelContextLimit), 90112);
+
+    const syncDone = page.evaluate(() => {
+      const manager = window.ChatMCP.manager;
+      const remote = window.ChatProfileRepository.list().filter(profile => profile.id !== 'profile:mirror')
+        .map(({ id, name, settings }) => ({ id, name, hasApiKey: false, updatedAt: Date.now() + 60000, settings: { ...settings, contextLimitOverride: 32768 } }));
+      manager.clients.set('mcp_proxy', { request: async method => (method === 'zerochat/profiles/list' ? { profiles: remote } : {}) });
+      return manager.profileSyncHandler('srv-otro');
+    });
+    await page.waitForFunction(() => document.getElementById('notice-dialog').open);
+    await page.click('#notice-accept');
+    await syncDone;
+    assert.deepEqual(await page.evaluate(() => {
+      const { modelContextLimit, contextLimitOverride } = window.ChatConfig.getActive();
+      return { modelContextLimit, contextLimitOverride };
+    }), { modelContextLimit: 90112, contextLimitOverride: 32768 });
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - abrir una conversación guardada con otro perfil no cambia el perfil activo de la pestaña', async () => {
   const browser = await createTestBrowser();
   try {
