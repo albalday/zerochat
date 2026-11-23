@@ -2411,6 +2411,9 @@ MAX_PROFILE_NAME_LENGTH = 128
 MAX_PROFILE_DESCRIPTION_LENGTH = 2048
 MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
+# Identificador de agente de una conversación: <subconjunto>.<nombre>, dos niveles dentro de su proyecto.
+MAX_AGENT_ID_LENGTH = 64
+_AGENT_ID_PATTERN = re.compile(r"[a-z0-9_-]+\.[a-z0-9_-]+")
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
 CONVERSATION_UPLOAD_TTL_SECONDS = 300
@@ -2837,6 +2840,13 @@ def _validate_conversation_id(session_id) -> str:
     return clean
 
 
+def validate_agent_id(agent) -> str:
+    """El identificador de agente <subconjunto>.<nombre> (minúsculas, cifras, _ y -), sin pasar de MAX_AGENT_ID_LENGTH."""
+    if not isinstance(agent, str) or len(agent) > MAX_AGENT_ID_LENGTH or not _AGENT_ID_PATTERN.fullmatch(agent):
+        raise ValueError(f"agent debe ser <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
+    return agent
+
+
 def _validate_conversation_title(title, allow_empty: bool = False) -> str:
     if not isinstance(title, str):
         raise ValueError("El título de la conversación debe ser un texto")
@@ -2864,6 +2874,8 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
         header["serverRun"] = bool(extra["server_run"])
     if extra.get("project"):
         header["project"] = extra["project"]
+    if extra.get("agent"):
+        header["agent"] = extra["agent"]
     return header
 
 
@@ -2943,7 +2955,7 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
 
 
 def _conversation_extra(session_meta: dict) -> dict:
-    """Campos de extra_json que trae la petición: el perfil, el modo servidor y el proyecto."""
+    """Campos de extra_json que trae la petición: el perfil, el modo servidor, el proyecto y el agente."""
     extra = {}
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
@@ -2956,12 +2968,15 @@ def _conversation_extra(session_meta: dict) -> dict:
             raise ValueError("El proyecto de la conversación debe ser una ruta")
         if project.strip():
             extra["project"] = project.strip()
+    if session_meta.get("agent") is not None:
+        extra["agent"] = validate_agent_id(session_meta["agent"])
     return extra
 
 
 def _merge_saved_header(existing, session_meta: dict, created_at: int, title: str, extra: dict) -> tuple[int, str, dict]:
     """Completa la cabecera con la guardada: su fecha de creación y su título si la petición no los trae, y su
-    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después."""
+    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después; el agente, igual,
+    y sin agente al crearla no se le añade después."""
     if not session_meta.get("createdAt") and existing["created_at"]:
         created_at = int(existing["created_at"])
     if not title and existing["title"]:
@@ -2970,6 +2985,9 @@ def _merge_saved_header(existing, session_meta: dict, created_at: int, title: st
     extra = {**existing_extra, **extra}
     if existing_extra.get("project"):
         extra["project"] = existing_extra["project"]
+    extra.pop("agent", None)
+    if existing_extra.get("agent"):
+        extra["agent"] = existing_extra["agent"]
     return created_at, title, extra
 
 
@@ -3020,7 +3038,7 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     now = int(time.time() * 1000)
     created_at = int(session_meta.get("createdAt") or now)
     updated_at = int(session_meta.get("updatedAt") or now)
-    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+    # extra_json guarda el perfil, el modo servidor, el proyecto y el agente; la cabecera los expone como campos propios.
     extra = _conversation_extra(session_meta)
 
     with open_storage() as conn:
@@ -5146,7 +5164,7 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 # Petición de --run-file: lo que quien lanza la ejecución fija en ella. Nunca lleva permisos, herramientas ni servicios
 # MCP, que salen siempre del entorno guardado del proyecto, así que no puede ampliarlos.
-RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile")
+RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
 RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS))
@@ -5189,6 +5207,8 @@ def parse_run_request(raw: bytes) -> dict:
             request[key] = value.strip()
     if "conversation_id" in request:
         request["conversation_id"] = _validate_conversation_id(request["conversation_id"])
+    if "agent" in request:
+        request["agent"] = validate_agent_id(request["agent"])
     if "systemDataPrompt" in data:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
@@ -5476,7 +5496,8 @@ class RunSession:
                  conversation_id: str | None = None, run_id: str | None = None,
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
-                 max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None):
+                 max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
+                 agent: str | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -5490,6 +5511,8 @@ class RunSession:
         self.prompt = prompt
         # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
         self.system_data_prompt = system_data_prompt
+        # agent de --run-file: marca la conversación nueva como de ese agente (run_conversation_meta).
+        self.agent = agent
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode
@@ -5601,6 +5624,15 @@ def run_project_environment(env: dict) -> dict:
     if session is None or session.system_data_prompt is None:
         return env
     return {**env, "systemDataPrompt": session.system_data_prompt}
+
+
+def run_conversation_meta(session_meta):
+    """La cabecera de una conversación que se guarda: la nueva de una ejecución con agent lleva ese agente, lo envíe o
+    no el runner; SQLite solo lo admite al crearla."""
+    session = RUN_SESSION
+    if session is None or not session.agent or not isinstance(session_meta, dict) or session_meta.get("id") != session.new_conversation_id:
+        return session_meta
+    return {**session_meta, "agent": session.agent}
 
 
 def http_body_limit() -> int:
@@ -5911,11 +5943,12 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     if not isinstance(params, dict):
         raise ValueError("Los parámetros deben ser un objeto")
     upload_id = params.get("uploadId")
+    conversation = run_conversation_meta(params.get("conversation"))
     if upload_id is not None:
         if params.get("messages") is not None:
             raise ValueError("No se puede combinar uploadId y messages")
-        return rpc_result({"conversation": commit_conversation_upload(params.get("conversation"), upload_id)})
-    return rpc_result({"conversation": save_conversation(params.get("conversation"), params.get("messages"))})
+        return rpc_result({"conversation": commit_conversation_upload(conversation, upload_id)})
+    return rpc_result({"conversation": save_conversation(conversation, params.get("messages"))})
 
 
 def _rpc_rename_conversation(params: dict) -> RpcOutcome:
@@ -11231,7 +11264,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, systemDataPrompt, projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, agent (<subconjunto>.<nombre>: marca la conversación nueva como de ese agente), systemDataPrompt, projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
@@ -11349,6 +11382,10 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         raw_prompt, raw_conversation, raw_profile = args.prompt, args.conversation, args.profile
     prompt = _run_prompt(parser, raw_prompt)
     conversation_id, conv, new_conversation_id = _run_conversation(parser, raw_conversation, prompt, allow_new=args.run_file is not None)
+    # El agente se fija al crear la conversación: continuarla con otro, o sin él, mezclaría historiales.
+    if args.run_file is not None and conv is not None and conv.get("agent") != request.get("agent"):
+        parser.error(f"la conversación '{conversation_id}' es del agente '{conv.get('agent') or '(ninguno)'}', no de "
+                     f"'{request.get('agent') or '(ninguno)'}'")
     _check_run_flags(parser, args)
     profile_name, profile_data = _run_profile(parser, raw_profile, conv)
     export_path = _run_export_path(parser, args)
@@ -11357,7 +11394,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=request.get("systemDataPrompt"),
                       max_steps=request.get("maxSteps"), timeout_seconds=request.get("timeout"),
-                      project_mode=request.get("projectMode"))
+                      project_mode=request.get("projectMode"), agent=request.get("agent"))
 
 
 def redirect_log(args):

@@ -6,7 +6,7 @@ import base64
 
 from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
-from run_mode.state import cancel_server_run
+from run_mode.state import cancel_server_run, run_conversation_meta
 from storage.db import (
     commit_conversation_upload,
     delete_all_conversations,
@@ -112,11 +112,12 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     if not isinstance(params, dict):
         raise ValueError("Los parámetros deben ser un objeto")
     upload_id = params.get("uploadId")
+    conversation = run_conversation_meta(params.get("conversation"))
     if upload_id is not None:
         if params.get("messages") is not None:
             raise ValueError("No se puede combinar uploadId y messages")
-        return rpc_result({"conversation": commit_conversation_upload(params.get("conversation"), upload_id)})
-    return rpc_result({"conversation": save_conversation(params.get("conversation"), params.get("messages"))})
+        return rpc_result({"conversation": commit_conversation_upload(conversation, upload_id)})
+    return rpc_result({"conversation": save_conversation(conversation, params.get("messages"))})
 
 
 def _rpc_rename_conversation(params: dict) -> RpcOutcome:

@@ -250,7 +250,7 @@
   const CONVERSATION_NOT_DOWNLOADED = 'CONVERSATION_NOT_DOWNLOADED';
 
   function toConversationHeader(record) {
-    const { id, title, createdAt, updatedAt, messageCount, profileId, serverRun, project, messagesPending } = record;
+    const { id, title, createdAt, updatedAt, messageCount, profileId, serverRun, project, agent, messagesPending } = record;
     return {
       id,
       title,
@@ -260,6 +260,7 @@
       ...(profileId ? { profileId } : {}),
       ...(serverRun !== undefined ? { serverRun } : {}),
       ...(project ? { project } : {}),
+      ...(agent ? { agent } : {}),
       ...(messagesPending ? { messagesPending: true } : {})
     };
   }
@@ -278,6 +279,7 @@
       ...(sessionMeta.profileId ? { profileId: sessionMeta.profileId } : {}),
       ...(sessionMeta.serverRun !== undefined ? { serverRun: Boolean(sessionMeta.serverRun) } : {}),
       ...(sessionMeta.project ? { project: sessionMeta.project } : {}),
+      ...(sessionMeta.agent ? { agent: sessionMeta.agent } : {}),
       ...(synced ? { synced: true } : {})
     };
   }

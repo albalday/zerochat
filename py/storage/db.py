@@ -31,6 +31,9 @@ MAX_PROFILE_NAME_LENGTH = 128
 MAX_PROFILE_DESCRIPTION_LENGTH = 2048
 MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
+# Identificador de agente de una conversación: <subconjunto>.<nombre>, dos niveles dentro de su proyecto.
+MAX_AGENT_ID_LENGTH = 64
+_AGENT_ID_PATTERN = re.compile(r"[a-z0-9_-]+\.[a-z0-9_-]+")
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
 CONVERSATION_UPLOAD_TTL_SECONDS = 300
@@ -457,6 +460,13 @@ def _validate_conversation_id(session_id) -> str:
     return clean
 
 
+def validate_agent_id(agent) -> str:
+    """El identificador de agente <subconjunto>.<nombre> (minúsculas, cifras, _ y -), sin pasar de MAX_AGENT_ID_LENGTH."""
+    if not isinstance(agent, str) or len(agent) > MAX_AGENT_ID_LENGTH or not _AGENT_ID_PATTERN.fullmatch(agent):
+        raise ValueError(f"agent debe ser <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
+    return agent
+
+
 def _validate_conversation_title(title, allow_empty: bool = False) -> str:
     if not isinstance(title, str):
         raise ValueError("El título de la conversación debe ser un texto")
@@ -484,6 +494,8 @@ def _row_to_conversation_header(row: sqlite3.Row) -> dict:
         header["serverRun"] = bool(extra["server_run"])
     if extra.get("project"):
         header["project"] = extra["project"]
+    if extra.get("agent"):
+        header["agent"] = extra["agent"]
     return header
 
 
@@ -563,7 +575,7 @@ def _delete_orphan_blobs(conn: sqlite3.Connection, candidates: set[str]):
 
 
 def _conversation_extra(session_meta: dict) -> dict:
-    """Campos de extra_json que trae la petición: el perfil, el modo servidor y el proyecto."""
+    """Campos de extra_json que trae la petición: el perfil, el modo servidor, el proyecto y el agente."""
     extra = {}
     profile_id = session_meta.get("profileId")
     if profile_id and isinstance(profile_id, str) and profile_id.strip():
@@ -576,12 +588,15 @@ def _conversation_extra(session_meta: dict) -> dict:
             raise ValueError("El proyecto de la conversación debe ser una ruta")
         if project.strip():
             extra["project"] = project.strip()
+    if session_meta.get("agent") is not None:
+        extra["agent"] = validate_agent_id(session_meta["agent"])
     return extra
 
 
 def _merge_saved_header(existing, session_meta: dict, created_at: int, title: str, extra: dict) -> tuple[int, str, dict]:
     """Completa la cabecera con la guardada: su fecha de creación y su título si la petición no los trae, y su
-    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después."""
+    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después; el agente, igual,
+    y sin agente al crearla no se le añade después."""
     if not session_meta.get("createdAt") and existing["created_at"]:
         created_at = int(existing["created_at"])
     if not title and existing["title"]:
@@ -590,6 +605,9 @@ def _merge_saved_header(existing, session_meta: dict, created_at: int, title: st
     extra = {**existing_extra, **extra}
     if existing_extra.get("project"):
         extra["project"] = existing_extra["project"]
+    extra.pop("agent", None)
+    if existing_extra.get("agent"):
+        extra["agent"] = existing_extra["agent"]
     return created_at, title, extra
 
 
@@ -640,7 +658,7 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     now = int(time.time() * 1000)
     created_at = int(session_meta.get("createdAt") or now)
     updated_at = int(session_meta.get("updatedAt") or now)
-    # extra_json guarda el perfil, el modo servidor y el proyecto; la cabecera los expone como campos propios.
+    # extra_json guarda el perfil, el modo servidor, el proyecto y el agente; la cabecera los expone como campos propios.
     extra = _conversation_extra(session_meta)
 
     with open_storage() as conn:

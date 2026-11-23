@@ -2,6 +2,7 @@ Agent run-file template (agents/template.json):
 ```json
 {
   "conversation_id": "agent-role-daily",
+  "agent": "<set>.<role>",
   "profile": "local",
   "systemDataPrompt": "Read agents/<role>.md and follow its instructions strictly.",
   "prompt": "Run the scheduled task.",

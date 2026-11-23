@@ -115,7 +115,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, systemDataPrompt, projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, agent (<subconjunto>.<nombre>: marca la conversación nueva como de ese agente), systemDataPrompt, projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
@@ -233,6 +233,10 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
         raw_prompt, raw_conversation, raw_profile = args.prompt, args.conversation, args.profile
     prompt = _run_prompt(parser, raw_prompt)
     conversation_id, conv, new_conversation_id = _run_conversation(parser, raw_conversation, prompt, allow_new=args.run_file is not None)
+    # El agente se fija al crear la conversación: continuarla con otro, o sin él, mezclaría historiales.
+    if args.run_file is not None and conv is not None and conv.get("agent") != request.get("agent"):
+        parser.error(f"la conversación '{conversation_id}' es del agente '{conv.get('agent') or '(ninguno)'}', no de "
+                     f"'{request.get('agent') or '(ninguno)'}'")
     _check_run_flags(parser, args)
     profile_name, profile_data = _run_profile(parser, raw_profile, conv)
     export_path = _run_export_path(parser, args)
@@ -241,7 +245,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=request.get("systemDataPrompt"),
                       max_steps=request.get("maxSteps"), timeout_seconds=request.get("timeout"),
-                      project_mode=request.get("projectMode"))
+                      project_mode=request.get("projectMode"), agent=request.get("agent"))
 
 
 def redirect_log(args):

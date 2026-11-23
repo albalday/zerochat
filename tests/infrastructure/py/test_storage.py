@@ -493,6 +493,21 @@ class StorageEngineTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             zerochat.save_conversation({"id": "session_test_123", "project": ["/repo"]}, new_messages)
 
+        # El agente solo se fija al crear la conversación: no se añade a una existente, ni cambia ni se quita después.
+        self.assertNotIn("agent", zerochat.save_conversation({"id": "session_test_123", "agent": "informes.diario"}, new_messages))
+        agent_conv = zerochat.save_conversation({"id": "session_agente", "agent": "informes.diario"}, new_messages)
+        self.assertEqual(agent_conv["agent"], "informes.diario")
+        self.assertEqual(zerochat.save_conversation({"id": "session_agente", "agent": "informes.semanal"}, new_messages)["agent"], "informes.diario")
+        self.assertEqual(zerochat.save_conversation({"id": "session_agente"}, new_messages)["agent"], "informes.diario")
+        self.assertEqual(next(c for c in zerochat.list_conversations() if c["id"] == "session_agente")["agent"], "informes.diario")
+        # Formato <subconjunto>.<nombre> con tope en el borde exacto: MAX_AGENT_ID_LENGTH caracteres sí y uno más no.
+        at_limit = "a." + "b" * (zerochat.MAX_AGENT_ID_LENGTH - 2)
+        self.assertEqual(zerochat.validate_agent_id(at_limit), at_limit)
+        for invalid in (at_limit + "b", "informes", "a.b.c", "Informes.diario", "informes.", ".diario", "inf ormes.d", 3):
+            with self.assertRaisesRegex(ValueError, "agent debe ser"):
+                zerochat.save_conversation({"id": "session_agente_mal", "agent": invalid}, new_messages)
+        self.assertTrue(zerochat.delete_conversation("session_agente"))
+
         # Desactivar explícitamente serverRun lo actualiza sin borrar profileId
         toggled = zerochat.save_conversation({"id": "session_test_123", "serverRun": False}, new_messages)
         self.assertEqual(toggled["serverRun"], False)

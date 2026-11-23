@@ -25,6 +25,7 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcom
 from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
+    validate_agent_id,
     validate_project_prompt,
     delete_run_state,
     get_conversation,
@@ -63,7 +64,7 @@ RUN_EXPORT_FORMATS = {".md": "markdown", ".json": "json", ".html": "html"}
 RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 # Petición de --run-file: lo que quien lanza la ejecución fija en ella. Nunca lleva permisos, herramientas ni servicios
 # MCP, que salen siempre del entorno guardado del proyecto, así que no puede ampliarlos.
-RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile")
+RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
 RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS))
@@ -106,6 +107,8 @@ def parse_run_request(raw: bytes) -> dict:
             request[key] = value.strip()
     if "conversation_id" in request:
         request["conversation_id"] = _validate_conversation_id(request["conversation_id"])
+    if "agent" in request:
+        request["agent"] = validate_agent_id(request["agent"])
     if "systemDataPrompt" in data:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
@@ -393,7 +396,8 @@ class RunSession:
                  conversation_id: str | None = None, run_id: str | None = None,
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
-                 max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None):
+                 max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
+                 agent: str | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -407,6 +411,8 @@ class RunSession:
         self.prompt = prompt
         # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
         self.system_data_prompt = system_data_prompt
+        # agent de --run-file: marca la conversación nueva como de ese agente (run_conversation_meta).
+        self.agent = agent
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode
@@ -518,6 +524,15 @@ def run_project_environment(env: dict) -> dict:
     if session is None or session.system_data_prompt is None:
         return env
     return {**env, "systemDataPrompt": session.system_data_prompt}
+
+
+def run_conversation_meta(session_meta):
+    """La cabecera de una conversación que se guarda: la nueva de una ejecución con agent lleva ese agente, lo envíe o
+    no el runner; SQLite solo lo admite al crearla."""
+    session = RUN_SESSION
+    if session is None or not session.agent or not isinstance(session_meta, dict) or session_meta.get("id") != session.new_conversation_id:
+        return session_meta
+    return {**session_meta, "agent": session.agent}
 
 
 def http_body_limit() -> int:

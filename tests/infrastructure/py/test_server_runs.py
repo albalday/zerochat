@@ -285,6 +285,35 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual((session.conversation_id, session.new_conversation_id, session.prompt), ("session_orquestador_3", None, None))
         self.assertNotIn("serverRun", zerochat.get_conversation("session_orquestador_3"))
 
+        # agent: la conversación nueva de la ejecución lo lleva aunque el runner no lo envíe (también por tramos); otra no.
+        self.assertEqual(zerochat.parse_run_request(json.dumps({"prompt": "Hola", "agent": "informes.diario"}).encode())["agent"], "informes.diario")
+        with self.assertRaisesRegex(ValueError, "agent debe ser"):
+            zerochat.parse_run_request(json.dumps({"prompt": "Hola", "agent": "informes"}).encode())
+        def save_as_run(conv_id, chunked):
+            zerochat.RUN_SESSION = session_from(["--run-file", write_request({"conversation_id": conv_id, "prompt": "Hola", "agent": "informes.diario"})])
+            if chunked:
+                _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {
+                    "conversationId": conv_id, "uploadId": f"up_{conv_id}", "chunkIndex": 0, "totalChunks": 1, "messages": []})
+                self.assertIsNone(err)
+                params = {"conversation": {"id": conv_id}, "uploadId": f"up_{conv_id}"}
+            else:
+                params = {"conversation": {"id": conv_id}, "messages": []}
+            saved, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", params)
+            self.assertIsNone(err)
+            return saved["conversation"]
+
+        self.assertEqual(save_as_run("session_agente_1", chunked=False)["agent"], "informes.diario")
+        self.assertEqual(save_as_run("session_agente_2", chunked=True)["agent"], "informes.diario")
+        other, _, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {"conversation": {"id": "session_humana"}, "messages": []})
+        self.assertNotIn("agent", other["conversation"])
+        zerochat.RUN_SESSION = None
+        # Continuar una conversación existente exige el mismo agente: otro, ninguno o uno sobre una sin agente es error.
+        zerochat.save_conversation({"id": "session_agente_1"}, [{"id": "u1", "role": "user", "content": "Hola"}])
+        session_from(["--run-file", write_request({"conversation_id": "session_agente_1", "agent": "informes.diario"})])
+        rejects(["--run-file", write_request({"conversation_id": "session_agente_1"})])
+        rejects(["--run-file", write_request({"conversation_id": "session_agente_1", "agent": "informes.semanal"})])
+        rejects(["--run-file", write_request({"conversation_id": "session_orquestador_3", "agent": "informes.diario"})])
+
         # El systemDataPrompt sustituye al guardado en lo que recibe la interfaz, sin escribirlo en SQLite.
         ctx = use_project(self, folder)
         with self.assertRaises(SystemExit) as cm, mock.patch("sys.stderr", io.StringIO()) as stderr:

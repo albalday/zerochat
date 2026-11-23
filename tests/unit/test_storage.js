@@ -117,11 +117,12 @@ test('Storage IndexedDB - preserva el orden, los metadatos de sesión e imágene
     },
     { id: 'a1_final', role: 'assistant', content: 'Aquí tienes el gráfico generado.' }
   ];
-  await Storage.saveConversation({ id: agenticId, title: 'Chat con herramientas', profileId: 'deepseek', serverRun: true }, agenticHistory);
+  await Storage.saveConversation({ id: agenticId, title: 'Chat con herramientas', profileId: 'deepseek', serverRun: true, agent: 'informes.diario' }, agenticHistory);
   const loaded = await Storage.getConversation(agenticId);
   assert.equal(loaded.history.length, 4);
   assert.equal(loaded.profileId, 'deepseek');
   assert.equal(loaded.serverRun, true);
+  assert.equal(loaded.agent, 'informes.diario');
   assert.equal(loaded.history[0].commandNotes, 'Background commands that finished since your last turn: ...');
   assert.equal('commandNotes' in loaded.history[3], false);
   assert.equal(loaded.history[2].images[0].action, 'screenshot');
@@ -130,6 +131,7 @@ test('Storage IndexedDB - preserva el orden, los metadatos de sesión e imágene
   const listItem = (await Storage.getConversationsList()).find(c => c.id === agenticId);
   assert.equal(listItem.profileId, 'deepseek');
   assert.equal(listItem.serverRun, true);
+  assert.equal(listItem.agent, 'informes.diario');
 
   // 2. Orden de mensajes con ids arbitrarios aislado entre conversaciones
   const ordered = ['z', 'a', 'm', 'b'].map((id, index) => ({ id, role: index % 2 ? 'assistant' : 'user', content: `mensaje ${index}` }));
