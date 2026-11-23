@@ -1,39 +1,11 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
 
 describe('Browser UI - composer', { concurrency: 2 }, () => {
   after(async () => {
     await closeGlobalBrowser();
   });
-
-test('Browser UI - el fallback de contexto no invalida el formulario de envío', async () => {
-  const browser = await createTestBrowser();
-  try {
-    const page = await browser.newPage();
-    await seedConnectionProfiles(page);
-    await page.addInitScript(() => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({
-      activeProfile: { id: 'profile:local', name: 'Local chat' }, apiType: 'openai', apiUrl: 'http://localhost:1234/v1', model: 'google/gemma-4-26b-a4b-qat'
-    })));
-    await page.goto(getIndexUrl(), { waitUntil: 'load' });
-    await waitForAppReady(page);
-    await page.click('#active-profile-trigger');
-    await page.click('[data-profile-id="profile:remote"]');
-    await page.fill('#user-input', 'test');
-
-    const formState = await page.evaluate(() => ({
-      valid: document.getElementById('chat-form').checkValidity(),
-      fallback: document.getElementById('context-limit-override-input').value,
-      activeProfileName: document.getElementById('active-profile-name').textContent
-    }));
-
-    assert.equal(formState.fallback, '1000K');
-    assert.equal(formState.valid, true);
-    assert.equal(formState.activeProfileName, 'Remoto chat', 'El selector debe reflejar el perfil activo tras aplicarlo');
-  } finally {
-    await browser.close();
-  }
-});
 
 test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, persiste y ofrece acciones por estado', async () => {
   const browser = await createTestBrowser();

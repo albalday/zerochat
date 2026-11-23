@@ -152,8 +152,8 @@
       model: settings.model,
       temperature: settings.temperature,
       reasoningEffort: settings.reasoningEffort || 'medium',
-      // Sin capacidad declarada en el perfil, el gestor de contexto asume la de su modelo.
-      contextOptions: { ...inherited.contextOptions, totalContextLimit: settings.contextLimitOverride || null },
+      // El límite comprobado es el del perfil activo: el subagente usa el que calcula el gestor de contexto.
+      contextOptions: { ...inherited.contextOptions, totalContextLimit: null },
       summarizeHistory: null
     };
     connection.summarizeHistory = context.services.engine.createHistorySummarizer({

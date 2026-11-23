@@ -30,6 +30,9 @@
     const ProfileRepository = require('./profile-repository.js');
     globalThis.ChatProfileRepository = ProfileRepository;
 
+    const ProfileCheck = require('./profile-check.js');
+    globalThis.ChatProfileCheck = ProfileCheck;
+
     const McpResults = require('./mcp-results.js');
     globalThis.ChatMcpResults = McpResults;
 

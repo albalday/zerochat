@@ -246,7 +246,7 @@
     // Optimización dinámica de contexto, presupuesto de tokens y ventana deslizante
     const optimization = getContextManager().buildOptimizedContext(messages, {
       model: appConfig.model,
-      totalContextLimit: appConfig.modelContextLimit || appConfig.contextLimitOverride,
+      totalContextLimit: appConfig.modelContextLimit,
       ...options
     });
     return optimization.messages;
@@ -303,7 +303,7 @@
         temperature: config.temperature,
         reasoningEffort: config.reasoningEffort,
         contextOptions: {
-          totalContextLimit: config.modelContextLimit || config.contextLimitOverride,
+          totalContextLimit: config.modelContextLimit,
           // En modo proyecto el resumen marca lo pendiente de registrar; nunca escribe en el proyecto.
           ...(projectContext?.status === 'ready' ? { summarizerAddendum } : {})
         },

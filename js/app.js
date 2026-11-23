@@ -9,17 +9,18 @@
 
   const {
     ChatStorage: Storage, ChatI18n: I18n, ChatDebug: Debug, ChatState: State,
-    ChatEngine: Engine, ChatDefaults: Defaults, ChatDialogs: Dialogs, ChatConfig: Config,
-    ChatProfileRepository: Profiles, ChatProviders: Providers, ChatMCP: MCP,
+    ChatEngine: Engine, ChatDialogs: Dialogs, ChatConfig: Config,
+    ChatProviders: Providers, ChatMCP: MCP,
     ChatUIProject: UIProject, ChatUIFolderPicker: UIFolderPicker, ChatMessageTurns: MessageTurns,
     ChatConversationService: ConversationService, ChatGenerationController: GenerationController,
-    ChatUIReasoning: UIReasoning, ChatUIInspector: UIInspector, ChatModelCatalog: ModelCatalog,
+    ChatUIReasoning: UIReasoning, ChatUIInspector: UIInspector,
     ChatUISidebar: UISidebar, ChatUISettings: UISettings, ChatUIShell: UIShell,
     ChatUITransfer: UITransfer, ChatUIProfiles: UIProfiles, ChatUIComposer: UIComposer,
     ChatUICommandJobs: UICommandJobs, ChatUIConversation: UIConversation,
     ChatUITelemetry: UITelemetry, ChatUIMcp: UIMcp, ChatUIBrowser: UIBrowser,
     ChatUIConnection: UIConnection, ChatRagUI: RagUI, ChatRunMode: RunMode,
-    ChatBackendSession: BackendSession, ChatServerRun: ServerRun, ChatTabAlert: TabAlert
+    ChatBackendSession: BackendSession, ChatServerRun: ServerRun, ChatTabAlert: TabAlert,
+    ChatProfileCheck: ProfileCheck
   } = window;
   const { t } = I18n;
 
@@ -96,8 +97,6 @@
     contextMetricFreeVal: 'context-metric-free-val',
     contextMetricStatusVal: 'context-metric-status-val',
     contextLimitSource: 'context-limit-source',
-    contextLimitOverrideInput: 'context-limit-override-input',
-    btnSaveContextLimitOverride: 'btn-save-context-limit-override',
     contextMetricCachedReadVal: 'context-metric-cached-read-val',
     contextMetricCachedWriteVal: 'context-metric-cached-write-val',
     contextMetricTurnPromptVal: 'context-metric-turn-prompt-val',
@@ -456,18 +455,7 @@
       apiUrl: elements.settingApiUrl.value || getRuntimeConfig().apiUrl,
       apiType: elements.settingApiType.value || getRuntimeConfig().apiType
     };
-    const models = UIInspector.loadCachedModels(elements, config);
-    syncPublishedModelContextLimit();
-    return models;
-  }
-
-  function syncPublishedModelContextLimit() {
-    const config = getRuntimeConfig();
-    const publishedLimit = config.apiType === 'webllm'
-      ? Number(config.webllmConfig.context_window_size) || Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE
-      : ModelCatalog.getContextLimit(config.model);
-    if (!publishedLimit || config.modelContextLimit === publishedLimit) return;
-    Config.updateRuntime({ modelContextLimit: publishedLimit });
+    return UIInspector.loadCachedModels(elements, config);
   }
 
   async function inspectProfile(profile) {
@@ -475,32 +463,6 @@
     elements.inspectorResults.innerHTML = '';
     if (!elements.inspectorDialog.open) elements.inspectorDialog.showModal();
     await UIInspector.handleRunInspector(elements, getRuntimeConfig(), profile);
-    syncPublishedModelContextLimit();
-  }
-
-  async function saveContextLimitOverride() {
-    const contextLimitOverride = UITelemetry.parseContextCapacity(elements.contextLimitOverrideInput.value);
-    if (!contextLimitOverride) {
-      await Dialogs.alert(t('context_limit_override_invalid'));
-      return;
-    }
-    const activeProfile = getRuntimeConfig().activeProfile;
-    const profile = activeProfile && Profiles.get(activeProfile.id);
-    if (!profile) {
-      await Dialogs.alert(t('context_limit_override_profile_required'));
-      return;
-    }
-    if (profile.settings.apiKeyLocked === true) {
-      await Dialogs.alert(t('err_profile_read_only'));
-      return;
-    }
-    try {
-      await UIProfiles.saveProfileSettings(profile.id, { contextLimitOverride });
-      updateConnectionTokensBadge(null, { forcePopover: true });
-    } catch (error) {
-      console.error('[App] Could not save the context limit override:', error);
-      await Dialogs.alert(t('context_limit_override_save_error'));
-    }
   }
 
   const isBusy = () => State.isConversationBusy();
@@ -810,7 +772,6 @@
     bindPreference(elements.langButtons, 'data-lang', applyLanguage, 'language');
 
     UITelemetry.mount(elements, () => updateConnectionTokensBadge(null, { forcePopover: true }));
-    elements.btnSaveContextLimitOverride.addEventListener('click', saveContextLimitOverride);
 
     elements.messagesList.addEventListener('click', event => {
       const option = event.target.closest('[data-ask-option]');
@@ -828,6 +789,7 @@
     syncComposerBusyControls();
 
     State.subscribe(state => state.mcp.status, syncServerRunControl);
+    State.subscribe(state => state.ui.profileCheck, () => UIProfiles.syncActiveProfileTrigger());
     syncServerRunControl();
 
     // Lo que la ejecución va grabando se trae de SQLite: la página muestra siempre la conversación grabada.
@@ -950,8 +912,6 @@
         await MCP.manager.syncProfiles(serverId, {
           onServerChange: UIProfiles.confirmServerProfileSync
         });
-        // Reaplicar el perfil activo cambiado en otro dispositivo deja sin el límite publicado del catálogo.
-        loadCachedModels();
         UIProfiles.renderProfileMenu();
         UIProfiles.syncActiveProfileTrigger();
       } catch (error) {
@@ -964,6 +924,7 @@
       if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
     });
     TabAlert.mount();
+    ProfileCheck.start();
     updateNewTabLink();
     // Registro del Service Worker para aceleración de arranque y soporte offline en móvil.
     registerServiceWorker().then(async reloading => {

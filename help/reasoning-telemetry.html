@@ -34,7 +34,8 @@
 
     <div class="card">
       <h2>2. Indicador de contexto</h2>
-      <p>El indicador, por ejemplo <code>~1.4k / 128k*</code>, compara tokens usados con la capacidad conocida o asumida. <code>~</code> indica una estimación de uso y <code>*</code> una capacidad asumida.</p>
+      <p>El indicador, por ejemplo <code>~1.4k / 128k*</code>, compara tokens usados con la capacidad del modelo. <code>~</code> indica una estimación de uso y <code>*</code> una capacidad calculada.</p>
+      <p>Al elegir un perfil, al arrancar y al cambiar su modelo, ZeroChat consulta con su API key la lista de modelos del servidor: así comprueba que el modelo está listo (un punto verde junto al nombre del perfil; rojo, con el motivo al pasar el ratón, si el servidor no responde, rechaza la clave o no tiene el modelo) y toma la capacidad que publica. Si el servidor no la publica o no responde, se usa una calculada. No se guarda en el perfil: se vuelve a consultar cada vez. Los perfiles WebLLM usan su ventana de contexto.</p>
       <ul><li><strong>Normal:</strong> menos del 60%.</li>
       <li><strong>Advertencia:</strong> desde el 60% hasta menos del 85%.</li>
       <li><strong>Crítico:</strong> desde el 85%.</li></ul>
@@ -45,7 +46,7 @@
     <div class="card">
       <h2>3. Detalle de telemetría</h2>
       <h3>Ventana de contexto</h3>
-      <p>Pulsa el indicador para ver uso, capacidad y espacio disponible. Se usan datos del proveedor cuando existen y estimaciones cuando faltan. El ajuste manual de capacidad cambia la referencia que usa ZeroChat; no amplía la ventana real del servidor. El contexto enviado puede excluir mensajes antiguos para ajustarse al presupuesto, aunque sigan visibles en el historial.</p>
+      <p>Pulsa el indicador para ver uso, capacidad y espacio disponible. Se usan datos del proveedor cuando existen y estimaciones cuando faltan. El contexto enviado puede excluir mensajes antiguos para ajustarse al presupuesto, aunque sigan visibles en el historial.</p>
       <h3>Caché</h3>
       <p>Los tokens leídos o escritos en caché se muestran si el proveedor los comunica. No son una medición del ahorro económico: las tarifas y condiciones dependen del servicio.</p>
       <h3>Último turno</h3>

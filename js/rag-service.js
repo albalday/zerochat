@@ -507,7 +507,7 @@
 
   /** Devuelve el límite de contexto conocido si es insuficiente para RAG; null si basta o se desconoce. */
   function getInsufficientRagContextLimit(config = {}) {
-    const limit = Number(config.modelContextLimit || config.contextLimitOverride);
+    const limit = Number(config.modelContextLimit);
     return Number.isFinite(limit) && limit > 0 && limit < RAG_MIN_CONTEXT_TOKENS ? Math.floor(limit) : null;
   }
 

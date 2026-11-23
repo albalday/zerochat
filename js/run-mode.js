@@ -19,6 +19,7 @@
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getProfileCheck = () => resolveDep('ChatProfileCheck', './profile-check.js');
   const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
@@ -165,6 +166,12 @@
         await activateSessionProfile(match.id);
         report({ kind: 'profile', text: match.name });
       }
+
+      // La comprobación del perfil, como en la interfaz: da el límite de contexto real y avisa si el modelo no está listo.
+      getProfileCheck().start();
+      await getProfileCheck().settled();
+      const check = getState().get('ui').profileCheck;
+      if (check.status === 'error') console.warn(`[RunMode] The model is not ready (${check.reason}): ${check.message}`);
 
       answerToolApprovals(report);
 

@@ -98,8 +98,6 @@
     next.model = String(next.model || '').trim();
     const contextLimit = Number(next.modelContextLimit);
     next.modelContextLimit = Number.isFinite(contextLimit) && contextLimit > 0 ? Math.floor(contextLimit) : null;
-    const contextLimitOverride = Number(next.contextLimitOverride);
-    next.contextLimitOverride = Number.isFinite(contextLimitOverride) && contextLimitOverride > 0 ? Math.floor(contextLimitOverride) : null;
     next.systemPrompt = String(next.systemPrompt || '').trim();
     next.systemDataPrompt = String(next.systemDataPrompt || '').trim();
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);
@@ -232,7 +230,6 @@
       ...config,
       ...patch,
       modelContextLimit: null,
-      contextLimitOverride: profile.settings.contextLimitOverride ?? null,
       activeProfile: profileMetadata(profile)
     };
   }

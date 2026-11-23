@@ -273,7 +273,7 @@
       summarizeFn: params => summarizeHistory({ ...params, signal }),
       options: {
         model: config.model,
-        totalContextLimit: config.modelContextLimit || config.contextLimitOverride
+        totalContextLimit: config.modelContextLimit
       }
     });
     return compacted.compressed

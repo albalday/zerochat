@@ -877,36 +877,6 @@
   font-size: 0.75rem;
 }
 
-.context-limit-control-row {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.context-limit-control input {
-  min-width: 0;
-  flex: 1;
-  padding: 0.35rem 0.5rem;
-  border: 1px solid var(--input-border);
-  border-radius: var(--radius-sm);
-  background: var(--input-bg);
-  color: var(--text-main);
-  font-family: inherit;
-  font-size: 0.875rem;
-  outline: none;
-  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
-}
-
-.context-limit-control input:hover {
-  border-color: var(--input-border-hover);
-}
-
-.context-limit-control input:focus,
-.context-limit-control input:focus-visible {
-  border-color: var(--input-border-focus);
-  box-shadow: var(--input-focus-ring);
-  outline: none;
-}
-
 .context-section-title {
   font-size: 0.78rem;
   font-weight: 700;
@@ -1056,6 +1026,27 @@
   color: var(--success-text);
 }
 
+/* Comprobación del perfil activo: punto verde si el modelo está listo, rojo si no y tenue mientras se comprueba */
+.header-profile-trigger[data-check="ready"]::before,
+.header-profile-trigger[data-check="error"]::before,
+.header-profile-trigger[data-check="checking"]::before {
+  content: "";
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin-right: 0.4rem;
+  border-radius: 50%;
+  background-color: var(--success);
+}
+
+.header-profile-trigger[data-check="error"]::before {
+  background-color: var(--danger);
+}
+
+.header-profile-trigger[data-check="checking"]::before {
+  background-color: var(--text-muted);
+  opacity: 0.6;
+}
 
 .header-profile-name {
   flex: 1 1 auto;

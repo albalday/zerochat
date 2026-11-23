@@ -16,7 +16,7 @@
 
   const getContextManager = () => resolveDep('ChatContextManager', './context-manager.js');
   const STATUS_CLASSES = ['status-warning', 'status-critical'];
-  const LIMIT_SOURCE_KEYS = { server: 'context_limit_source_server', manual: 'context_limit_source_manual', assumed: 'context_limit_source_assumed' };
+  const LIMIT_SOURCE_KEYS = { server: 'context_limit_source_server', assumed: 'context_limit_source_assumed' };
   const HEALTH_KEYS = { ok: 'context_status_ok', warning: 'context_status_warning', critical: 'context_status_critical' };
 
   /** Recuento compacto de tokens: 850, 12.5k, 128k, 1.2M. */
@@ -36,15 +36,6 @@
     return `${(value / 1000).toFixed(3).replace(/\.?0+$/, '')}K`;
   }
 
-  /** Lee una capacidad escrita por el usuario (64000, 90.112K, 1M); null si no es válida o es menor de 1024. */
-  function parseContextCapacity(value) {
-    const match = String(value || '').trim().match(/^(\d+(?:[.,]\d+)?)\s*([km]?)$/i);
-    if (!match) return null;
-    const multiplier = { k: 1000, m: 1000000 }[match[2].toLowerCase()] || 1;
-    const limit = Math.floor(Number(match[1].replace(',', '.')) * multiplier);
-    return Number.isFinite(limit) && limit >= 1024 ? limit : null;
-  }
-
   function getContextHealthStatus(percentUsed) {
     const pct = Number(percentUsed) || 0;
     if (pct >= 85) return 'critical';
@@ -58,15 +49,14 @@
    */
   function computeTelemetryViewModel({ stats, config, chatHistory }) {
     const promptTokens = stats?.promptTokens || 0;
-    const configuredLimit = config.modelContextLimit || config.contextLimitOverride;
     const diag = getContextManager().getContextDiagnostics(chatHistory, {
       model: config.model || '',
       providerType: config.apiType || 'openai',
-      totalContextLimit: configuredLimit,
+      totalContextLimit: config.modelContextLimit,
       usedTokens: promptTokens > 0 ? promptTokens : null
     });
     const { totalLimit, usedTokens, percentUsed, isEstimated } = diag;
-    const contextLimitSource = config.modelContextLimit ? 'server' : (config.contextLimitOverride ? 'manual' : 'assumed');
+    const contextLimitSource = config.modelContextLimit ? 'server' : 'assumed';
     const prefix = isEstimated && usedTokens > 0 ? '~' : '';
     const cachedTokens = stats?.cachedTokens || 0;
 
@@ -114,11 +104,6 @@
     elements.contextMetricUsedVal.textContent = tokens(vm.usedTokens) + (vm.isEstimated && vm.usedTokens > 0 ? ' (est.)' : '');
     elements.contextMetricLimitVal.textContent = `${formatContextCapacity(vm.totalLimit)} tok`;
     elements.contextLimitSource.textContent = t(LIMIT_SOURCE_KEYS[vm.contextLimitSource]);
-    const fromServer = vm.contextLimitSource === 'server';
-    const input = elements.contextLimitOverrideInput;
-    if (document.activeElement !== input) input.value = fromServer ? '' : formatContextCapacity(vm.totalLimit);
-    input.disabled = fromServer;
-    elements.btnSaveContextLimitOverride.disabled = fromServer;
     elements.contextMetricFreeVal.textContent = `${formatContextCapacity(vm.remainingTokens)} tok`;
 
     const status = elements.contextMetricStatusVal;
@@ -191,7 +176,6 @@
 
   return {
     formatContextCapacity,
-    parseContextCapacity,
     computeTelemetryViewModel,
     renderTelemetry,
     resetTelemetry,

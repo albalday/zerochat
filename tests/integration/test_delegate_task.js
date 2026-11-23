@@ -175,7 +175,7 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
   const profile = {
     id: 'profile:Subagente',
     name: ' subAGENTE ',
-    settings: { apiUrl: 'http://sub/v1', apiType: 'openai', apiKey: 'sub-key', model: 'sub-model', temperature: '0.2', reasoningEffort: 'low', contextLimitOverride: 32000 }
+    settings: { apiUrl: 'http://sub/v1', apiType: 'openai', apiKey: 'sub-key', model: 'sub-model', temperature: '0.2', reasoningEffort: 'low' }
   };
   services.profiles = {
     list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }, { id: profile.id, name: profile.name, settings: {} }],

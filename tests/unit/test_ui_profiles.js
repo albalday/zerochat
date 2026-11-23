@@ -51,7 +51,7 @@ test('UIProfiles - la ejecución en segundo plano requiere conexión y un perfil
 });
 
 test('UIProfiles - los ajustes guardados parten del perfil editado y completan lo vacío con lo guardado o lo del proveedor', () => {
-  const base = { ...ProfileRepository.NEW_PROFILE_SETTINGS, apiUrl: 'http://gpu.lan:1234/v1', contextLimitOverride: 32768, webllmConfig: { context_window_size: '8192' } };
+  const base = { ...ProfileRepository.NEW_PROFILE_SETTINGS, apiUrl: 'http://gpu.lan:1234/v1', webllmConfig: { context_window_size: '8192' } };
   const form = {
     apiType: 'openai', apiUrl: '  ', apiKey: ' sk-nueva ', apiKeyLocked: true, model: ' gemma ', systemPrompt: ' Sé breve. ',
     temperature: '', webllmContextWindow: '', webllmPrefillChunk: ''

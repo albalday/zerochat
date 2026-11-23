@@ -477,13 +477,9 @@
         return false;
       }
 
-      // El contexto del modelo activo se publica para el presupuesto de la conversación.
+      // Solo informa: el límite del modelo activo lo publica la comprobación del perfil (ChatProfileCheck).
       const contextLimit = ContextManager.getModelContextLimit(model, sortedModels);
-      const Config = getConfig();
-      const runtimeConfig = Config.getActive();
-      if (contextLimit && runtimeConfig.apiUrl === apiUrl && runtimeConfig.model === model) {
-        Config.updateRuntime({ modelContextLimit: contextLimit });
-      }
+      const runtimeConfig = getConfig().getActive();
       const contextLabel = contextLimit
         ? `${getUITelemetry().formatContextCapacity(contextLimit)} (${contextLimit.toLocaleString()} tokens)`
         : t('inspector_context_unknown');

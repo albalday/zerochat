@@ -59,7 +59,7 @@ test('ChatConfig - arranca con Espejo, conserva preferencias generales al activa
 
 test('ChatConfig - el límite detectado es volátil y se descarta al activar perfil o cambiar de conexión', () => {
   initializeWithOffice();
-  ChatConfig.updateRuntime({ modelContextLimit: 90112, contextLimitOverride: 1000000 });
+  ChatConfig.updateRuntime({ modelContextLimit: 90112 });
   assert.equal(ChatConfig.getActive().modelContextLimit, 90112);
   const savedSlim = Storage.loadRuntimeConfigV2();
   assert.equal(savedSlim.modelContextLimit, undefined);
@@ -71,7 +71,6 @@ test('ChatConfig - el límite detectado es volátil y se descarta al activar per
 
   const activated = ChatConfig.activateProfile('office');
   assert.equal(activated.modelContextLimit, null);
-  assert.equal(activated.contextLimitOverride, null);
 
   ChatConfig.updateRuntime({ modelContextLimit: 90112 });
   assert.equal(ChatConfig.updateRuntime({ apiUrl: 'https://api.example.test/v1' }).modelContextLimit, null);

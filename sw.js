@@ -90,6 +90,7 @@ const PRECACHE_ASSETS = [
   './js/project-context.js',
   './js/context-manager.js',
   './js/model-catalog.js',
+  './js/profile-check.js',
   './js/chat-engine.js',
   './js/ui-reasoning.js',
   './js/ui-folder-picker.js',

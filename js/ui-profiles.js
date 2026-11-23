@@ -23,6 +23,13 @@
   const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
+  const getState = () => resolveDep('ChatState', './state.js');
+
+  // Texto de la comprobación del perfil activo (ChatProfileCheck) por estado o, si lo hay, por motivo.
+  const PROFILE_CHECK_KEYS = {
+    checking: 'profile_check_checking', ready: 'profile_check_ready', unreachable: 'profile_check_unreachable', auth: 'profile_check_auth',
+    server: 'profile_check_server', model_not_found: 'profile_check_model_not_found', locked: 'profile_check_locked'
+  };
 
   const FREE_TIER_HELP = { openrouter: 'help/openrouter-free.html', gemini: 'help/gemini-free.html' };
 
@@ -401,9 +408,14 @@
     }
     els.activeProfileTrigger.classList.toggle('server-mode', serverModeActive);
     els.activeProfileName.textContent = displayName;
-    els.activeProfileTrigger.title = serverModeActive
+    const title = serverModeActive
       ? t('profile_background_mode_active', { name: displayName })
       : t('profile_badge_title');
+    // Marca de la comprobación del perfil (ChatProfileCheck): listo, comprobando o el motivo de que no lo esté.
+    const check = getState().get('ui').profileCheck;
+    els.activeProfileTrigger.dataset.check = check.status;
+    const checkKey = PROFILE_CHECK_KEYS[check.reason || check.status];
+    els.activeProfileTrigger.title = checkKey ? `${title} · ${t(checkKey, { message: check.message })}` : title;
     syncBackgroundToggle();
   }
 
@@ -481,17 +493,6 @@
       console.warn('[UIProfiles] Could not save profile to server; queued for sync:', error);
       return true;
     }
-  }
-
-  /** Cambia ajustes de un perfil guardado sin pasar por el editor (p. ej. la capacidad asumida), lo replica y lo activa. */
-  async function saveProfileSettings(profileId, patch) {
-    const profile = getProfiles().get(profileId);
-    const saved = getProfiles().save({ ...profile, settings: { ...profile.settings, ...patch } });
-    const settings = { ...saved.settings };
-    delete settings.apiKey; // La local va cifrada: el servidor conserva la suya.
-    await pushSavedProfile(saved, settings);
-    activateConnectionProfile(saved.id);
-    return saved;
   }
 
   /** Guarda el perfil editado en el navegador y, si hay conexión, también en el servidor; devuelve true si puede cerrarse. */
@@ -992,7 +993,6 @@
     setProfileQueryState,
     closeProfilesModal,
     activateConnectionProfile,
-    saveProfileSettings,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
     startImportMode,

@@ -34,7 +34,8 @@
 
     <div class="card">
       <h2>2. Context indicator</h2>
-      <p>The indicator, for example <code>~1.4k / 128k*</code>, compares used tokens with the known or assumed capacity. <code>~</code> marks estimated usage and <code>*</code> marks assumed capacity.</p>
+      <p>The indicator, for example <code>~1.4k / 128k*</code>, compares used tokens with the model's capacity. <code>~</code> marks estimated usage and <code>*</code> marks a calculated capacity.</p>
+      <p>When you choose a profile, at startup and when its model changes, ZeroChat queries the server's model list with its API key: this checks that the model is ready (a green dot next to the profile name; red, with the reason on hover, if the server does not respond, rejects the key or does not have the model) and takes the capacity it publishes. If the server does not publish it or does not respond, a calculated one is used. It is not saved in the profile: it is queried again each time. WebLLM profiles use their context window.</p>
       <ul><li><strong>Normal:</strong> below 60%.</li>
       <li><strong>Warning:</strong> from 60% to below 85%.</li>
       <li><strong>Critical:</strong> 85% and above.</li></ul>
@@ -45,7 +46,7 @@
     <div class="card">
       <h2>3. Telemetry details</h2>
       <h3>Context window</h3>
-      <p>Click the indicator to see usage, capacity and available space. Provider data is used when available, with estimates otherwise. Manually setting capacity changes ZeroChat's reference; it does not enlarge the server's actual window. Sent context may exclude older messages to fit the budget even while they remain visible in history.</p>
+      <p>Click the indicator to see usage, capacity and available space. Provider data is used when available, with estimates otherwise. Sent context may exclude older messages to fit the budget even while they remain visible in history.</p>
       <h3>Cache</h3>
       <p>Cache read and write tokens appear when reported by the provider. They do not measure financial savings: rates and conditions depend on the service.</p>
       <h3>Last turn</h3>

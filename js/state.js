@@ -40,6 +40,7 @@
     'project'
   ]);
 
+  const PROFILE_CHECK_STATUSES = Object.freeze(['unchecked', 'checking', 'ready', 'error']);
   const PROJECT_STATUSES = Object.freeze(['disabled', 'unavailable', 'no_project', 'no_access', 'missing', 'ready', 'error']);
 
   function createInitialState() {
@@ -69,7 +70,9 @@
         noticeResult: null,
         attachedFiles: [],
         webllm: { catalog: [], contextKey: '', operation: null },
-        generationStatus: { phase: 'idle', percent: null, startedAt: null }
+        generationStatus: { phase: 'idle', percent: null, startedAt: null },
+        // Comprobación del perfil activo (ChatProfileCheck): unchecked, checking, ready o error con su motivo.
+        profileCheck: { status: 'unchecked', reason: '', message: '' }
       },
 
       // 7. Estado de Integración MCP (mcp-proxy)
@@ -532,6 +535,12 @@
       return setAttachments([]);
     }
 
+    /** Resultado de la comprobación del perfil activo en `ui.profileCheck`: { status, reason, message }. */
+    function setProfileCheck({ status, reason = '', message = '' }) {
+      if (!PROFILE_CHECK_STATUSES.includes(status)) throw new Error(`[ChatState] setProfileCheck: invalid status "${status}".`);
+      set('ui', { profileCheck: { status, reason: String(reason), message: String(message) } });
+    }
+
     /**
      * Actualiza el estado de progreso general de generación en `ui.generationStatus`.
      */
@@ -594,6 +603,7 @@
       enqueueNotice,
       dismissNotice,
       setProjectContext,
+      setProfileCheck,
       CANONICAL_SLICES
     };
   }
@@ -623,6 +633,7 @@
     clearGenerationStatus: defaultStore.clearGenerationStatus,
     enqueueNotice: defaultStore.enqueueNotice,
     dismissNotice: defaultStore.dismissNotice,
-    setProjectContext: defaultStore.setProjectContext
+    setProjectContext: defaultStore.setProjectContext,
+    setProfileCheck: defaultStore.setProfileCheck
   };
 }));

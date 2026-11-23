@@ -5,6 +5,7 @@ const MCP = require('../../js/mcp.js');
 const Profiles = require('../../js/profile-repository.js');
 const State = require('../../js/state.js');
 const Config = require('../../js/config-store.js');
+const API = require('../../js/api.js');
 const ToolCards = require('../../js/tool-cards.js');
 
 test('RunMode.createProgressReporter limita el streaming al intervalo y envía siempre los demás avisos', t => {
@@ -93,6 +94,8 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
     let submitted = null;
 
     t.mock.method(MCP.manager, 'reconcileProjectServers', async () => {});
+    // La comprobación del perfil del runner consulta el servidor del modelo: aquí no responde.
+    t.mock.method(API, 'fetchServerModels', async () => ({ success: false, error: 'fetch failed' }));
     t.mock.method(MCP.manager, 'requestExternalControl', async (method, params) => {
       calls.push({ method, params });
       if (method === 'zerochat/run/prompt') return promptPayload;
@@ -133,6 +136,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.equal(ok.startedNew, 'session_nueva_1');
   assert.equal(ok.activated, 'p1');
   assert.equal(ok.submitted.opts.maxSteps, 5);
+  assert.deepEqual(State.get('ui').profileCheck, { status: 'error', reason: 'unreachable', message: 'fetch failed' }, 'El runner comprueba su perfil antes del turno');
   assert.equal(Config.getActive().projectMode, false, '--run-file sin projectMode no inyecta las normas del proyecto');
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', text: 'Listo' });

@@ -17,7 +17,7 @@
   const PROFILE_FIELDS = Object.freeze([
     'apiUrl', 'apiType', 'model', 'systemPrompt', 'temperature',
     'reasoningEffort', 'modelReasoningConfig',
-    'enableRawLogs', 'enableContextCache', 'contextLimitOverride', 'webllmConfig', 'apiKeyLocked'
+    'enableRawLogs', 'enableContextCache', 'webllmConfig', 'apiKeyLocked'
   ]);
   const STORAGE_PROFILE_FIELDS = Object.freeze([...PROFILE_FIELDS, 'apiKey']);
 
@@ -30,7 +30,7 @@
   const NEW_PROFILE_SETTINGS = Object.freeze({
     apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', systemPrompt: '',
     temperature: '0.7', reasoningEffort: 'medium', modelReasoningConfig: null,
-    enableRawLogs: false, enableContextCache: true, contextLimitOverride: null, apiKeyLocked: false,
+    enableRawLogs: false, enableContextCache: true, apiKeyLocked: false,
     webllmConfig: {
       context_window_size: String(Defaults.WEBLLM_DEFAULT_CONTEXT_WINDOW_SIZE),
       prefill_chunk_size: 'default'

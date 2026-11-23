@@ -1,7 +1,7 @@
 /**
  * Catálogo de modelos de la conexión del editor: la caché por conexión (API y URL) de los modelos
  * que publicó el proveedor, los descargados de WebLLM y el contexto que el catálogo da a cada modelo.
- * Sin DOM: ChatUIInspector lo pinta y app.js publica con él el contexto del modelo activo.
+ * Sin DOM: ChatUIInspector lo pinta; el límite del modelo activo lo publica ChatProfileCheck.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
