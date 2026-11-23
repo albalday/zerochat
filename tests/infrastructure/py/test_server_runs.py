@@ -314,20 +314,37 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         rejects(["--run-file", write_request({"conversation_id": "session_agente_1", "agent": "informes.semanal"})])
         rejects(["--run-file", write_request({"conversation_id": "session_orquestador_3", "agent": "informes.diario"})])
 
-        # El lanzamiento de un agente se guarda en su conversación al terminar y la interfaz, al guardarla, no lo toca.
+        # Sin conversation_id, --run-file (con o sin agent) también deja fila en runs para Pendientes y check_agents.
+        ephemeral = session_from(["--run-file", write_request({"prompt": "Efímera", "agent": "informes.efimero"})])
+        self.assertEqual(ephemeral.state_conversation_id, ephemeral.new_conversation_id)
+        self.assertIsNotNone(zerochat.get_run_state(ephemeral.new_conversation_id))
+        zerochat.remove_run_state(ephemeral.new_conversation_id)
+
+        # El lanzamiento de un agente se guarda en su conversación desde el primer guardado y la interfaz, al guardarla, no lo toca ni pisa profileId.
         zerochat.save_general_profile({"name": "informes", "settings": {}})
         session = session_from(["--run-file", write_request({
             "conversation_id": "session_agente_1", "prompt": "Otra vez", "agent": "informes.diario", "profile": "informes",
             "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30})])
         launch = {"profile": "informes", "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30}
         self.assertEqual(session.launch, launch)
-        session.result = {"text": "hecho"}
-        with mock.patch.object(zerochat, "RUN_SESSION", session), mock.patch.object(zerochat, "_MUTED", False), \
-             mock.patch.object(sys, "stdout", io.StringIO()), self.assertRaises(SystemExit):
-            zerochat.finish_run(io.StringIO())
+        zerochat.RUN_SESSION = session
+        saved_step, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
+            "conversation": {"id": "session_agente_1"},
+            "messages": [{"id": "u1", "role": "user", "content": "Otra vez"}],
+        })
+        self.assertIsNone(err)
+        self.assertNotIn("launch", saved_step["conversation"])
+        self.assertEqual((saved_step["conversation"]["serverRun"], saved_step["conversation"]["profileId"]), (True, "informes"))
+        self.assertEqual(zerochat.get_conversation_launch("session_agente_1"), launch)
+        zerochat.RUN_SESSION = None
         self.assertIsNone(zerochat.RunSession("Hola").launch, "Sin agent no hay lanzamiento que guardar")
-        ui_saved = zerochat.save_conversation({"id": "session_agente_1", "profileId": "local"}, [{"id": "u1", "role": "user", "content": "Hola"}])
-        self.assertNotIn("launch", ui_saved)
+        ui_saved, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
+            "conversation": {"id": "session_agente_1", "profileId": "local", "launch": {"profile": "local"}},
+            "messages": [{"id": "u1", "role": "user", "content": "Hola"}],
+        })
+        self.assertIsNone(err)
+        self.assertNotIn("launch", ui_saved["conversation"])
+        self.assertEqual(ui_saved["conversation"]["profileId"], "informes")
         self.assertEqual(zerochat.get_conversation_launch("session_agente_1"), launch)
 
         # Continuarla sin --run-file (la interfaz con run/start o --conversation) repite su lanzamiento, no el perfil pedido.

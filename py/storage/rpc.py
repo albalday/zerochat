@@ -112,7 +112,10 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     if not isinstance(params, dict):
         raise ValueError("Los parámetros deben ser un objeto")
     upload_id = params.get("uploadId")
-    conversation = run_conversation_meta(params.get("conversation"))
+    raw_conv = params.get("conversation")
+    if isinstance(raw_conv, dict) and "launch" in raw_conv:
+        raw_conv = {k: v for k, v in raw_conv.items() if k != "launch"}
+    conversation = run_conversation_meta(raw_conv)
     if upload_id is not None:
         if params.get("messages") is not None:
             raise ValueError("No se puede combinar uploadId y messages")

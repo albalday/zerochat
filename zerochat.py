@@ -2987,13 +2987,15 @@ def _conversation_extra(session_meta: dict) -> dict:
             extra["project"] = project.strip()
     if session_meta.get("agent") is not None:
         extra["agent"] = validate_agent_id(session_meta["agent"])
+    if isinstance(session_meta.get("launch"), dict):
+        extra["launch"] = session_meta["launch"]
     return extra
 
 
 def _merge_saved_header(existing, session_meta: dict, created_at: int, title: str, extra: dict) -> tuple[int, str, dict]:
     """Completa la cabecera con la guardada: su fecha de creación y su título si la petición no los trae, y su
-    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después; el agente, igual,
-    y sin agente al crearla no se le añade después."""
+    extra_json debajo del nuevo. El proyecto y el agente se fijan al crear la conversación; cuando guarda la interfaz
+    (sin `launch` en `session_meta`) una conversación de agente conserva también su `launch` y su `profile_id`."""
     if not session_meta.get("createdAt") and existing["created_at"]:
         created_at = int(existing["created_at"])
     if not title and existing["title"]:
@@ -3005,6 +3007,8 @@ def _merge_saved_header(existing, session_meta: dict, created_at: int, title: st
     extra.pop("agent", None)
     if existing_extra.get("agent"):
         extra["agent"] = existing_extra["agent"]
+        if "launch" not in session_meta and existing_extra.get("profile_id"):
+            extra["profile_id"] = existing_extra["profile_id"]
     return created_at, title, extra
 
 
@@ -3281,13 +3285,6 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
     if profile_name:
         patch["profile_id"] = str(profile_name).strip()
     return _patch_conversation_extra(session_id, patch)
-
-
-def set_conversation_launch(session_id: str, launch: dict) -> bool:
-    """Guarda la petición de lanzamiento de la última ejecución --run-file de una conversación de agente (perfil,
-    systemDataPrompt, projectMode y límites): la que repite al continuarla. No sale en la cabecera ni la escribe la
-    interfaz, que no envía ese campo."""
-    return _patch_conversation_extra(session_id, {"launch": launch})
 
 
 def get_conversation_launch(session_id: str) -> dict | None:
@@ -5554,7 +5551,8 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = ()):
+                 agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = (),
+                 track_run: bool = False):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -5563,8 +5561,8 @@ class RunSession:
         # en ninguna otra.
         self.new_conversation_id = None if conversation_id else (new_conversation_id or f"session_{uuid.uuid4()}")
         # Conversación cuyo estado se guarda en la tabla runs: la que indicó quien lanzó la ejecución (--conversation o
-        # --run-file), que es quien la sigue; una nueva con id del servidor no la sigue nadie.
-        self.state_conversation_id = conversation_id or new_conversation_id
+        # --run-file), o cualquier ejecución con agent / --run-file aunque cree id nuevo; un --prompt suelto no deja fila.
+        self.state_conversation_id = conversation_id or new_conversation_id or (self.new_conversation_id if (agent or track_run) else None)
         self.prompt = prompt
         # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
         self.system_data_prompt = system_data_prompt
@@ -5688,12 +5686,23 @@ def run_project_environment(env: dict) -> dict:
 
 
 def run_conversation_meta(session_meta):
-    """La cabecera de una conversación que se guarda: la nueva de una ejecución con agent lleva ese agente, lo envíe o
-    no el runner; SQLite solo lo admite al crearla."""
+    """La cabecera de una conversación que se guarda en una ejecución: añade `agent` a la nueva y, si tiene `launch`
+    (--run-file con agente, nueva o continuada), incluye `launch`, `serverRun` y `profileId` desde el primer guardado."""
     session = RUN_SESSION
-    if session is None or not session.agent or not isinstance(session_meta, dict) or session_meta.get("id") != session.new_conversation_id:
+    if session is None or not isinstance(session_meta, dict):
         return session_meta
-    return {**session_meta, "agent": session.agent}
+    target_id = session.conversation_id or session.new_conversation_id
+    if not target_id or session_meta.get("id") != target_id:
+        return session_meta
+    patched = dict(session_meta)
+    if session.agent and session_meta.get("id") == session.new_conversation_id:
+        patched["agent"] = session.agent
+    if session.launch:
+        patched["launch"] = session.launch
+        patched["serverRun"] = True
+        if session.profile:
+            patched["profileId"] = session.profile
+    return patched
 
 
 def http_body_limit() -> int:
@@ -6004,7 +6013,10 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     if not isinstance(params, dict):
         raise ValueError("Los parámetros deben ser un objeto")
     upload_id = params.get("uploadId")
-    conversation = run_conversation_meta(params.get("conversation"))
+    raw_conv = params.get("conversation")
+    if isinstance(raw_conv, dict) and "launch" in raw_conv:
+        raw_conv = {k: v for k, v in raw_conv.items() if k != "launch"}
+    conversation = run_conversation_meta(raw_conv)
     if upload_id is not None:
         if params.get("messages") is not None:
             raise ValueError("No se puede combinar uploadId y messages")
@@ -11584,7 +11596,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
-                      watch_agents=tuple(options.get("watchAgents") or ()))
+                      watch_agents=tuple(options.get("watchAgents") or ()), track_run=args.run_file is not None)
 
 
 def redirect_log(args):
@@ -11800,9 +11812,6 @@ def finish_run(result_out):
     # perfil, como las de --conversation, que se marcan al empezar porque ya existen.
     if session.new_conversation_id == session.state_conversation_id:
         mark_conversation_server_run(session.new_conversation_id, session.profile)
-    # La de un agente guarda con qué se lanzó, para continuarla igual desde la interfaz o con --conversation.
-    if session.launch:
-        set_conversation_launch(session.conversation_id or session.new_conversation_id, session.launch)
     code, text = run_outcome(session)
     # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
     mute_console()

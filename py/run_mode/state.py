@@ -416,7 +416,8 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = ()):
+                 agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = (),
+                 track_run: bool = False):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -425,8 +426,8 @@ class RunSession:
         # en ninguna otra.
         self.new_conversation_id = None if conversation_id else (new_conversation_id or f"session_{uuid.uuid4()}")
         # Conversación cuyo estado se guarda en la tabla runs: la que indicó quien lanzó la ejecución (--conversation o
-        # --run-file), que es quien la sigue; una nueva con id del servidor no la sigue nadie.
-        self.state_conversation_id = conversation_id or new_conversation_id
+        # --run-file), o cualquier ejecución con agent / --run-file aunque cree id nuevo; un --prompt suelto no deja fila.
+        self.state_conversation_id = conversation_id or new_conversation_id or (self.new_conversation_id if (agent or track_run) else None)
         self.prompt = prompt
         # systemDataPrompt de --run-file: sustituye al del proyecto solo en esta ejecución (run_project_environment).
         self.system_data_prompt = system_data_prompt
@@ -550,12 +551,23 @@ def run_project_environment(env: dict) -> dict:
 
 
 def run_conversation_meta(session_meta):
-    """La cabecera de una conversación que se guarda: la nueva de una ejecución con agent lleva ese agente, lo envíe o
-    no el runner; SQLite solo lo admite al crearla."""
+    """La cabecera de una conversación que se guarda en una ejecución: añade `agent` a la nueva y, si tiene `launch`
+    (--run-file con agente, nueva o continuada), incluye `launch`, `serverRun` y `profileId` desde el primer guardado."""
     session = RUN_SESSION
-    if session is None or not session.agent or not isinstance(session_meta, dict) or session_meta.get("id") != session.new_conversation_id:
+    if session is None or not isinstance(session_meta, dict):
         return session_meta
-    return {**session_meta, "agent": session.agent}
+    target_id = session.conversation_id or session.new_conversation_id
+    if not target_id or session_meta.get("id") != target_id:
+        return session_meta
+    patched = dict(session_meta)
+    if session.agent and session_meta.get("id") == session.new_conversation_id:
+        patched["agent"] = session.agent
+    if session.launch:
+        patched["launch"] = session.launch
+        patched["serverRun"] = True
+        if session.profile:
+            patched["profileId"] = session.profile
+    return patched
 
 
 def http_body_limit() -> int:

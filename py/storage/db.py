@@ -607,13 +607,15 @@ def _conversation_extra(session_meta: dict) -> dict:
             extra["project"] = project.strip()
     if session_meta.get("agent") is not None:
         extra["agent"] = validate_agent_id(session_meta["agent"])
+    if isinstance(session_meta.get("launch"), dict):
+        extra["launch"] = session_meta["launch"]
     return extra
 
 
 def _merge_saved_header(existing, session_meta: dict, created_at: int, title: str, extra: dict) -> tuple[int, str, dict]:
     """Completa la cabecera con la guardada: su fecha de creación y su título si la petición no los trae, y su
-    extra_json debajo del nuevo. El proyecto se fija al crear la conversación y no cambia después; el agente, igual,
-    y sin agente al crearla no se le añade después."""
+    extra_json debajo del nuevo. El proyecto y el agente se fijan al crear la conversación; cuando guarda la interfaz
+    (sin `launch` en `session_meta`) una conversación de agente conserva también su `launch` y su `profile_id`."""
     if not session_meta.get("createdAt") and existing["created_at"]:
         created_at = int(existing["created_at"])
     if not title and existing["title"]:
@@ -625,6 +627,8 @@ def _merge_saved_header(existing, session_meta: dict, created_at: int, title: st
     extra.pop("agent", None)
     if existing_extra.get("agent"):
         extra["agent"] = existing_extra["agent"]
+        if "launch" not in session_meta and existing_extra.get("profile_id"):
+            extra["profile_id"] = existing_extra["profile_id"]
     return created_at, title, extra
 
 
@@ -901,13 +905,6 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
     if profile_name:
         patch["profile_id"] = str(profile_name).strip()
     return _patch_conversation_extra(session_id, patch)
-
-
-def set_conversation_launch(session_id: str, launch: dict) -> bool:
-    """Guarda la petición de lanzamiento de la última ejecución --run-file de una conversación de agente (perfil,
-    systemDataPrompt, projectMode y límites): la que repite al continuarla. No sale en la cabecera ni la escribe la
-    interfaz, que no envía ese campo."""
-    return _patch_conversation_extra(session_id, {"launch": launch})
 
 
 def get_conversation_launch(session_id: str) -> dict | None:

@@ -75,7 +75,6 @@ from storage.db import (
     get_project_environment,
     list_general_profiles,
     mark_conversation_server_run,
-    set_conversation_launch,
 )
 from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
@@ -259,7 +258,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
-                      watch_agents=tuple(options.get("watchAgents") or ()))
+                      watch_agents=tuple(options.get("watchAgents") or ()), track_run=args.run_file is not None)
 
 
 def redirect_log(args):
@@ -475,9 +474,6 @@ def finish_run(result_out):
     # perfil, como las de --conversation, que se marcan al empezar porque ya existen.
     if session.new_conversation_id == session.state_conversation_id:
         mark_conversation_server_run(session.new_conversation_id, session.profile)
-    # La de un agente guarda con qué se lanzó, para continuarla igual desde la interfaz o con --conversation.
-    if session.launch:
-        set_conversation_launch(session.conversation_id or session.new_conversation_id, session.launch)
     code, text = run_outcome(session)
     # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
     mute_console()
