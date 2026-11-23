@@ -40,6 +40,7 @@ from run_mode.state import (
     RUN_EXIT_SETUP,
     RUN_EXPORT_FORMATS,
     RUN_FILE_MAX_BYTES,
+    RUN_LAUNCH_KEYS,
     RunSession,
     current_run_session,
     parse_run_request,
@@ -68,6 +69,7 @@ from server.state import (
 from storage.db import (
     _validate_conversation_id,
     get_conversation,
+    get_conversation_launch,
     get_general_profile,
     get_general_profile_by_name,
     get_general_profile_with_key,
@@ -75,6 +77,7 @@ from storage.db import (
     list_conversations,
     list_general_profiles,
     mark_conversation_server_run,
+    set_conversation_launch,
 )
 from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
@@ -237,15 +240,28 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     if args.run_file is not None and conv is not None and conv.get("agent") != request.get("agent"):
         parser.error(f"la conversación '{conversation_id}' es del agente '{conv.get('agent') or '(ninguno)'}', no de "
                      f"'{request.get('agent') or '(ninguno)'}'")
+    # Continuar sin --run-file (la interfaz o --conversation) una conversación de agente repite su último lanzamiento:
+    # su perfil, su manual (systemDataPrompt), su projectMode y sus límites, no los de quien la reanuda.
+    options = request
+    if args.run_file is None and conv is not None and conv.get("agent"):
+        options = {"projectMode": False, "agent": conv["agent"], **(get_conversation_launch(conversation_id) or {})}
+        launch_profile = options.get("profile")
+        if launch_profile and raw_profile is not None and raw_profile.strip() != launch_profile:
+            parser.error(f"la conversación '{conversation_id}' es del agente '{conv['agent']}' y se continúa con el perfil "
+                         f"de su lanzamiento, '{launch_profile}', no con '{raw_profile.strip()}'")
+        raw_profile = launch_profile or raw_profile
     _check_run_flags(parser, args)
     profile_name, profile_data = _run_profile(parser, raw_profile, conv)
     export_path = _run_export_path(parser, args)
     if conversation_id and args.run_file is None:
         mark_conversation_server_run(conversation_id, profile_name)
+    launch = None
+    if args.run_file is not None and request.get("agent"):
+        launch = {"profile": profile_name, **{key: request[key] for key in RUN_LAUNCH_KEYS if key in request}}
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
-                      new_conversation_id=new_conversation_id, system_data_prompt=request.get("systemDataPrompt"),
-                      max_steps=request.get("maxSteps"), timeout_seconds=request.get("timeout"),
-                      project_mode=request.get("projectMode"), agent=request.get("agent"))
+                      new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
+                      max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
+                      project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch)
 
 
 def redirect_log(args):
@@ -461,6 +477,9 @@ def finish_run(result_out):
     # perfil, como las de --conversation, que se marcan al empezar porque ya existen.
     if session.new_conversation_id == session.state_conversation_id:
         mark_conversation_server_run(session.new_conversation_id, session.profile)
+    # La de un agente guarda con qué se lanzó, para continuarla igual desde la interfaz o con --conversation.
+    if session.launch:
+        set_conversation_launch(session.conversation_id or session.new_conversation_id, session.launch)
     code, text = run_outcome(session)
     # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
     mute_console()

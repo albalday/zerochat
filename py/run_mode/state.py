@@ -25,6 +25,7 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcom
 from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
+    get_conversation_launch,
     validate_agent_id,
     validate_project_prompt,
     delete_run_state,
@@ -68,6 +69,8 @@ RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
 RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS))
+# Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS)
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -283,7 +286,9 @@ def _run_target(params: dict) -> tuple[str, dict, str]:
     conv = get_conversation(clean_conv_id)
     if conv is None:
         raise ValueError(f"Conversación '{clean_conv_id}' no encontrada.")
-    profile = params.get("profile")
+    # Una conversación de agente se reanuda con el perfil de su lanzamiento, no con el que pida la interfaz.
+    launch = get_conversation_launch(clean_conv_id) if conv.get("agent") else None
+    profile = (launch or {}).get("profile") or params.get("profile")
     if not isinstance(profile, str) or not profile.strip():
         conv_profile = conv.get("profileId")
         if not isinstance(conv_profile, str) or not conv_profile.strip():
@@ -397,7 +402,7 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None):
+                 agent: str | None = None, launch: dict | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -413,6 +418,8 @@ class RunSession:
         self.system_data_prompt = system_data_prompt
         # agent de --run-file: marca la conversación nueva como de ese agente (run_conversation_meta).
         self.agent = agent
+        # Petición de lanzamiento de un agente (--run-file): finish_run la guarda en su conversación.
+        self.launch = launch
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode

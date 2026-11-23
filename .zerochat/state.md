@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M86 Mejoras para proyectos de agentes y `--run-file`
-- Next task: M86-T18
+- Next task: M86-T16 Supervisión de agentes controlados para un agente master y retirada de --list-conversations: añadir campo opcional watchAgents en --run-file (lista de patrones de namespace del mismo proyecto: '*', '<subconjunto>.*' o '<subconjunto>.<nombre>') que habilita y autoriza en sesión únicamente para esa ejecución la herramienta local check_agents; check_agents cruza conversations y runs filtrando estrictamente por project == ctx.workspace_dir y agent cubierto por watchAgents (nunca chats humanos ni otros proyectos), devolviendo en modo listado el estado de cada agente controlado (agent, conversation_id, status, updated_at, finished_at, step_text, pending, error, warnings, resumen de result_text) y con agent/conversation_id el detalle y mensajes del último turno acotados en tamaño; retirar --list-conversations de py/cli/main.py, actualizar templates/project/mode-agent*.txt y py/README.md, y registrar Supersedes parcial de M79-D8 al cerrar, con pruebas
 - Last closed: M82 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-20 (2026-11-22)
 - Last updated: 2026-11-23

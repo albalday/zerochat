@@ -857,8 +857,8 @@ def commit_conversation_upload(session_meta: dict, upload_id: str) -> dict:
     return save_conversation(session_meta, messages)
 
 
-def mark_conversation_server_run(session_id: str, profile_name: str | None = None) -> bool:
-    """Marca la conversación en SQLite como ejecutada en servidor asociándole el perfil."""
+def _patch_conversation_extra(session_id: str, patch: dict) -> bool:
+    """Añade campos al extra_json de una conversación que existe; False si no existe o no se pudo guardar."""
     try:
         clean_id = _validate_conversation_id(session_id)
     except (ValueError, TypeError):
@@ -869,15 +869,38 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
             if not row:
                 return False
             cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
-            cur_extra["server_run"] = True
-            if profile_name:
-                cur_extra["profile_id"] = str(profile_name).strip()
+            cur_extra.update(patch)
             conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
             conn.commit()
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
     notify_live_change()
     return True
+
+
+def mark_conversation_server_run(session_id: str, profile_name: str | None = None) -> bool:
+    """Marca la conversación en SQLite como ejecutada en servidor asociándole el perfil."""
+    patch: dict = {"server_run": True}
+    if profile_name:
+        patch["profile_id"] = str(profile_name).strip()
+    return _patch_conversation_extra(session_id, patch)
+
+
+def set_conversation_launch(session_id: str, launch: dict) -> bool:
+    """Guarda la petición de lanzamiento de la última ejecución --run-file de una conversación de agente (perfil,
+    systemDataPrompt, projectMode y límites): la que repite al continuarla. No sale en la cabecera ni la escribe la
+    interfaz, que no envía ese campo."""
+    return _patch_conversation_extra(session_id, {"launch": launch})
+
+
+def get_conversation_launch(session_id: str) -> dict | None:
+    """La petición de lanzamiento guardada de una conversación de agente, o None si no la tiene."""
+    clean_id = _validate_conversation_id(session_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+    extra = json.loads(row["extra_json"]) if row and row["extra_json"] else {}
+    launch = extra.get("launch")
+    return launch if isinstance(launch, dict) else None
 
 
 def rename_conversation(session_id: str, new_title: str) -> bool:

@@ -314,6 +314,31 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         rejects(["--run-file", write_request({"conversation_id": "session_agente_1", "agent": "informes.semanal"})])
         rejects(["--run-file", write_request({"conversation_id": "session_orquestador_3", "agent": "informes.diario"})])
 
+        # El lanzamiento de un agente se guarda en su conversación al terminar y la interfaz, al guardarla, no lo toca.
+        zerochat.save_general_profile({"name": "informes", "settings": {}})
+        session = session_from(["--run-file", write_request({
+            "conversation_id": "session_agente_1", "prompt": "Otra vez", "agent": "informes.diario", "profile": "informes",
+            "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30})])
+        launch = {"profile": "informes", "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30}
+        self.assertEqual(session.launch, launch)
+        session.result = {"text": "hecho"}
+        with mock.patch.object(zerochat, "RUN_SESSION", session), mock.patch.object(zerochat, "_MUTED", False), \
+             mock.patch.object(sys, "stdout", io.StringIO()), self.assertRaises(SystemExit):
+            zerochat.finish_run(io.StringIO())
+        self.assertIsNone(zerochat.RunSession("Hola").launch, "Sin agent no hay lanzamiento que guardar")
+        ui_saved = zerochat.save_conversation({"id": "session_agente_1", "profileId": "local"}, [{"id": "u1", "role": "user", "content": "Hola"}])
+        self.assertNotIn("launch", ui_saved)
+        self.assertEqual(zerochat.get_conversation_launch("session_agente_1"), launch)
+
+        # Continuarla sin --run-file (la interfaz con run/start o --conversation) repite su lanzamiento, no el perfil pedido.
+        resumed = session_from(["--conversation", "session_agente_1"])
+        self.assertEqual((resumed.profile, resumed.system_data_prompt, resumed.max_steps, resumed.timeout_seconds, resumed.project_mode, resumed.agent),
+                         ("informes", "Manual del agente", 30, None, True, "informes.diario"))
+        self.assertEqual(session_from(["--conversation", "session_agente_1", "--profile", "informes"]).profile, "informes")
+        rejects(["--conversation", "session_agente_1", "--profile", "local"])
+        self.assertEqual(zerochat._run_target({"conversation_id": "session_agente_1", "profile": "local"})[2], "informes")
+        self.assertEqual(zerochat.get_conversation("session_agente_1")["profileId"], "informes")
+
         # El systemDataPrompt sustituye al guardado en lo que recibe la interfaz, sin escribirlo en SQLite.
         ctx = use_project(self, folder)
         with self.assertRaises(SystemExit) as cm, mock.patch("sys.stderr", io.StringIO()) as stderr:

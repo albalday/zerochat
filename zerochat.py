@@ -3237,8 +3237,8 @@ def commit_conversation_upload(session_meta: dict, upload_id: str) -> dict:
     return save_conversation(session_meta, messages)
 
 
-def mark_conversation_server_run(session_id: str, profile_name: str | None = None) -> bool:
-    """Marca la conversación en SQLite como ejecutada en servidor asociándole el perfil."""
+def _patch_conversation_extra(session_id: str, patch: dict) -> bool:
+    """Añade campos al extra_json de una conversación que existe; False si no existe o no se pudo guardar."""
     try:
         clean_id = _validate_conversation_id(session_id)
     except (ValueError, TypeError):
@@ -3249,15 +3249,38 @@ def mark_conversation_server_run(session_id: str, profile_name: str | None = Non
             if not row:
                 return False
             cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
-            cur_extra["server_run"] = True
-            if profile_name:
-                cur_extra["profile_id"] = str(profile_name).strip()
+            cur_extra.update(patch)
             conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
             conn.commit()
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
     notify_live_change()
     return True
+
+
+def mark_conversation_server_run(session_id: str, profile_name: str | None = None) -> bool:
+    """Marca la conversación en SQLite como ejecutada en servidor asociándole el perfil."""
+    patch: dict = {"server_run": True}
+    if profile_name:
+        patch["profile_id"] = str(profile_name).strip()
+    return _patch_conversation_extra(session_id, patch)
+
+
+def set_conversation_launch(session_id: str, launch: dict) -> bool:
+    """Guarda la petición de lanzamiento de la última ejecución --run-file de una conversación de agente (perfil,
+    systemDataPrompt, projectMode y límites): la que repite al continuarla. No sale en la cabecera ni la escribe la
+    interfaz, que no envía ese campo."""
+    return _patch_conversation_extra(session_id, {"launch": launch})
+
+
+def get_conversation_launch(session_id: str) -> dict | None:
+    """La petición de lanzamiento guardada de una conversación de agente, o None si no la tiene."""
+    clean_id = _validate_conversation_id(session_id)
+    with open_storage() as conn:
+        row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
+    extra = json.loads(row["extra_json"]) if row and row["extra_json"] else {}
+    launch = extra.get("launch")
+    return launch if isinstance(launch, dict) else None
 
 
 def rename_conversation(session_id: str, new_title: str) -> bool:
@@ -5168,6 +5191,8 @@ RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
 RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS))
+# Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS)
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -5383,7 +5408,9 @@ def _run_target(params: dict) -> tuple[str, dict, str]:
     conv = get_conversation(clean_conv_id)
     if conv is None:
         raise ValueError(f"Conversación '{clean_conv_id}' no encontrada.")
-    profile = params.get("profile")
+    # Una conversación de agente se reanuda con el perfil de su lanzamiento, no con el que pida la interfaz.
+    launch = get_conversation_launch(clean_conv_id) if conv.get("agent") else None
+    profile = (launch or {}).get("profile") or params.get("profile")
     if not isinstance(profile, str) or not profile.strip():
         conv_profile = conv.get("profileId")
         if not isinstance(conv_profile, str) or not conv_profile.strip():
@@ -5497,7 +5524,7 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None):
+                 agent: str | None = None, launch: dict | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -5513,6 +5540,8 @@ class RunSession:
         self.system_data_prompt = system_data_prompt
         # agent de --run-file: marca la conversación nueva como de ese agente (run_conversation_meta).
         self.agent = agent
+        # Petición de lanzamiento de un agente (--run-file): finish_run la guarda en su conversación.
+        self.launch = launch
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode
@@ -11386,15 +11415,28 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     if args.run_file is not None and conv is not None and conv.get("agent") != request.get("agent"):
         parser.error(f"la conversación '{conversation_id}' es del agente '{conv.get('agent') or '(ninguno)'}', no de "
                      f"'{request.get('agent') or '(ninguno)'}'")
+    # Continuar sin --run-file (la interfaz o --conversation) una conversación de agente repite su último lanzamiento:
+    # su perfil, su manual (systemDataPrompt), su projectMode y sus límites, no los de quien la reanuda.
+    options = request
+    if args.run_file is None and conv is not None and conv.get("agent"):
+        options = {"projectMode": False, "agent": conv["agent"], **(get_conversation_launch(conversation_id) or {})}
+        launch_profile = options.get("profile")
+        if launch_profile and raw_profile is not None and raw_profile.strip() != launch_profile:
+            parser.error(f"la conversación '{conversation_id}' es del agente '{conv['agent']}' y se continúa con el perfil "
+                         f"de su lanzamiento, '{launch_profile}', no con '{raw_profile.strip()}'")
+        raw_profile = launch_profile or raw_profile
     _check_run_flags(parser, args)
     profile_name, profile_data = _run_profile(parser, raw_profile, conv)
     export_path = _run_export_path(parser, args)
     if conversation_id and args.run_file is None:
         mark_conversation_server_run(conversation_id, profile_name)
+    launch = None
+    if args.run_file is not None and request.get("agent"):
+        launch = {"profile": profile_name, **{key: request[key] for key in RUN_LAUNCH_KEYS if key in request}}
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
-                      new_conversation_id=new_conversation_id, system_data_prompt=request.get("systemDataPrompt"),
-                      max_steps=request.get("maxSteps"), timeout_seconds=request.get("timeout"),
-                      project_mode=request.get("projectMode"), agent=request.get("agent"))
+                      new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
+                      max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
+                      project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch)
 
 
 def redirect_log(args):
@@ -11610,6 +11652,9 @@ def finish_run(result_out):
     # perfil, como las de --conversation, que se marcan al empezar porque ya existen.
     if session.new_conversation_id == session.state_conversation_id:
         mark_conversation_server_run(session.new_conversation_id, session.profile)
+    # La de un agente guarda con qué se lanzó, para continuarla igual desde la interfaz o con --conversation.
+    if session.launch:
+        set_conversation_launch(session.conversation_id or session.new_conversation_id, session.launch)
     code, text = run_outcome(session)
     # El registro sigue donde estaba (stderr o nada): result_out solo recibe la respuesta.
     mute_console()
