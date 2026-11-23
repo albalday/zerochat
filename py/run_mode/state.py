@@ -25,7 +25,7 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, METHOD_NOT_FOUND, RpcOutcom
 from security.context import SecurityContext
 from storage.db import (
     _validate_conversation_id,
-    _validate_project_prompt,
+    validate_project_prompt,
     delete_run_state,
     get_conversation,
     get_conversation_updated_at,
@@ -109,7 +109,7 @@ def parse_run_request(raw: bytes) -> dict:
     if "systemDataPrompt" in data:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
-        request["systemDataPrompt"] = _validate_project_prompt(data["systemDataPrompt"])
+        request["systemDataPrompt"] = validate_project_prompt(data["systemDataPrompt"])
     for key, maximum in RUN_FILE_LIMIT_KEYS.items():
         if key in data:
             value = data[key]
@@ -469,11 +469,16 @@ class RunSession:
             self.status = "limit"
             self.error = message
             write_run_state(self)
-            wake = self._wake
+        self.signal_finished()
+        return True
+
+    def signal_finished(self) -> None:
+        """Marca la ejecución como terminada y despierta a quien la espera con set_wake_event."""
         self.finished.set()
+        with self.lock:
+            wake = self._wake
         if wake is not None:
             wake.set()
-        return True
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -637,10 +642,7 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
             session.status = "error"
             session.error = error
             write_run_state(session)
-    session.finished.set()
-    with session.lock:
-        if session._wake is not None:
-            session._wake.set()
+    session.signal_finished()
     return rpc_result({"ok": True})
 
 

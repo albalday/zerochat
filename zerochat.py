@@ -3689,7 +3689,8 @@ def _clean_project_tool_id(raw, label: str) -> str:
     return clean
 
 
-def _validate_project_prompt(prompt) -> str | None:
+def validate_project_prompt(prompt) -> str | None:
+    """systemDataPrompt de un proyecto (o de --run-file): texto acotado sin espacios alrededor, o None."""
     if prompt is None:
         return None
     if not isinstance(prompt, str):
@@ -3730,7 +3731,7 @@ def _validate_project_browser(browser) -> str:
 
 
 _PROJECT_ENV_VALIDATORS = {
-    "systemDataPrompt": _validate_project_prompt,
+    "systemDataPrompt": validate_project_prompt,
     "enabledTools": _validate_enabled_tools,
     "mcpServers": lambda raw: _validate_project_id_list(raw, "mcpServers", MAX_PROJECT_MCP_SERVERS),
     "browser": _validate_project_browser,
@@ -5191,7 +5192,7 @@ def parse_run_request(raw: bytes) -> dict:
     if "systemDataPrompt" in data:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
-        request["systemDataPrompt"] = _validate_project_prompt(data["systemDataPrompt"])
+        request["systemDataPrompt"] = validate_project_prompt(data["systemDataPrompt"])
     for key, maximum in RUN_FILE_LIMIT_KEYS.items():
         if key in data:
             value = data[key]
@@ -5551,11 +5552,16 @@ class RunSession:
             self.status = "limit"
             self.error = message
             write_run_state(self)
-            wake = self._wake
+        self.signal_finished()
+        return True
+
+    def signal_finished(self) -> None:
+        """Marca la ejecución como terminada y despierta a quien la espera con set_wake_event."""
         self.finished.set()
+        with self.lock:
+            wake = self._wake
         if wake is not None:
             wake.set()
-        return True
 
     def take_approved_call(self, tool_name: str, args: dict) -> bool:
         """Si es la llamada que la persona aprobó en la tarjeta pausada (mismo nombre y argumentos), la consume:
@@ -5719,10 +5725,7 @@ def _rpc_result(params: dict, session: RunSession) -> RpcOutcome:
             session.status = "error"
             session.error = error
             write_run_state(session)
-    session.finished.set()
-    with session.lock:
-        if session._wake is not None:
-            session._wake.set()
+    session.signal_finished()
     return rpc_result({"ok": True})
 
 
@@ -7838,6 +7841,17 @@ class ProjectSession:
         return self.tools if kind == "tools" else self.servers
 
 
+@dataclasses.dataclass(frozen=True)
+class PolicyPatch:
+    """Parche de políticas ya validado; None en un apartado es «no cambiar»."""
+    allow_all: bool | None = None
+    directory_rules: list[str] | None = None
+    tools: dict | None = None
+    servers: dict | None = None
+    added_rules: list[str] = dataclasses.field(default_factory=list)
+    command_patterns: dict | None = None
+
+
 class AccessController:
     """Motor de control de acceso y autorización del backend (PDP/PEP)."""
 
@@ -8019,7 +8033,7 @@ class AccessController:
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
-    def _validate_state_payload(self, state: dict, scope: str) -> tuple[bool | None, list[str] | None, dict | None, dict | None]:
+    def _validate_state_payload(self, state: dict, scope: str) -> PolicyPatch:
         if not isinstance(state, dict):
             raise ValueError("El estado de políticas debe ser un diccionario.")
 
@@ -8032,7 +8046,7 @@ class AccessController:
         clean_rules = self._validate_directory_rules(state["directoryRules"]) if "directoryRules" in state else None
         clean_tools = self._validate_policy_entries(state["tools"], "tools", scope) if "tools" in state else None
         clean_servers = self._validate_policy_entries(state["servers"], "servers", scope) if "servers" in state else None
-        return clean_allow_all, clean_rules, clean_tools, clean_servers
+        return PolicyPatch(allow_all=clean_allow_all, directory_rules=clean_rules, tools=clean_tools, servers=clean_servers)
 
     @staticmethod
     def _validate_command_patterns_patch(raw) -> dict:
@@ -8050,49 +8064,49 @@ class AccessController:
         `addDirectoryRules` añade reglas a las guardadas dentro de la misma transacción y
         `commandPatterns` sustituye los patrones globales y del proyecto actual sin tocar otros proyectos.
         """
-        clean_allow_all, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_PERMANENT)
-        added_rules = self._validate_directory_rules(state["addDirectoryRules"]) if "addDirectoryRules" in state else []
-        clean_patterns = self._validate_command_patterns_patch(state["commandPatterns"]) if "commandPatterns" in state else None
-
-        project = context.key
+        patch = dataclasses.replace(
+            self._validate_state_payload(state, SCOPE_PERMANENT),
+            added_rules=self._validate_directory_rules(state["addDirectoryRules"]) if "addDirectoryRules" in state else [],
+            command_patterns=self._validate_command_patterns_patch(state["commandPatterns"]) if "commandPatterns" in state else None,
+        )
         default_rule = self.get_default_directory_rule(context)
 
         def mutator(global_state: dict, project_state: dict) -> None:
-            self._apply_state_patch(global_state, project_state, default_rule, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns)
+            self._apply_state_patch(global_state, project_state, default_rule, patch)
         self._update_permanent(context, mutator)
-        self._forget_session_overrides(project, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers)
+        self._forget_session_overrides(context.key, patch)
         return self.export_state(context)
 
-    def _apply_state_patch(self, global_state: dict, project_state: dict, default_rule: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers, clean_patterns):
+    def _apply_state_patch(self, global_state: dict, project_state: dict, default_rule: str, patch: PolicyPatch):
         """Aplica sobre el estado guardado los apartados del parche que vienen (None es «no cambiar»)."""
-        if clean_allow_all is not None:
-            project_state["allowAll"] = clean_allow_all
-        if clean_rules is not None:
-            project_state["directoryRules"] = None if clean_rules == [default_rule] else clean_rules
-        if added_rules:
+        if patch.allow_all is not None:
+            project_state["allowAll"] = patch.allow_all
+        if patch.directory_rules is not None:
+            project_state["directoryRules"] = None if patch.directory_rules == [default_rule] else patch.directory_rules
+        if patch.added_rules:
             base_rules = project_state["directoryRules"] if project_state["directoryRules"] is not None else [default_rule]
-            project_state["directoryRules"] = self._append_rules(base_rules, added_rules)
-        if clean_tools is not None:
-            global_state["tools"] = self._apply_entry_patch(global_state.get("tools"), clean_tools)
-        if clean_servers is not None:
-            global_state["servers"] = self._apply_entry_patch(global_state.get("servers"), clean_servers)
-        if clean_patterns is not None:
-            global_state["commandPatterns"] = clean_pattern_list(clean_patterns["global"], "commandPatterns.global")
-            project_state["commandPatterns"] = clean_pattern_list(clean_patterns["project"], "commandPatterns.project")
+            project_state["directoryRules"] = self._append_rules(base_rules, patch.added_rules)
+        if patch.tools is not None:
+            global_state["tools"] = self._apply_entry_patch(global_state.get("tools"), patch.tools)
+        if patch.servers is not None:
+            global_state["servers"] = self._apply_entry_patch(global_state.get("servers"), patch.servers)
+        if patch.command_patterns is not None:
+            global_state["commandPatterns"] = clean_pattern_list(patch.command_patterns["global"], "commandPatterns.global")
+            project_state["commandPatterns"] = clean_pattern_list(patch.command_patterns["project"], "commandPatterns.project")
 
-    def _forget_session_overrides(self, project: str, clean_allow_all, clean_rules, added_rules, clean_tools, clean_servers):
+    def _forget_session_overrides(self, project: str, patch: PolicyPatch):
         """Lo guardado sustituye o revoca lo equivalente en la sesión (las reglas y permitir todo, solo en su proyecto)."""
         with self._lock:
             for key, session in self.sessions.items():
                 if key == project:
-                    if clean_allow_all is not None:
+                    if patch.allow_all is not None:
                         session.allow_all = None
-                    if clean_rules is not None:
+                    if patch.directory_rules is not None:
                         session.directory_rules = None
-                    elif added_rules and session.directory_rules is not None:
-                        session.directory_rules = self._append_rules(session.directory_rules, added_rules)
-                for kind, patch in (("tools", clean_tools), ("servers", clean_servers)):
-                    for item_id in patch or {}:
+                    elif patch.added_rules and session.directory_rules is not None:
+                        session.directory_rules = self._append_rules(session.directory_rules, patch.added_rules)
+                for kind, entries in (("tools", patch.tools), ("servers", patch.servers)):
+                    for item_id in entries or {}:
                         session.entries(kind).pop(item_id, None)
 
     @staticmethod
@@ -8117,19 +8131,19 @@ class AccessController:
         Aplica una capa de políticas temporal en memoria para una ejecución en servidor, sin persistir.
         De los patrones de comando solo toma los de sesión: los guardados se leen de la misma base de datos.
         """
-        clean_allow_all, clean_rules, clean_tools, clean_servers = self._validate_state_payload(state, SCOPE_SESSION)
+        patch = self._validate_state_payload(state, SCOPE_SESSION)
         raw_patterns = state.get("commandPatterns")
         session_patterns = self._limit_patterns(clean_pattern_list(raw_patterns.get("session") or [], "commandPatterns.session")) \
             if isinstance(raw_patterns, dict) else None
 
         with self._lock:
             session = self._session(context)
-            rules = clean_rules if clean_rules is not None else session.directory_rules
-            tools = self._apply_entry_patch(session.tools, clean_tools or {})
-            servers = self._apply_entry_patch(session.servers, clean_servers or {})
+            rules = patch.directory_rules if patch.directory_rules is not None else session.directory_rules
+            tools = self._apply_entry_patch(session.tools, patch.tools or {})
+            servers = self._apply_entry_patch(session.servers, patch.servers or {})
             self._check_entry_limit({"directoryRules": rules, "tools": tools, "servers": servers})
-            if clean_allow_all is not None:
-                session.allow_all = clean_allow_all
+            if patch.allow_all is not None:
+                session.allow_all = patch.allow_all
             session.directory_rules, session.tools, session.servers = rules, tools, servers
             if session_patterns is not None:
                 session.command_patterns = session_patterns

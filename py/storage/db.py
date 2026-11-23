@@ -1309,7 +1309,8 @@ def _clean_project_tool_id(raw, label: str) -> str:
     return clean
 
 
-def _validate_project_prompt(prompt) -> str | None:
+def validate_project_prompt(prompt) -> str | None:
+    """systemDataPrompt de un proyecto (o de --run-file): texto acotado sin espacios alrededor, o None."""
     if prompt is None:
         return None
     if not isinstance(prompt, str):
@@ -1350,7 +1351,7 @@ def _validate_project_browser(browser) -> str:
 
 
 _PROJECT_ENV_VALIDATORS = {
-    "systemDataPrompt": _validate_project_prompt,
+    "systemDataPrompt": validate_project_prompt,
     "enabledTools": _validate_enabled_tools,
     "mcpServers": lambda raw: _validate_project_id_list(raw, "mcpServers", MAX_PROJECT_MCP_SERVERS),
     "browser": _validate_project_browser,
