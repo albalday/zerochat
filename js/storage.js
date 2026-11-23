@@ -13,7 +13,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, Database) {
   'use strict';
 
-  const { createId, normalizeBackendUrl, resolveDep } = Utils;
+  const { createId, normalizeBackendUrl, resolveDep, projectEnvironmentKey } = Utils;
   const { STORES, openDatabase, requestResult, transactionDone, deleteByIndex, getAllByIndex } = Database;
 
   const STORAGE_PREFIX = 'zerochat_';
@@ -145,7 +145,7 @@
   }
 
   function saveProjectEnvironment(projectKey, environment) {
-    const key = String(projectKey || '').trim() || 'general';
+    const key = projectEnvironmentKey(projectKey);
     if (!environment || typeof environment !== 'object' || Array.isArray(environment)) {
       throw new Error('The project environment must be an object.');
     }

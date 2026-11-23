@@ -129,6 +129,11 @@
   // Nombre de los chats sin proyecto: el de la carpeta ~/zerochat/general del servidor en la que trabajan.
   const NO_PROJECT_NAME = 'general';
 
+  /** Clave de entorno guardado de un proyecto: la carpeta, o NO_PROJECT_NAME para los chats sin proyecto. */
+  function projectEnvironmentKey(projectKey) {
+    return String(projectKey || '').trim() || NO_PROJECT_NAME;
+  }
+
   /** Une a la carpeta `base` del servidor la ruta relativa `relativePath`, con el separador de `base`. */
   function joinPath(base, relativePath) {
     const text = String(base || '');
@@ -752,6 +757,7 @@
     projectName,
     joinPath,
     NO_PROJECT_NAME,
+    projectEnvironmentKey,
     normalizeBackendUrl,
     normalizeConnectionSettings,
     canonicalJson,

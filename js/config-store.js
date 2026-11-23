@@ -16,14 +16,9 @@
   const DEFAULT_SYSTEM_DATA_PROMPT = Defaults.DEFAULT_SYSTEM_DATA_PROMPT;
   const DEFAULTS = Defaults.CONFIG_DEFAULTS;
 
-  const { clone } = Utils;
+  const { clone, projectEnvironmentKey, NO_PROJECT_NAME } = Utils;
 
   function normalizeUniqueIdList(value) {
-    if (!Array.isArray(value)) return [];
-    return [...new Set(value.map(String).map(id => id.trim()).filter(Boolean))];
-  }
-
-  function normalizeMcpServers(value) {
     if (!Array.isArray(value)) return [];
     return [...new Set(value.filter(id => typeof id === 'string').map(id => id.trim()).filter(Boolean))];
   }
@@ -40,7 +35,7 @@
     return {
       systemDataPrompt: typeof source.systemDataPrompt === 'string' ? source.systemDataPrompt.trim() : null,
       enabledTools,
-      mcpServers: normalizeMcpServers(source.mcpServers),
+      mcpServers: normalizeUniqueIdList(source.mcpServers),
       browser: Defaults.BROWSER_TOOLS.includes(source.browser) ? source.browser : DEFAULTS.browser,
       activeRagBranchIds: normalizeUniqueIdList(source.activeRagBranchIds),
       updatedAt: Number.isFinite(Number(source.updatedAt)) ? Number(source.updatedAt) : 0
@@ -48,13 +43,13 @@
   }
 
   function getProjectEnvironment(projectKey) {
-    const key = String(projectKey || '').trim() || 'general';
+    const key = projectEnvironmentKey(projectKey);
     const all = Storage.loadProjectEnvironments();
     return Object.hasOwn(all, key) ? normalizeProjectEnvironment(all[key]) : null;
   }
 
   function saveProjectEnvironmentBackup(projectKey, env) {
-    const key = String(projectKey || '').trim() || 'general';
+    const key = projectEnvironmentKey(projectKey);
     const normalized = normalizeProjectEnvironment(env);
     Storage.saveProjectEnvironment(key, normalized);
     return normalized;
@@ -84,7 +79,7 @@
    * el respaldo local (solo sin servidor) o los valores predeterminados para no arrastrar el proyecto previo.
    */
   function applyProjectEnvironment(projectKey, serverEnv = null) {
-    const key = String(projectKey || '').trim() || 'general';
+    const key = projectEnvironmentKey(projectKey);
     let source = null;
     if (serverEnv && typeof serverEnv === 'object') {
       if (serverEnv.saved) source = saveProjectEnvironmentBackup(key, serverEnv);
@@ -118,7 +113,7 @@
     Object.assign(next, Utils.normalizeConnectionSettings(next));
     next.projectMode = next.projectMode !== false;
     next.activeRagBranchIds = normalizeUniqueIdList(next.activeRagBranchIds);
-    next.mcpServers = normalizeMcpServers(next.mcpServers);
+    next.mcpServers = normalizeUniqueIdList(next.mcpServers);
     next.browser = Defaults.BROWSER_TOOLS.includes(next.browser) ? next.browser : DEFAULTS.browser;
     next.modelReasoningConfig = next.modelReasoningConfig && typeof next.modelReasoningConfig === 'object' ? clone(next.modelReasoningConfig) : null;
     const webllmConfig = next.webllmConfig && typeof next.webllmConfig === 'object' ? clone(next.webllmConfig) : clone(DEFAULTS.webllmConfig);
@@ -193,7 +188,7 @@
         activeProfile = Profiles.get(globalPrefs.activeProfile.id);
       }
     } catch (_) { /* perfiles no disponibles: sin perfil de respaldo */ }
-    const generalPatch = projectEnvironmentPatch(getProjectEnvironment('general'));
+    const generalPatch = projectEnvironmentPatch(getProjectEnvironment(NO_PROJECT_NAME));
     const base = { ...DEFAULTS, ...globalPrefs, ...generalPatch, modelContextLimit: null };
     const profileToApply = activeProfile || fallbackProfile;
     if (profileToApply) {
