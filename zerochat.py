@@ -3234,6 +3234,23 @@ def rename_conversation(session_id: str, new_title: str) -> bool:
     return changed
 
 
+def _delete_conversations_in_transaction(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
+    """Borra, dentro de la transacción abierta de `conn`, las conversaciones que cumplen `where` y sus blobs huérfanos."""
+    ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]  # noqa: S608
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        candidates = {
+            row["blob_id"]
+            for row in conn.execute(
+                f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",  # noqa: S608
+                ids,
+            )
+        }
+        conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
+        _delete_orphan_blobs(conn, candidates)
+    return ids
+
+
 def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -> list[str]:
     """
     Borra en una transacción las conversaciones que cumplen `where`, con sus mensajes en cascada, y los
@@ -3243,18 +3260,7 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
     conn.isolation_level = None
     conn.execute("BEGIN IMMEDIATE;")
     try:
-        ids = [row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {where};", params)]  # noqa: S608
-        if ids:
-            marks = ",".join("?" for _ in ids)
-            candidates = {
-                row["blob_id"]
-                for row in conn.execute(
-                    f"SELECT DISTINCT blob_id FROM conversation_blobs WHERE conversation_id IN ({marks});",  # noqa: S608
-                    ids,
-                )
-            }
-            conn.execute(f"DELETE FROM conversations WHERE id IN ({marks});", ids)  # noqa: S608
-            _delete_orphan_blobs(conn, candidates)
+        ids = _delete_conversations_in_transaction(conn, where, params)
         conn.execute("COMMIT;")
         if ids:
             notify_live_change()
@@ -3856,17 +3862,40 @@ def get_project_secret(project_key: str, name: str) -> str | None:
 
 
 def delete_project_storage(project_key: str) -> list[str]:
-    """Elimina entorno guardado, políticas de seguridad, secretos y conversaciones de un proyecto en SQLite."""
+    """
+    Elimina en una sola transacción las conversaciones del proyecto (con sus blobs huérfanos y sus filas de
+    `runs`), su entorno guardado, sus políticas de seguridad y sus secretos. Las filas de `runs` no guardan
+    el proyecto: se cruzan por `conversation_id` con el proyecto de la conversación. Si alguna de esas
+    ejecuciones sigue en marcha, no borra nada.
+    """
     clean_key = str(project_key or "").strip()
     if not clean_key:
         raise ValueError("project_key es obligatorio")
-    deleted_ids = delete_project_conversations(clean_key)
     prefix = project_secret_prefix(clean_key)
+    project_where = "json_extract(extra_json, '$.project') = ?"
     with open_storage() as conn:
-        conn.execute("DELETE FROM project_environments WHERE project_key = ?;", (clean_key,))
-        conn.execute("DELETE FROM security_policies WHERE id = ?;", (project_security_policy_id(clean_key),))
-        conn.execute("DELETE FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix))
-        conn.commit()
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE;")
+        try:
+            running = conn.execute(
+                f"SELECT 1 FROM runs WHERE status = 'running' AND conversation_id IN (SELECT id FROM conversations WHERE {project_where}) LIMIT 1;",  # noqa: S608
+                (clean_key,),
+            ).fetchone()
+            if running:
+                raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
+            conn.execute(
+                f"DELETE FROM runs WHERE conversation_id IN (SELECT id FROM conversations WHERE {project_where});",  # noqa: S608
+                (clean_key,),
+            )
+            deleted_ids = _delete_conversations_in_transaction(conn, project_where, (clean_key,))
+            conn.execute("DELETE FROM project_environments WHERE project_key = ?;", (clean_key,))
+            conn.execute("DELETE FROM security_policies WHERE id = ?;", (project_security_policy_id(clean_key),))
+            conn.execute("DELETE FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix))
+            conn.execute("COMMIT;")
+        except Exception:
+            conn.execute("ROLLBACK;")
+            raise
+    notify_live_change()
     return deleted_ids
 
 
@@ -10629,18 +10658,20 @@ def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         delete_directory = bool(params.get("deleteDirectory"))
         confirm_path = str(params.get("confirmPath") or "").strip()
-        if JOBS.running(ctx.key) or any(run.get("project") == ctx.key and run.get("status") == "running" for run in list_run_states()):
+        if JOBS.running(ctx.key):
             raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
+        target = None
         if delete_directory:
             target = validate_deletable_project_dir(ctx)
             if confirm_path != ctx.key and confirm_path != str(target):
                 raise ValueError("La ruta de confirmación no coincide con el directorio del proyecto.")
             if has_nested_project_data(ctx.key):
                 raise ValueError("Existen subproyectos guardados dentro de este directorio: borra primero sus datos.")
-            if target.exists():
-                shutil.rmtree(target)
-        ACCESS_CONTROLLER.drop_project_session(ctx.key)
+        # Primero los datos (atómico y con la comprobación de ejecuciones en marcha); el disco, solo si eso salió bien.
         deleted_ids = delete_project_storage(ctx.key)
+        ACCESS_CONTROLLER.drop_project_session(ctx.key)
+        if target is not None and target.exists():
+            shutil.rmtree(target)
         return rpc_result({
             "deleted": ctx.key,
             "deletedDirectory": delete_directory,

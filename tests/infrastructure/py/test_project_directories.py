@@ -182,6 +182,40 @@ class ProjectDirectoriesTest(unittest.TestCase):
         self.assertTrue(res["deletedDirectory"])
         self.assertFalse(proj_dir.exists())
 
+    def test_delete_project_con_una_ejecucion_en_marcha_no_borra_nada(self):
+        proj_dir = self.home / "proj-run"
+        proj_dir.mkdir()
+        proj_ctx = zerochat.SecurityContext(proj_dir.resolve())
+        other_ctx = zerochat.SecurityContext(self.root)
+        zerochat.save_project_secret(proj_ctx.key, "TOKEN", "123")
+        for conv_id, project in (("conv_run", proj_ctx.key), ("conv_otro", other_ctx.key)):
+            zerochat.save_conversation({"id": conv_id, "title": "t", "project": project, "createdAt": 1, "updatedAt": 2, "messages": []})
+
+        def run(conv_id, status):
+            zerochat.upsert_run_state({
+                "conversation_id": conv_id, "run_id": f"r_{conv_id}", "pid": None, "pid_start": None,
+                "started_at": 1, "updated_at": 1, "status": status, "step_text": "", "pending": None, "error": None,
+            })
+
+        # La ejecución en marcha de otro proyecto no bloquea; la del propio, sí, y no toca datos ni disco.
+        run("conv_otro", "running")
+        run("conv_run", "running")
+        _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": proj_ctx.key}, proj_ctx)
+        self.assertIsNotNone(err)
+        self.assertTrue(proj_dir.exists())
+        self.assertIsNotNone(zerochat.get_conversation("conv_run"))
+        self.assertEqual(zerochat.list_project_secret_names(proj_ctx.key), ["TOKEN"])
+
+        # Terminada, se borra con su fila de runs y deja intacta la del otro proyecto.
+        run("conv_run", "done")
+        res, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": proj_ctx.key}, proj_ctx)
+        self.assertIsNone(err)
+        self.assertEqual(res["deletedConversationIds"], ["conv_run"])
+        self.assertFalse(proj_dir.exists())
+        self.assertIsNone(zerochat.get_run_state("conv_run"))
+        self.assertIsNotNone(zerochat.get_run_state("conv_otro"))
+        self.assertEqual(zerochat.list_project_secret_names(proj_ctx.key), [])
+
 
 if __name__ == "__main__":
     unittest.main()

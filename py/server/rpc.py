@@ -27,7 +27,6 @@ from storage.db import (
     get_project_environment,
     has_nested_project_data,
     list_project_secret_names,
-    list_run_states,
     save_project_environment,
     save_project_secret,
 )
@@ -163,18 +162,20 @@ def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         delete_directory = bool(params.get("deleteDirectory"))
         confirm_path = str(params.get("confirmPath") or "").strip()
-        if JOBS.running(ctx.key) or any(run.get("project") == ctx.key and run.get("status") == "running" for run in list_run_states()):
+        if JOBS.running(ctx.key):
             raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
+        target = None
         if delete_directory:
             target = validate_deletable_project_dir(ctx)
             if confirm_path != ctx.key and confirm_path != str(target):
                 raise ValueError("La ruta de confirmación no coincide con el directorio del proyecto.")
             if has_nested_project_data(ctx.key):
                 raise ValueError("Existen subproyectos guardados dentro de este directorio: borra primero sus datos.")
-            if target.exists():
-                shutil.rmtree(target)
-        ACCESS_CONTROLLER.drop_project_session(ctx.key)
+        # Primero los datos (atómico y con la comprobación de ejecuciones en marcha); el disco, solo si eso salió bien.
         deleted_ids = delete_project_storage(ctx.key)
+        ACCESS_CONTROLLER.drop_project_session(ctx.key)
+        if target is not None and target.exists():
+            shutil.rmtree(target)
         return rpc_result({
             "deleted": ctx.key,
             "deletedDirectory": delete_directory,
