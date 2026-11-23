@@ -1,5 +1,5 @@
 # Current state
-- Milestone: M86 Mejoras para proyectos de agentes y `--run-file`
-- Next task: none pending
-- Last closed: M82 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-20 (2026-11-22)
+- Milestone: M87 Mejoras sistema de agentes
+- Next task: M87-T1
+- Last closed: M86 Mejoras para proyectos de agentes y `--run-file` (2026-11-23)
 - Last updated: 2026-11-23
