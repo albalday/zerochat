@@ -806,6 +806,20 @@ def save_conversation_chunk(params: dict) -> dict:
         return {"ok": True, "uploadId": upload_id, "receivedChunks": entry["next_index"]}
 
 
+def cancel_conversation_upload(params: dict) -> dict:
+    """Libera la subida por tramos pendiente de una conversación (un tramo falló y no se va a consolidar)."""
+    if not isinstance(params, dict):
+        raise ValueError("Los parámetros deben ser un objeto")
+    upload_id = _validate_upload_id(params.get("uploadId"))
+    conv_id = _validate_conversation_id(params.get("conversationId"))
+    with _STORAGE_LOCK:
+        entry = _PENDING_CONVERSATION_UPLOADS.get(upload_id)
+        if not entry or entry["conversation_id"] != conv_id:
+            return {"cancelled": False}
+        del _PENDING_CONVERSATION_UPLOADS[upload_id]
+    return {"cancelled": True}
+
+
 def commit_conversation_upload(session_meta: dict, upload_id: str) -> dict:
     """Consolida atómicamente en SQLite una conversación subida por tramos."""
     if not isinstance(session_meta, dict):

@@ -512,6 +512,37 @@ test('Storage.saveRemoteConversation divide conversaciones grandes en tramos baj
   assert.ok(!reconstructed[2].content.includes('\uFFFD'));
 });
 
+test('Storage.saveRemoteConversation comprueba el tope de tramos en el borde y libera la subida si falla un tramo', async () => {
+  const max = Storage.MAX_CONVERSATION_UPLOAD_CHUNKS;
+  // Cada mensaje ocupa más de medio tramo: un tramo por mensaje, con el mismo texto compartido.
+  const content = 'x'.repeat(Math.floor(Storage.CONVERSATION_SAVE_CHUNK_BYTES * 0.6));
+  const messagesFor = count => Array.from({ length: count }, (_, i) => ({ id: `m${i}`, role: 'user', content }));
+  const recorder = (failAt = -1) => {
+    const calls = [];
+    const backend = async (method, params) => {
+      calls.push({ method, params });
+      if (method === 'zerochat/conversations/save_chunk' && params.chunkIndex === failAt) throw new Error('tramo caído');
+      return { ok: true };
+    };
+    return { calls, backend };
+  };
+
+  const ok = recorder();
+  await Storage.saveRemoteConversation(ok.backend, { id: 'conv_max', title: 'Tope' }, messagesFor(max));
+  assert.equal(ok.calls.filter(c => c.method === 'zerochat/conversations/save_chunk').length, max);
+  assert.equal(ok.calls.at(-1).method, 'zerochat/conversations/save');
+
+  const over = recorder();
+  await assert.rejects(Storage.saveRemoteConversation(over.backend, { id: 'conv_over', title: 'Tope+1' }, messagesFor(max + 1)), /up to 512/);
+  assert.equal(over.calls.length, 0);
+
+  const failing = recorder(1);
+  await assert.rejects(Storage.saveRemoteConversation(failing.backend, { id: 'conv_fail', title: 'Falla' }, messagesFor(3)), /tramo caído/);
+  const cancel = failing.calls.at(-1);
+  assert.equal(cancel.method, 'zerochat/conversations/cancel_upload');
+  assert.deepEqual(cancel.params, { uploadId: failing.calls[0].params.uploadId, conversationId: 'conv_fail' });
+});
+
 test('Storage - clearAllStorage elimina datos RAG y cachés sin borrar bases ajenas', async () => {
   const db = await Database.openDatabase();
   await new Promise((resolve, reject) => {

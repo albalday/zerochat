@@ -514,7 +514,7 @@ class TokenGrant:
             if method == "zerochat/conversations/save":
                 conv = params.get("conversation")
                 return isinstance(conv, dict) and conv.get("id") == self.conversation_id
-            if method == "zerochat/conversations/save_chunk":
+            if method in ("zerochat/conversations/save_chunk", "zerochat/conversations/cancel_upload"):
                 return params.get("conversationId") == self.conversation_id
         return False
 
@@ -3184,6 +3184,20 @@ def save_conversation_chunk(params: dict) -> dict:
         entry["bytes"] += chunk_bytes
         entry["updated_at"] = now
         return {"ok": True, "uploadId": upload_id, "receivedChunks": entry["next_index"]}
+
+
+def cancel_conversation_upload(params: dict) -> dict:
+    """Libera la subida por tramos pendiente de una conversación (un tramo falló y no se va a consolidar)."""
+    if not isinstance(params, dict):
+        raise ValueError("Los parámetros deben ser un objeto")
+    upload_id = _validate_upload_id(params.get("uploadId"))
+    conv_id = _validate_conversation_id(params.get("conversationId"))
+    with _STORAGE_LOCK:
+        entry = _PENDING_CONVERSATION_UPLOADS.get(upload_id)
+        if not entry or entry["conversation_id"] != conv_id:
+            return {"cancelled": False}
+        del _PENDING_CONVERSATION_UPLOADS[upload_id]
+    return {"cancelled": True}
 
 
 def commit_conversation_upload(session_meta: dict, upload_id: str) -> dict:
@@ -5906,6 +5920,7 @@ CONVERSATION_METHODS = {
     "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
     "zerochat/conversations/save": _rpc_save_conversation,
     "zerochat/conversations/save_chunk": lambda params: rpc_result(save_conversation_chunk(params)),
+    "zerochat/conversations/cancel_upload": lambda params: rpc_result(cancel_conversation_upload(params)),
     "zerochat/conversations/rename": _rpc_rename_conversation,
     "zerochat/conversations/delete": _rpc_delete_conversations,
 }

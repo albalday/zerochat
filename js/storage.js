@@ -20,6 +20,8 @@
   const BACKEND_SESSION_COOKIE = 'zerochat_backend_session_v1';
   const BACKEND_SESSION_MAX_AGE_SECONDS = 26 * 60 * 60;
   const CONVERSATION_SAVE_CHUNK_BYTES = 512 * 1024;
+  // Tramos de una subida que admite el servidor (MAX_CONVERSATION_UPLOAD_CHUNKS de py/storage/db.py).
+  const MAX_CONVERSATION_UPLOAD_CHUNKS = 512;
   const textEncoder = new TextEncoder();
   const utf8ByteLength = text => textEncoder.encode(text).length;
   const rpcRequestByteSize = (method, params) => utf8ByteLength(JSON.stringify({ jsonrpc: '2.0', id: 999999, method, params }));
@@ -501,19 +503,24 @@
     const uploadId = createId('upload');
     const chunks = buildConversationChunks(uploadId, sessionMeta.id, list, CONVERSATION_SAVE_CHUNK_BYTES);
     const totalChunks = chunks.length;
-    for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
-      await requestBackend('zerochat/conversations/save_chunk', {
-        uploadId,
-        conversationId: sessionMeta.id,
-        chunkIndex,
-        totalChunks,
-        ...chunks[chunkIndex]
-      });
+    if (totalChunks > MAX_CONVERSATION_UPLOAD_CHUNKS) {
+      throw new Error(`The conversation needs ${totalChunks} upload chunks; the server accepts up to ${MAX_CONVERSATION_UPLOAD_CHUNKS}.`);
     }
-    return requestBackend('zerochat/conversations/save', {
-      conversation: sessionMeta,
-      uploadId
-    });
+    const conversationId = sessionMeta.id;
+    try {
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex += 1) {
+        await requestBackend('zerochat/conversations/save_chunk', { uploadId, conversationId, chunkIndex, totalChunks, ...chunks[chunkIndex] });
+      }
+      return await requestBackend('zerochat/conversations/save', { conversation: sessionMeta, uploadId });
+    } catch (error) {
+      // Libera en el servidor lo ya subido: si no, ocupa el cupo de subidas en curso hasta que caduca.
+      try {
+        await requestBackend('zerochat/conversations/cancel_upload', { uploadId, conversationId });
+      } catch (_) {
+        // Sin servidor la subida caduca sola; el error que cuenta es el del tramo.
+      }
+      throw error;
+    }
   }
 
   /** Sube al servidor una conversación con sus blobs y marca sincronizada la copia local. */
@@ -920,6 +927,7 @@
     saveConversation,
     saveRemoteConversation,
     CONVERSATION_SAVE_CHUNK_BYTES,
+    MAX_CONVERSATION_UPLOAD_CHUNKS,
     deleteConversation,
     deleteAllConversations,
     deleteProjectConversations,

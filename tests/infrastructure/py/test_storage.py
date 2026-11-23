@@ -722,6 +722,15 @@ class StorageEngineTest(unittest.TestCase):
         })
         self.assertEqual(err["code"], -32602)
 
+        # Cancelar libera la subida pendiente, solo si coincide su conversación.
+        cancel = {"uploadId": "upload_inc", "conversationId": "otra_conv"}
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/cancel_upload", cancel)
+        self.assertEqual((err, res), (None, {"cancelled": False}))
+        self.assertIn("upload_inc", zerochat._PENDING_CONVERSATION_UPLOADS)
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/cancel_upload", {**cancel, "conversationId": "conv_inc"})
+        self.assertEqual((err, res), (None, {"cancelled": True}))
+        self.assertNotIn("upload_inc", zerochat._PENDING_CONVERSATION_UPLOADS)
+
         # 3. Topes exactos N y N+1: MAX_CONVERSATION_UPLOAD_CHUNKS, MAX_PENDING_CONVERSATION_UPLOADS y MAX_STAGED_CONVERSATION_BYTES.
         zerochat._PENDING_CONVERSATION_UPLOADS.clear()
         _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save_chunk", {

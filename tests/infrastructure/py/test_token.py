@@ -68,6 +68,8 @@ class DailyTokenTest(unittest.TestCase):
         self.assertTrue(grant.allows("zerochat/conversations/save", {"conversation": {"id": "conv-1"}}))
         self.assertTrue(grant.allows("zerochat/conversations/save_chunk", {"conversationId": "conv-1"}))
         self.assertFalse(grant.allows("zerochat/conversations/save_chunk", {"conversationId": "conv-2"}))
+        self.assertTrue(grant.allows("zerochat/conversations/cancel_upload", {"conversationId": "conv-1"}))
+        self.assertFalse(grant.allows("zerochat/conversations/cancel_upload", {"conversationId": "conv-2"}))
         self.assertFalse(grant.allows("zerochat/conversations/get", {"id": "conv-2"}))
         self.assertFalse(grant.allows("zerochat/conversations/list", {}))
         self.assertFalse(grant.allows("zerochat/security/policies", {}))

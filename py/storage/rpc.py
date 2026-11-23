@@ -25,6 +25,7 @@ from storage.db import (
     rename_conversation,
     save_conversation,
     save_conversation_chunk,
+    cancel_conversation_upload,
     save_general_profile,
 )
 
@@ -130,6 +131,7 @@ CONVERSATION_METHODS = {
     "zerochat/conversations/get": lambda params: rpc_result({"conversation": get_conversation(params.get("id"))}),
     "zerochat/conversations/save": _rpc_save_conversation,
     "zerochat/conversations/save_chunk": lambda params: rpc_result(save_conversation_chunk(params)),
+    "zerochat/conversations/cancel_upload": lambda params: rpc_result(cancel_conversation_upload(params)),
     "zerochat/conversations/rename": _rpc_rename_conversation,
     "zerochat/conversations/delete": _rpc_delete_conversations,
 }
