@@ -78,8 +78,8 @@ def saved_patterns():
         data = zerochat.json.loads(row["data_json"])
         if row["id"] == zerochat.GLOBAL_SECURITY_POLICY_ID and data.get("commandPatterns"):
             result["global"] = data["commandPatterns"]
-        elif row["id"].startswith(zerochat.PROJECT_SECURITY_POLICY_PREFIX) and data.get("commandPatterns"):
-            key = row["id"][len(zerochat.PROJECT_SECURITY_POLICY_PREFIX):]
+        elif row["id"].startswith(zerochat.PROJECT_KEY_PREFIX) and data.get("commandPatterns"):
+            key = row["id"][len(zerochat.PROJECT_KEY_PREFIX):]
             result.setdefault("projects", {})[key] = data["commandPatterns"]
     if "projects" in result:
         result.setdefault("global", [])

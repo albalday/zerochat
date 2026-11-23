@@ -2652,6 +2652,19 @@ def open_storage():
             conn.close()
 
 
+@contextlib.contextmanager
+def _immediate_transaction(conn: sqlite3.Connection):
+    """Transacción de escritura BEGIN IMMEDIATE sobre `conn`: COMMIT al salir y ROLLBACK si sale una excepción."""
+    conn.isolation_level = None
+    conn.execute("BEGIN IMMEDIATE;")
+    try:
+        yield conn
+    except BaseException:
+        conn.execute("ROLLBACK;")
+        raise
+    conn.execute("COMMIT;")
+
+
 def normalize_profile_id(name: str, given_id: str | None = None) -> str:
     """Genera o normaliza un identificador único para el perfil."""
     if given_id and isinstance(given_id, str) and given_id.strip():
@@ -2692,8 +2705,6 @@ def validate_profile_payload(record: dict) -> tuple[str, str, str, dict, str | N
         raise ValueError("Los ajustes del perfil deben ser un objeto")
 
     settings = dict(settings_source)
-    settings.pop("mcpServers", None)
-    settings.pop("playwrightBrowser", None)
     has_api_key = "apiKey" in settings or "apiKey" in record
     raw_key = settings.pop("apiKey", None)
     if raw_key is None:
@@ -3257,17 +3268,11 @@ def _delete_conversations(conn: sqlite3.Connection, where: str, params: tuple) -
     blobs que solo ellas referenciaban. Solo se consideran los blobs de las conversaciones borradas: uno
     subido para una conversación que aún no se ha guardado no se toca.
     """
-    conn.isolation_level = None
-    conn.execute("BEGIN IMMEDIATE;")
-    try:
+    with _immediate_transaction(conn):
         ids = _delete_conversations_in_transaction(conn, where, params)
-        conn.execute("COMMIT;")
-        if ids:
-            notify_live_change()
-        return ids
-    except Exception:
-        conn.execute("ROLLBACK;")
-        raise
+    if ids:
+        notify_live_change()
+    return ids
 
 
 def delete_conversation(session_id: str) -> bool:
@@ -3374,15 +3379,21 @@ def has_blobs(blob_ids: list[str]) -> dict:
 
 
 GLOBAL_SECURITY_POLICY_ID = "global"
-PROJECT_SECURITY_POLICY_PREFIX = "project:"
+# Prefijo único de lo guardado por proyecto: la fila de políticas es `project:<key>` y cada secreto `project:<key>:<NOMBRE>`.
+PROJECT_KEY_PREFIX = "project:"
+
+
+def clean_project_key(project_key) -> str:
+    """Clave de proyecto sin espacios alrededor; vacía es un error."""
+    clean_key = str(project_key or "").strip()
+    if not clean_key:
+        raise ValueError("project_key es obligatorio")
+    return clean_key
 
 
 def project_security_policy_id(project_key: str) -> str:
     """Clave de fila en `security_policies` para un proyecto concreto."""
-    clean_key = str(project_key or "").strip()
-    if not clean_key:
-        raise ValueError("project_key es obligatorio")
-    return f"{PROJECT_SECURITY_POLICY_PREFIX}{clean_key}"
+    return f"{PROJECT_KEY_PREFIX}{clean_project_key(project_key)}"
 
 
 def _parse_security_policy_row(row) -> dict | None:
@@ -3410,8 +3421,8 @@ def _upsert_security_policy_row(conn: sqlite3.Connection, row_id: str, data: dic
 
 def _count_other_project_patterns(conn: sqlite3.Connection, excluded_id: str) -> int:
     rows = conn.execute(
-        "SELECT data_json FROM security_policies WHERE id LIKE 'project:%' AND id != ?;",
-        (excluded_id,),
+        "SELECT data_json FROM security_policies WHERE substr(id, 1, ?) = ? AND id != ?;",
+        (len(PROJECT_KEY_PREFIX), PROJECT_KEY_PREFIX, excluded_id),
     ).fetchall()
     total = 0
     for row in rows:
@@ -3437,9 +3448,7 @@ def update_security_policy_data(
     """Ejecuta una lectura-modificación-escritura atómica sobre la fila global y la del proyecto en BEGIN IMMEDIATE."""
     proj_id = project_security_policy_id(project_key)
     with open_storage() as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE;")
-        try:
+        with _immediate_transaction(conn):
             global_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (GLOBAL_SECURITY_POLICY_ID,)).fetchone()
             proj_row = conn.execute("SELECT data_json FROM security_policies WHERE id = ?;", (proj_id,)).fetchone()
             other_pattern_count = _count_other_project_patterns(conn, proj_id)
@@ -3454,11 +3463,7 @@ def update_security_policy_data(
                 conn.execute("DELETE FROM security_policies WHERE id = ?;", (proj_id,))
             else:
                 _upsert_security_policy_row(conn, proj_id, new_project, now)
-            conn.execute("COMMIT;")
             return new_global, new_project
-        except Exception:
-            conn.execute("ROLLBACK;")
-            raise
 
 
 def _write_secret_on_conn(conn: sqlite3.Connection, name: str, value: str, now: int):
@@ -3506,18 +3511,12 @@ def set_setting(key: str, value, *, secret_name: str | None = None, secret: str 
     """Guarda un ajuste JSON en `settings`; con `secret_name`, guarda (o borra si va vacío) en la misma transacción su secreto ofuscado."""
     now = int(time.time() * 1000)
     with open_storage() as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE;")
-        try:
+        with _immediate_transaction(conn):
             _write_setting_on_conn(conn, key, value, now)
             if secret_name and secret:
                 _write_secret_on_conn(conn, secret_name, secret, now)
             elif secret_name:
                 conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_name,))
-            conn.execute("COMMIT;")
-        except Exception:
-            conn.execute("ROLLBACK;")
-            raise
 
 
 def _json_column(raw):
@@ -3749,9 +3748,7 @@ def _row_to_project_environment(row) -> dict:
 
 def get_project_environment(project_key: str) -> dict:
     """Devuelve el entorno guardado del proyecto (`general` usa get_no_project_dir()), o los valores base."""
-    clean_key = str(project_key or "").strip()
-    if not clean_key:
-        raise ValueError("project_key es obligatorio")
+    clean_key = clean_project_key(project_key)
     with open_storage() as conn:
         row = conn.execute(
             "SELECT config_json, updated_at FROM project_environments WHERE project_key = ?;",
@@ -3762,15 +3759,11 @@ def get_project_environment(project_key: str) -> dict:
 
 def save_project_environment(project_key: str, raw_patch: dict) -> dict:
     """Actualiza atómicamente en SQLite el entorno de ejecución guardado del proyecto."""
-    clean_key = str(project_key or "").strip()
-    if not clean_key:
-        raise ValueError("project_key es obligatorio")
+    clean_key = clean_project_key(project_key)
     patch = validate_project_environment_patch(raw_patch)
     now = int(time.time() * 1000)
     with open_storage() as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE;")
-        try:
+        with _immediate_transaction(conn):
             row = conn.execute(
                 "SELECT config_json, updated_at FROM project_environments WHERE project_key = ?;",
                 (clean_key,),
@@ -3784,11 +3777,7 @@ def save_project_environment(project_key: str, raw_patch: dict) -> dict:
                     config_json = excluded.config_json,
                     updated_at = excluded.updated_at;
             """, (clean_key, json.dumps(stored, ensure_ascii=False), now))
-            conn.execute("COMMIT;")
             return {**stored, "saved": True, "updatedAt": now}
-        except Exception:
-            conn.execute("ROLLBACK;")
-            raise
 
 
 MAX_PROJECT_SECRETS = 50
@@ -3796,10 +3785,7 @@ PROJECT_SECRET_NAME_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")
 
 
 def project_secret_prefix(project_key: str) -> str:
-    clean_key = str(project_key or "").strip()
-    if not clean_key:
-        raise ValueError("project_key es obligatorio")
-    return f"project:{clean_key}:"
+    return f"{project_security_policy_id(project_key)}:"
 
 
 def validate_project_secret_name(name) -> str:
@@ -3832,9 +3818,7 @@ def save_project_secret(project_key: str, name: str, value: str) -> list[str]:
     full_key = f"{prefix}{clean_name}"
     now = int(time.time() * 1000)
     with open_storage() as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE;")
-        try:
+        with _immediate_transaction(conn):
             rows = conn.execute(
                 "SELECT name FROM secrets WHERE substr(name, 1, ?) = ?;",
                 (len(prefix), prefix),
@@ -3843,11 +3827,7 @@ def save_project_secret(project_key: str, name: str, value: str) -> list[str]:
             if full_key not in existing and len(existing) >= MAX_PROJECT_SECRETS:
                 raise ValueError(f"Un proyecto no puede tener más de {MAX_PROJECT_SECRETS} secretos")
             _write_secret_on_conn(conn, full_key, clean_val, now)
-            conn.execute("COMMIT;")
             existing.add(full_key)
-        except Exception:
-            conn.execute("ROLLBACK;")
-            raise
     return sorted(key[len(prefix):] for key in existing)
 
 
@@ -3868,15 +3848,11 @@ def delete_project_storage(project_key: str) -> list[str]:
     el proyecto: se cruzan por `conversation_id` con el proyecto de la conversación. Si alguna de esas
     ejecuciones sigue en marcha, no borra nada.
     """
-    clean_key = str(project_key or "").strip()
-    if not clean_key:
-        raise ValueError("project_key es obligatorio")
+    clean_key = clean_project_key(project_key)
     prefix = project_secret_prefix(clean_key)
     project_where = "json_extract(extra_json, '$.project') = ?"
     with open_storage() as conn:
-        conn.isolation_level = None
-        conn.execute("BEGIN IMMEDIATE;")
-        try:
+        with _immediate_transaction(conn):
             running = conn.execute(
                 f"SELECT 1 FROM runs WHERE status = 'running' AND conversation_id IN (SELECT id FROM conversations WHERE {project_where}) LIMIT 1;",  # noqa: S608
                 (clean_key,),
@@ -3891,10 +3867,6 @@ def delete_project_storage(project_key: str) -> list[str]:
             conn.execute("DELETE FROM project_environments WHERE project_key = ?;", (clean_key,))
             conn.execute("DELETE FROM security_policies WHERE id = ?;", (project_security_policy_id(clean_key),))
             conn.execute("DELETE FROM secrets WHERE substr(name, 1, ?) = ?;", (len(prefix), prefix))
-            conn.execute("COMMIT;")
-        except Exception:
-            conn.execute("ROLLBACK;")
-            raise
     notify_live_change()
     return deleted_ids
 
@@ -3909,9 +3881,7 @@ def has_nested_project_data(project_key: str) -> bool:
     if not clean_key:
         return False
     p_slash, p_back = f"{clean_key}/", f"{clean_key}\\"
-    pol_slash = f"{PROJECT_SECURITY_POLICY_PREFIX}{p_slash}"
-    pol_back = f"{PROJECT_SECURITY_POLICY_PREFIX}{p_back}"
-    sec_slash, sec_back = f"project:{p_slash}", f"project:{p_back}"
+    prefixed_slash, prefixed_back = f"{PROJECT_KEY_PREFIX}{p_slash}", f"{PROJECT_KEY_PREFIX}{p_back}"
     with open_storage() as conn:
         if _has_prefix_match(
             conn,
@@ -3923,15 +3893,15 @@ def has_nested_project_data(project_key: str) -> bool:
         if _has_prefix_match(
             conn,
             "SELECT 1 FROM security_policies WHERE substr(id, 1, ?) = ? OR substr(id, 1, ?) = ? LIMIT 1;",
-            pol_slash,
-            pol_back,
+            prefixed_slash,
+            prefixed_back,
         ):
             return True
         if _has_prefix_match(
             conn,
             "SELECT 1 FROM secrets WHERE substr(name, 1, ?) = ? OR substr(name, 1, ?) = ? LIMIT 1;",
-            sec_slash,
-            sec_back,
+            prefixed_slash,
+            prefixed_back,
         ):
             return True
         if _has_prefix_match(
