@@ -24,6 +24,8 @@ test('UIBrowser.getSavePlan - decide validación, envío y reinicio según herra
   assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: '' } }, 'running'), { ...NOTHING, userAgentInvalid: true });
   assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'UA\ninject' } }, 'running'), { ...NOTHING, userAgentInvalid: true });
   assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'Mozilla/5.0 Test/1.0' } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
+  assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'x'.repeat(CONTRACT.userAgentMaxLength) } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
+  assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'x'.repeat(CONTRACT.userAgentMaxLength + 1) } }, 'running'), { ...NOTHING, userAgentInvalid: true });
 });
 
 test('UIBrowser - motores, navegadores del usuario y tokens de la extensión coinciden con el backend (tests/fixtures/mcp/contract.json)', () => {

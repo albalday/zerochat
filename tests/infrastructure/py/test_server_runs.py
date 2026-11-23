@@ -385,11 +385,16 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         names = lambda: [tool["name"] for tool in zerochat._local_tools()]
         check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
 
-        # Fuera de una ejecución con watchAgents no se publica ni responde.
+        # Fuera de una ejecución con watchAgents no se publica, no se autoriza en sesión ni responde.
         self.assertNotIn("check_agents", names())
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
         self.assertNotIn("check_agents", names())
+        zerochat.reset_session_authorizations()
+        self.assertNotEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("check_agents", {}, context=ctx).status, zerochat.POLICY_ALLOW)
         self.assertFalse(check()["success"])
+        self.assertIsNone(zerochat.validate_local_tool_arguments("check_agents", {"agent": "a.b"}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"agent": 123}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"extra": "x"}))
 
         def conv(conv_id, agent=None, project=ctx.key, history=None, updated_at=1000):
             meta = {"id": conv_id, "title": conv_id, "updatedAt": updated_at, "project": project, **({"agent": agent} if agent else {})}

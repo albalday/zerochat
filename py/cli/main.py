@@ -76,6 +76,7 @@ from storage.db import (
     list_general_profiles,
     mark_conversation_server_run,
 )
+from tools.agents import AGENTS_TOOL
 from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
 from tools.jobs import cleanup_orphan_jobs, run_command
@@ -335,6 +336,7 @@ def reset_session_authorizations():
                 name: {"policy": POLICY_ALLOW}
                 for name in LOCAL_TOOL_HANDLERS
                 if name != COMMAND_TOOL
+                and (name != AGENTS_TOOL or session.watch_agents)
                 and not get_integrated_path_access(name)
                 and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
             }

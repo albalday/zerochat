@@ -226,6 +226,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.assertEqual(list(zerochat.OWN_BROWSER_ENGINES), CONTRACT["playwrightEngines"])
         self.assertEqual(list(zerochat.OWN_SYSTEM_ENGINES), CONTRACT["ownSystemEngines"])
         self.assertEqual(list(zerochat.USER_AGENT_MODES), CONTRACT["userAgentModes"])
+        self.assertEqual(zerochat.USER_AGENT_MAX_LEN, CONTRACT["userAgentMaxLength"])
         self.assertEqual(list(zerochat.ENGINE_CACHE_ENTRIES), CONTRACT["playwrightEngines"])
         self.assertEqual(list(zerochat.USER_BROWSERS), CONTRACT["userBrowsers"])
         for token in CONTRACT["extensionTokens"]["valid"]:
