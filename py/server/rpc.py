@@ -141,12 +141,8 @@ def _list_project_secrets(_params: dict, ctx: SecurityContext) -> RpcOutcome:
 
 
 def _set_project_secret(params: dict, ctx: SecurityContext) -> RpcOutcome:
-    name, value = params.get("name"), params.get("value")
-    if value is not None and not isinstance(value, str):
-        return rpc_error(INVALID_PARAMS, "value debe ser texto o null")
     try:
-        secrets = delete_project_secret(ctx.key, name) if value is None else save_project_secret(ctx.key, name, value)
-        return rpc_result({"secrets": secrets})
+        return rpc_result({"secrets": save_project_secret(ctx.key, params.get("name"), params.get("value"))})
     except ValueError as exc:
         return rpc_error(INVALID_PARAMS, str(exc))
 

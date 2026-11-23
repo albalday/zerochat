@@ -129,6 +129,10 @@
       elements.settingsProjectBadge.hidden = !inProjectSection;
     }
     syncDirectoryRulesProject(elements, scope);
+  }
+
+  /** Al conectar, desconectar o cambiar de proyecto, repinta los secretos si la sección Permisos está a la vista. */
+  function refreshVisibleProjectSecrets(elements) {
     if (elements.settingsDialog?.open && elements.settingsDialog?.dataset?.section === 'permissions') {
       refreshProjectSecrets(elements);
     }
@@ -144,16 +148,17 @@
     elements.mcpDirectoryRulesError.textContent = '';
   }
 
-  function renderProjectSecretsList(elements, secrets, connected) {
+  /** Pinta los nombres de los secretos o, si no se pueden gestionar, el motivo (`unavailable`). */
+  function renderProjectSecretsList(elements, secrets, unavailable = '') {
     const list = elements.settingsDialog.querySelector('#project-secrets-list');
     const addBtn = elements.settingsDialog.querySelector('#btn-project-secret-add');
     if (!list) return;
-    if (addBtn) addBtn.disabled = !connected;
+    if (addBtn) addBtn.disabled = Boolean(unavailable);
     list.replaceChildren();
-    if (!connected) {
+    if (unavailable) {
       const hint = document.createElement('p');
       hint.className = 'label-hint';
-      hint.textContent = t('project_secrets_offline');
+      hint.textContent = unavailable;
       list.appendChild(hint);
       return;
     }
@@ -194,14 +199,14 @@
   async function refreshProjectSecrets(elements) {
     const connected = getState().get('mcp').status === 'connected';
     if (!connected) {
-      renderProjectSecretsList(elements, [], false);
+      renderProjectSecretsList(elements, [], t('project_secrets_offline'));
       return;
     }
     try {
       const res = await getMCP().manager.listProjectSecrets();
-      renderProjectSecretsList(elements, Array.isArray(res?.secrets) ? res.secrets : [], true);
-    } catch (_) {
-      renderProjectSecretsList(elements, [], false);
+      renderProjectSecretsList(elements, Array.isArray(res?.secrets) ? res.secrets : []);
+    } catch (error) {
+      renderProjectSecretsList(elements, [], t('project_secrets_error', { error: error?.message || String(error) }));
     }
   }
 
@@ -375,18 +380,18 @@
             const value = await Dialogs.prompt(t('project_secret_value_prompt', { name: name.trim() }), '', { type: 'info', inputType: 'password' });
             if (!value) return;
             const res = await getMCP().manager.setProjectSecret(name.trim(), value);
-            renderProjectSecretsList(elements, res?.secrets || [], true);
+            renderProjectSecretsList(elements, res?.secrets || []);
           } else if (setBtn) {
             const name = setBtn.dataset.projectSecretSet;
             const value = await Dialogs.prompt(t('project_secret_value_prompt', { name }), '', { type: 'info', inputType: 'password' });
             if (!value) return;
             const res = await getMCP().manager.setProjectSecret(name, value);
-            renderProjectSecretsList(elements, res?.secrets || [], true);
+            renderProjectSecretsList(elements, res?.secrets || []);
           } else if (delBtn) {
             const name = delBtn.dataset.projectSecretDelete;
             if (!await Dialogs.confirm(t('project_secret_delete_confirm', { name }), { type: 'warning' })) return;
             const res = await getMCP().manager.deleteProjectSecret(name);
-            renderProjectSecretsList(elements, res?.secrets || [], true);
+            renderProjectSecretsList(elements, res?.secrets || []);
           }
         } catch (error) {
           await Dialogs.alert(error?.message || String(error), { type: 'error' });
@@ -664,6 +669,7 @@ zerochat</code></pre>
     applyTheme,
     applyLanguage,
     syncProjectScopeLabels,
+    refreshVisibleProjectSecrets,
     openSettingsSection,
     closeSettingsModal,
     ensureDialogMarkup,

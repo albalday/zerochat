@@ -850,6 +850,7 @@
       renderSidebarChats();
       updateNewTabLink();
       UISettings.syncProjectScopeLabels(elements);
+      UISettings.refreshVisibleProjectSecrets(elements);
     });
     const syncSidebarSyncButton = status => { elements.btnSyncChats.hidden = status !== 'connected'; };
     State.subscribe(state => state.mcp.status, syncSidebarSyncButton);

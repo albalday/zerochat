@@ -27,6 +27,10 @@ class ProjectSecretsTest(unittest.TestCase):
         self.assertEqual(res, {"secrets": ["BANCO_PIN"]})
         self.assertNotIn("9876", str(res))
         self.assertEqual(zerochat.get_project_secret(self.ctx.key, "BANCO_PIN"), "9876")
+        # set no borra: un valor nulo es un error y el secreto sigue guardado (para eso está secrets/delete).
+        _, err, _ = zerochat.dispatch_local("zerochat/project/secrets/set", {"name": "BANCO_PIN", "value": None}, self.ctx)
+        self.assertIsNotNone(err)
+        self.assertEqual(zerochat.get_project_secret(self.ctx.key, "BANCO_PIN"), "9876")
 
         # Otro proyecto no ve este secreto
         other_dir = self.data_dir / "other"
