@@ -259,6 +259,7 @@
       project_initialize_agent_confirm: 'ZeroChat concederá lectura y escritura en {dir} y pedirá al agente que prepare {cwd} como proyecto de agentes (AGENTS.md con el contrato de --run-file, plantillas de agente y .sh, y la memoria .zerochat) cuando lo apruebes. Las escrituras fuera de esa carpeta seguirán pidiendo tu autorización.',
       project_compact_confirm: 'ZeroChat pedirá al agente que revise la memoria de {name}, condense los hitos antiguos cerrados de plan.md, archive el historial de decisiones deje en log.md solo los invariantes vigentes e incorpore al plan y al registro lo importante que solo tenga en su memoria propia, todo tras tu aprobación. Esta tarea requiere criterio arquitectónico: asegúrate de seleccionar un modelo capaz y un nivel de razonamiento adecuado (medio o alto). Si en la gestión del proyecto han participado otros agentes, conviene hacer también esta simplificación con el agente o agentes que más hayan intervenido: solo ellos conocen lo que guardan en su memoria propia y pueden incorporarlo al plan y al registro.',
       input_placeholder: 'Escribe un mensaje...',
+      agent_supervision_placeholder: 'Conversación del agente {agent}: solo lectura',
       btn_stop_title: 'Detener la generación de respuesta',
       btn_send_title: 'Enviar mensaje',
 
@@ -1247,6 +1248,7 @@
       project_initialize_agent_confirm: 'ZeroChat will grant read and write access to {dir} and ask the agent to set up {cwd} as an agent project (AGENTS.md with the --run-file contract, agent and .sh templates, and .zerochat memory) once you approve it. Writes outside that folder will still ask for your authorization.',
       project_compact_confirm: 'ZeroChat will ask the agent to inspect the memory of {name}, condense old closed milestones in plan.md, archive the full decision history, keep only active invariants in log.md and bring into the plan and the log the important information it only keeps in its own memory, all upon your approval. This task requires architectural judgment: make sure to select a capable model and an appropriate reasoning level (medium or high). If other agents have taken part in managing the project, it is worth also running this simplification with the agent or agents that took part the most: only they know what they keep in their own memory and can bring it into the plan and the log.',
       input_placeholder: 'Write a message...',
+      agent_supervision_placeholder: 'Conversation of agent {agent}: read only',
       btn_stop_title: 'Stop response generation',
       btn_send_title: 'Send message',
 

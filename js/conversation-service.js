@@ -169,6 +169,9 @@
     options.renderSidebarChats();
   }
 
+  /** Conversación de un agente de --run-file: se supervisa, no se conversa en ella. */
+  const isAgentConversation = session => Boolean(session?.agent);
+
   async function switchToSession(sessionId, options) {
     const { force = false, saveCurrent = true, confirmProjectSwitch = false } = options;
     if (!force && sessionId === getActiveSessionId()) {
@@ -178,7 +181,8 @@
     if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
 
     const targetSession = getSavedSessions().find(session => session.id === sessionId);
-    if (confirmProjectSwitch && targetSession && getState().get('mcp').status === 'connected') {
+    // Supervisar un agente no cambia el proyecto de la pestaña: no hay nada que confirmar.
+    if (confirmProjectSwitch && targetSession && !isAgentConversation(targetSession) && getState().get('mcp').status === 'connected') {
       const currentProject = options.getProject();
       const targetProject = targetSession.project || '';
       if (targetProject !== currentProject) {
@@ -485,6 +489,7 @@
   }
 
   return {
+    isAgentConversation,
     blockSessionTransitionIfBusy,
     loadSessionsFromStorage,
     buildSessionMetadata,

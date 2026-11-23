@@ -160,7 +160,8 @@
       const savedSession = State.get('sessions')?.list?.find(s => s.id === generationSessionId);
       const readonlyId = resolveDep('ChatProfileRepository', './profile-repository.js').READONLY_PROFILE_ID;
       const activeProfile = config.activeProfile?.id === readonlyId ? null : config.activeProfile;
-      const targetProfile = activeProfile?.name || activeProfile?.id || savedSession?.profileId || 'local';
+      // serverProfile: el perfil propio de la conversación (la de un agente), por encima del de la pestaña.
+      const targetProfile = options.serverProfile || activeProfile?.name || activeProfile?.id || savedSession?.profileId || 'local';
       await options.saveCurrentSession({ serverRun: true, profileId: targetProfile });
       try {
         const result = await options.startServerRun({

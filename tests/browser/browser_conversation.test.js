@@ -632,6 +632,78 @@ async function installSubagentTestHelpers(page) {
   });
 }
 
+test('Browser UI - la conversación de un agente se supervisa en solo lectura sin cambiar el perfil y solo se contesta su ask_user con servidor', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5000);
+    await seedConnectionProfiles(page);
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:local"]');
+    await page.evaluate(async () => {
+      const now = Date.now();
+      await window.ChatStorage.saveConversation({ id: 'ag1', title: 'Informe', agent: 'informes.diario', profileId: 'Remoto chat', serverRun: true, createdAt: now, updatedAt: now }, [
+        { id: 'u1', role: 'user', content: 'Haz el informe' },
+        { id: 'a1', role: 'assistant', content: 'Necesito un dato.' },
+        { id: 'a2', role: 'assistant', content: null, tool_calls: [{ id: 'call_q', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿Mes?"}' } }] },
+        { id: 't1', role: 'tool', tool_call_id: 'call_q', name: 'ask_user', content: '{"status":"shown_to_user"}' }
+      ]);
+      await window.ChatStorage.saveConversation({ id: 'h1', title: 'Humana', createdAt: now - 1000, updatedAt: now - 1000 }, [{ id: 'hu', role: 'user', content: 'Hola' }]);
+    });
+    const composer = () => page.evaluate(() => {
+      const input = document.getElementById('user-input');
+      const shown = selector => [...document.querySelectorAll(`#messages-list ${selector}`)].some(el => getComputedStyle(el).display !== 'none');
+      return {
+        supervision: document.getElementById('chat-container').classList.contains('agent-supervision'),
+        readOnly: input.readOnly,
+        placeholder: input.placeholder,
+        send: document.getElementById('btn-send').disabled,
+        attach: document.getElementById('btn-attach-file').disabled,
+        reuse: shown('.btn-reuse'),
+        branch: shown('.btn-branch-conversation')
+      };
+    });
+
+    // Como el usuario: en la barra, la conversación está dentro del grupo plegado de su agente.
+    await page.reload({ waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.click('.sidebar-agent-header[data-group-key="agents|agent:informes.diario"]');
+    await page.locator('.sidebar-chat-item[data-session-id="ag1"]').evaluate(item => item.click());
+    await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'ag1');
+    assert.deepEqual(await composer(), {
+      supervision: true, readOnly: true, placeholder: 'Conversación del agente informes.diario: solo lectura',
+      send: true, attach: true, reuse: false, branch: true
+    });
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile?.id), 'profile:local');
+
+    // Con el servidor conectado, el ask_user pendiente abre el compositor para contestarlo.
+    await page.evaluate(() => window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected' }));
+    assert.deepEqual(await page.evaluate(() => [document.getElementById('user-input').readOnly, document.getElementById('btn-attach-file').disabled]), [false, false]);
+    // Contestar reanuda en el servidor con el perfil de la conversación, no con el de la pestaña.
+    await page.evaluate(() => {
+      window.__runs = [];
+      window.ChatServerRun.start = async params => { window.__runs.push(params); return { run_id: 'r1' }; };
+      window.ChatMCP.manager.requestExternalControl = async () => ({ conversation: { id: 'ag1' } });
+    });
+    await page.fill('#user-input', 'Octubre');
+    await page.click('#btn-send');
+    await page.waitForFunction(() => window.__runs.length === 1);
+    assert.deepEqual(await page.evaluate(() => window.__runs[0]), { conversationId: 'ag1', profile: 'Remoto chat', toolDecision: undefined });
+    await page.evaluate(() => window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'disconnected' }));
+
+    // Una conversación humana vuelve al compositor normal.
+    await page.locator('.sidebar-chat-item[data-session-id="h1"]').evaluate(item => item.click());
+    await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'h1');
+    assert.deepEqual(await composer(), {
+      supervision: false, readOnly: false, placeholder: 'Escribe un mensaje...', send: false, attach: false, reuse: true, branch: false
+    });
+  } finally {
+    await browser.close();
+  }
+});
+
 test('Browser UI - el subagente de delegate_task muestra sus herramientas en su tarjeta y devuelve solo el informe', async () => {
   const browser = await createTestBrowser();
   try {

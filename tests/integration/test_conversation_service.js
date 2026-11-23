@@ -397,14 +397,15 @@ test('ConversationService - confirmProjectSwitch avisa solo al abrir un chat de 
   const sA = { id: 'sess_a', title: 'Chat A', project: '/repo/a', createdAt: 1000, updatedAt: 1000 };
   const sB = { id: 'sess_b', title: 'Chat B', project: '/repo/b', createdAt: 2000, updatedAt: 2000 };
   const sG = { id: 'sess_g', title: 'Chat General', createdAt: 3000, updatedAt: 3000 };
-  for (const s of [sA, sB, sG]) await Storage.saveConversation(s, [{ id: `${s.id}_m`, role: 'user', content: s.title }]);
+  const sAgent = { id: 'sess_agent', title: 'Informe', project: '/repo/b', agent: 'informes.diario', createdAt: 4000, updatedAt: 4000 };
+  for (const s of [sA, sB, sG, sAgent]) await Storage.saveConversation(s, [{ id: `${s.id}_m`, role: 'user', content: s.title }]);
 
   const previousMcp = State.get('mcp');
   t.after(() => State.set('mcp', previousMcp));
 
   State.replaceConversation({
     sessionId: 'sess_a',
-    sessions: [sA, sB, sG],
+    sessions: [sA, sB, sG, sAgent],
     messages: [{ id: 'sess_a_m', role: 'user', content: 'Chat A' }]
   });
   State.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { cwd: '/repo/a' } });
@@ -428,6 +429,10 @@ test('ConversationService - confirmProjectSwitch avisa solo al abrir un chat de 
   assert.equal(await ConversationService.switchToSession('sess_g', opts), true);
   assert.equal(confirms.length, 3);
   assert.match(confirms[2].message, /\bgeneral\b/);
+
+  // Supervisar la conversación de un agente de otro proyecto no cambia el de la pestaña: no se pregunta.
+  assert.equal(await ConversationService.switchToSession('sess_agent', opts), true);
+  assert.equal(confirms.length, 3);
 
   State.set('mcp', { ...previousMcp, status: 'disconnected', serverInfo: null });
   assert.equal(await ConversationService.switchToSession('sess_b', opts), true);

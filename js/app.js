@@ -281,6 +281,8 @@
         resetTelemetryDisplay({ syncState: false });
       },
       onSessionSwitched: conversation => {
+        // Una conversación de agente se supervisa sin cambiar el proyecto, el perfil ni el modo servidor de la pestaña.
+        if (ConversationService.isAgentConversation(conversation)) return undefined;
         applySessionServerMode(conversation);
         return UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
       },
@@ -308,7 +310,7 @@
 
   // Solo el modo servidor sigue a la conversación: el perfil activo lo gobierna el selector de la pestaña.
   function applySessionServerMode(conversation) {
-    if (!conversation) return;
+    if (!conversation || ConversationService.isAgentConversation(conversation)) return;
     UIProfiles.setServerMode(ServerRun.isServerConversation(conversation) && ServerRun.isAvailable());
   }
 
@@ -329,7 +331,28 @@
   const syncLiveServerRun = () => UIConversation.renderLiveServerRun(
     elements.messagesList, elements.welcomeBanner, ServerRun.getActiveRun(), State.get('mcp').focusRun
   );
-  const syncComposerBusyControls = () => UIComposer.syncGenerationControls(elements, ServerRun.isComposerBusy());
+  const activeAgentSession = () => {
+    const session = State.get('sessions')?.list?.find(s => s.id === getCurrentSessionId());
+    return ConversationService.isAgentConversation(session) ? session : null;
+  };
+
+  /**
+   * Una conversación de agente es de solo lectura: el compositor solo se abre para contestar su ask_user pendiente,
+   * con el servidor conectado para reanudarla allí. Los retos de herramienta se responden en su tarjeta.
+   */
+  const isAgentComposerLocked = () => Boolean(activeAgentSession())
+    && !(ServerRun.isAvailable() && RunMode.pendingAskUserQuestion(getChatHistory()));
+
+  function syncComposerBusyControls() {
+    const agent = activeAgentSession();
+    const locked = isAgentComposerLocked();
+    elements.chatContainer.classList.toggle('agent-supervision', Boolean(agent));
+    elements.userInput.readOnly = locked;
+    elements.userInput.placeholder = locked ? t('agent_supervision_placeholder', { agent: agent.agent }) : t('input_placeholder');
+    elements.btnAttachFile.disabled = locked;
+    UIComposer.syncGenerationControls(elements, ServerRun.isComposerBusy());
+    if (locked) elements.btnSend.disabled = true;
+  }
 
   function handleStopCurrentGeneration() {
     if (ServerRun.isActiveSessionRunning()) {
@@ -382,7 +405,10 @@
 
   /** Envía el compositor; el modo ejecución pasa onProgress. Devuelve { text } o { error }. */
   function handleSendMessage(sendOptions = {}) {
-    const runOnServer = !sendOptions.onProgress && isServerRunEnabled();
+    const agent = activeAgentSession();
+    // Lo que se envía en una conversación de agente reanuda su ejecución en el servidor, con su perfil, nunca aquí.
+    if (agent && (!ServerRun.isAvailable() || (isAgentComposerLocked() && !sendOptions.resume))) return Promise.resolve(null);
+    const runOnServer = !sendOptions.onProgress && (Boolean(agent) || isServerRunEnabled());
     return GenerationController.handleSendMessage({
       elements,
       appendUserMessage: (text, originalPrompt, attachedImages) => UIConversation.appendUserMessage(
@@ -392,6 +418,7 @@
       openDebugInterceptorModal,
       saveCurrentSession,
       runOnServer,
+      serverProfile: agent?.profileId || '',
       startServerRun: ({ conversationId, profile }) => ServerRun.start({
         conversationId,
         profile: profile || getActiveProfileName(),
@@ -550,6 +577,7 @@
     syncServerRunControl();
     applyTheme(config.theme);
     applyLanguage(config.language);
+    syncComposerBusyControls();
     syncDebugMessagesState(config.enableDebugMessages, false);
     updateConnectionTokensBadge(null);
   }
@@ -858,6 +886,8 @@
     // La conversación se pinta tras actualizar el estado: se sincroniza en la siguiente vuelta.
     const scheduleAskUserSync = () => setTimeout(syncAskUserCards, 0);
     State.subscribe('messages', scheduleAskUserSync);
+    State.subscribe('messages', syncComposerBusyControls);
+    State.subscribe(state => state.mcp.status, syncComposerBusyControls);
     State.subscribe('streaming', scheduleAskUserSync);
 
     Config.subscribe((nextConfig, previousConfig) => {

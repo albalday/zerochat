@@ -676,5 +676,8 @@
   color: var(--text-secondary);
 }
 
-
-
+/* Conversación de agente en supervisión: sin acciones que reescriban sus turnos */
+.agent-supervision .message-actions .btn-reuse,
+.agent-supervision .message-actions .btn-delete {
+  display: none;
+}

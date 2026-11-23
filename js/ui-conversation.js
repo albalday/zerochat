@@ -451,7 +451,7 @@
     const btnCopy = createActionButton(doc, { className: 'btn-copy-user', icon: 'copy', titleKey: 'btn_copy_user_title' });
     bindMessageCopy(btnCopy, () => originalPrompt || text);
     actions.append(
-      createActionButton(doc, { icon: 'edit', titleKey: 'btn_reuse_title', onClick: () => onReuse(originalPrompt || text) }),
+      createActionButton(doc, { className: 'btn-reuse', icon: 'edit', titleKey: 'btn_reuse_title', onClick: () => onReuse(originalPrompt || text) }),
       btnCopy,
       createActionButton(doc, { className: 'btn-delete', icon: 'trash', titleKey: 'btn_undo_last_turn_title', onClick: () => onDelete() })
     );
