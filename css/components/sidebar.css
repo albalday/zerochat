@@ -545,6 +545,13 @@
   transform: rotate(90deg);
 }
 
+/* Agente dentro de su grupo: plegable, sangrado y sin la línea de proyecto */
+.sidebar-agent-header {
+  width: 100%;
+  padding-left: 0.9rem;
+  font-size: 0.78rem;
+}
+
 /* Siguiente tanda de conversaciones de un grupo */
 .sidebar-show-more {
   margin: 0.1rem 0.75rem 0.3rem;

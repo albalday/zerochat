@@ -228,6 +228,61 @@ test('Browser UI - en la vista de todos los proyectos empiezan plegados y vuelve
   });
 });
 
+test('Browser UI - las conversaciones de agentes van tras las humanas, plegadas por agente con su estado, en el proyecto y en todos', async () => {
+  await withTestApp(async page => {
+    await page.evaluate(day => {
+      const now = Date.now();
+      const list = [
+        { id: 'h1', title: 'Humana hoy', project: '/repo/app', updatedAt: now },
+        { id: 'ag1', title: 'Informe lunes', project: '/repo/app', agent: 'informes.diario', updatedAt: now - 500 },
+        { id: 'ag2', title: 'Informe martes', project: '/repo/app', agent: 'informes.diario', updatedAt: now - 1000 },
+        { id: 'ag3', title: 'Resumen', project: '/repo/app', agent: 'informes.semanal', updatedAt: now - 2000 },
+        { id: 'h2', title: 'Humana antigua', project: '/repo/app', updatedAt: now - 3 * day }
+      ];
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: 'h1', list });
+      window.ChatState.set('mcp', {
+        ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/app' },
+        serverRuns: [{ conversationId: 'ag2', runId: 'r1', status: 'needs_input' }, { conversationId: 'ag1', runId: 'r2', status: 'running' }]
+      });
+      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
+    }, DAY_MS);
+    const shownIds = () => page.$$eval('#sidebar-chats-list .sidebar-chat-item', items => items.map(item => item.dataset.sessionId));
+    const t = key => page.evaluate(key => window.ChatI18n.t(key), key);
+    const agentHeaders = () => page.$$eval('.sidebar-agent-header', headers => headers.map(header => ({
+      key: header.dataset.groupKey,
+      expanded: header.getAttribute('aria-expanded'),
+      count: header.querySelector('.sidebar-group-count').textContent,
+      status: header.querySelector('.sidebar-chat-status-icon')?.getAttribute('class').split(' ').at(-1) || null
+    })));
+
+    // Proyecto actual: las humanas por fecha y, al final, cada agente plegado con su estado más urgente.
+    assert.deepEqual(await sidebarHeaders(page), [await t('sidebar_group_today'), await t('sidebar_group_last7days'), await t('sidebar_group_agents'), 'informes.diario', 'informes.semanal']);
+    assert.deepEqual(await shownIds(), ['h1', 'h2']);
+    assert.deepEqual(await agentHeaders(), [
+      { key: 'agents|agent:informes.diario', expanded: 'false', count: '2', status: 'needs-input' },
+      { key: 'agents|agent:informes.semanal', expanded: 'false', count: '1', status: null }
+    ]);
+    await page.click('.sidebar-agent-header[data-group-key="agents|agent:informes.diario"]');
+    assert.deepEqual(await shownIds(), ['h1', 'h2', 'ag1', 'ag2']);
+
+    // El buscador también encuentra por identificador de agente y despliega su grupo.
+    await page.fill('#sidebar-search-input', 'semanal');
+    assert.deepEqual(await shownIds(), ['ag3']);
+    await page.fill('#sidebar-search-input', '');
+
+    // Todos: dentro del proyecto desplegado, las humanas y después los agentes, plegados.
+    await page.selectOption('#sidebar-project-filter', 'all');
+    await page.click('.sidebar-group-toggle[data-group-key="/repo/app"]');
+    assert.deepEqual(await shownIds(), ['h1', 'h2']);
+    assert.deepEqual((await agentHeaders()).map(({ key, expanded }) => `${key}:${expanded}`),
+      ['/repo/app|agent:informes.diario:false', '/repo/app|agent:informes.semanal:false']);
+
+    // Tareas pendientes: los agentes con ejecución sin completar, desplegados.
+    await page.selectOption('#sidebar-project-filter', 'pending');
+    assert.deepEqual(await shownIds(), ['ag1', 'ag2']);
+  });
+});
+
 test('Browser UI - cada grupo pinta 50 conversaciones y "Mostrar más" añade el resto', async () => {
   await withTestApp(async page => {
     const render = count => page.evaluate(count => {

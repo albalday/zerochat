@@ -154,25 +154,46 @@
     return getSelectedProject(select, project);
   }
 
+  // Las conversaciones de agentes (session.agent) van tras las humanas de su proyecto, no mezcladas por fecha.
+  const humansFirst = sessions => [...sessions.filter(session => !session.agent), ...sessions.filter(session => session.agent)];
+
   /**
    * Conversaciones en el orden en que se muestran, cada una con su grupo ({ key, kind, label, title },
-   * de tipo 'date' o 'project'): las de un proyecto (`project`, vacío para la carpeta general), por fecha; y al
-   * ver todos (null), por proyecto (el de conversación más reciente primero) con la carpeta general al final.
-   * Las listas llegan de la más reciente a la más antigua.
+   * de tipo 'date' o 'project'): las de un proyecto (`project`, vacío para la carpeta general), por fecha y las de
+   * agentes en el grupo final 'agents'; y al ver todos (null), por proyecto (el de conversación más reciente primero)
+   * con la carpeta general al final y, en cada uno, las de agentes tras las humanas. Las listas llegan de la más
+   * reciente a la más antigua.
    */
   function groupSessions(sessions, project) {
+    const agents = { key: 'agents', kind: 'date', label: t('sidebar_group_agents') };
     const byDate = session => {
+      if (session.agent) return { session, group: agents };
       const category = getChronologicalCategory(sessionDate(session));
       return { session, group: { key: category, kind: 'date', label: t(GROUP_LABEL_KEYS[category]) } };
     };
-    if (project !== null) return sessions.filter(session => (session.project || '') === project).map(byDate);
+    if (project !== null) return humansFirst(sessions.filter(session => (session.project || '') === project)).map(byDate);
     const noProject = { key: '', kind: 'project', label: NO_PROJECT_NAME };
     const projects = [...new Set(sessions.map(session => session.project).filter(Boolean))];
     return [
-      ...projects.flatMap(path => sessions.filter(session => session.project === path)
+      ...projects.flatMap(path => humansFirst(sessions.filter(session => session.project === path))
         .map(session => ({ session, group: { key: path, kind: 'project', label: projectName(path), title: path } }))),
-      ...sessions.filter(session => !session.project).map(session => ({ session, group: noProject }))
+      ...humansFirst(sessions.filter(session => !session.project)).map(session => ({ session, group: noProject }))
     ];
+  }
+
+  // Estado más urgente de las ejecuciones de un agente, para verlo con su grupo plegado.
+  const RUN_STATUS_PRIORITY = ['needs_input', 'error', 'limit', 'running'];
+
+  /**
+   * Cabecera plegable de un agente dentro de su grupo: icono, identificador <subconjunto>.<nombre>, estado más
+   * urgente de sus ejecuciones y número de conversaciones.
+   */
+  function renderAgentHeader(key, agent, count, runStatus, expanded) {
+    const status = RUN_STATUS_ICONS[runStatus];
+    const statusIcon = status
+      ? Icons.get(status.icon, { size: 13, className: `sidebar-chat-status-icon ${status.className}`, title: t(status.titleKey) })
+      : '';
+    return `<button type="button" class="sidebar-group-header sidebar-project-header sidebar-agent-header sidebar-group-toggle" data-group-key="${escapeHtml(key)}" aria-expanded="${expanded}" title="${escapeHtml(agent)}">${Icons.get('chevron-right', { size: 14, className: 'sidebar-group-chevron' })}${Icons.get('bot', { size: 14 })}<span class="sidebar-group-label">${escapeHtml(agent)}</span>${statusIcon}<span class="sidebar-group-count">${count}</span></button>`;
   }
 
   /** Agrupa las conversaciones consecutivas del mismo grupo: [{ group, sessions }]. */
@@ -225,7 +246,7 @@
     const visible = pendingView ? groupSessions(pendingSessions, null) : groupSessions(sessions, viewProject);
     const contentIds = filter && searchState.query === filter ? searchState.ids : null;
     const matching = filter
-      ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter) || contentIds?.has(session.id))
+      ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter) || session.agent?.includes(filter) || contentIds?.has(session.id))
       : visible;
     if (matching.length === 0) {
       const emptyKey = showAll || pendingView || filter ? 'sidebar_no_chats' : 'sidebar_no_project_chats';
@@ -239,9 +260,23 @@
       const more = rest > 0 ? `<button type="button" class="sidebar-show-more" data-group-key="${escapeHtml(group.key)}">${escapeHtml(t('sidebar_show_more', { count: rest }))}</button>` : '';
       return shown.map(renderItem).join('') + more;
     };
+    // Cada agente del grupo, plegable; al buscar o en tareas pendientes, desplegado.
+    const renderAgents = (group, items) => {
+      const byAgent = new Map();
+      items.forEach(session => byAgent.set(session.agent, [...(byAgent.get(session.agent) || []), session]));
+      return [...byAgent].map(([agent, agentSessions]) => {
+        const key = `${group.key}|agent:${agent}`;
+        const statuses = agentSessions.map(session => runStatusMap.get(session.id));
+        const runStatus = RUN_STATUS_PRIORITY.find(status => statuses.includes(status)) || null;
+        const expanded = Boolean(filter) || pendingView || isGroupExpanded({ key });
+        return renderAgentHeader(key, agent, agentSessions.length, runStatus, expanded) + (expanded ? renderChats({ key }, agentSessions) : '');
+      }).join('');
+    };
+    const renderGroupChats = (group, items) => renderChats(group, items.filter(session => !session.agent))
+      + renderAgents(group, items.filter(session => session.agent));
     const collapsible = showAll && !filter;
     elements.sidebarChatsList.innerHTML = toRuns(matching).map(({ group, sessions: items }) => {
-      const chats = () => renderChats(group, items);
+      const chats = () => renderGroupChats(group, items);
       if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length, null) : '') + chats();
       if (!collapsible) return renderGroupHeader(group, items.length) + chats();
       // Un grupo plegado no pinta sus conversaciones: con miles serían miles de nodos ocultos.
