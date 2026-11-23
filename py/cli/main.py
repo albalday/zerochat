@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import datetime
 import json
 import os
 import signal
@@ -74,7 +73,6 @@ from storage.db import (
     get_general_profile_by_name,
     get_general_profile_with_key,
     get_project_environment,
-    list_conversations,
     list_general_profiles,
     mark_conversation_server_run,
     set_conversation_launch,
@@ -115,10 +113,9 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
-    parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, agent (<subconjunto>.<nombre>: marca la conversación nueva como de ese agente), systemDataPrompt, projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, agent (<subconjunto>.<nombre>: marca la conversación nueva como de ese agente), systemDataPrompt, watchAgents (patrones de agentes del proyecto que vigila con check_agents), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
@@ -261,7 +258,8 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
-                      project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch)
+                      project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
+                      watch_agents=tuple(options.get("watchAgents") or ()))
 
 
 def redirect_log(args):
@@ -549,20 +547,6 @@ def main():
                 api_type = settings.get("apiType") or "openai"
                 api_url = settings.get("apiUrl") or ""
                 print(f"- {p['name']} ({api_type} / {model}) [{api_url}]")
-        return
-
-    if getattr(args, "list_conversations", False):
-        conversations = list_conversations()
-        if not conversations:
-            print("No hay conversaciones almacenadas en el servidor local.")
-        else:
-            print("Conversaciones almacenadas:")
-            for c in conversations:
-                date_str = datetime.datetime.fromtimestamp(c["updatedAt"] / 1000).strftime("%Y-%m-%d %H:%M") if c.get("updatedAt") else ""
-                count = c.get("messageCount", 0)
-                msg_text = "1 mensaje" if count == 1 else f"{count} mensajes"
-                date_suffix = f", {date_str}" if date_str else ""
-                print(f"- [{c['id']}] {c['title']} ({msg_text}{date_suffix})")
         return
 
     if args.test:

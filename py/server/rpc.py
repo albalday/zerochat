@@ -16,7 +16,7 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, parse_nonneg_in
 from core.version import VERSION
 from mcp.manager import GLOBAL_MCP_MANAGER
 from mcp.rpc import SERVER_CONTROL_METHODS, dispatch_server_control
-from run_mode.state import dispatch_run, run_project_environment
+from run_mode.state import current_run_session, dispatch_run, run_project_environment
 from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from server.state import live_state, wait_live_state
@@ -42,13 +42,16 @@ from tools.filesystem import (
 from tools.jobs import JOBS
 from tools.jobs_rpc import dispatch_jobs
 from tools.project_files import dispatch_files
-from tools.registry import LOCAL_TOOLS_DEFINITIONS
+from tools.registry import CHECK_AGENTS_DEFINITION, LOCAL_TOOLS_DEFINITIONS
 from tools.sandbox import execute_js_sandbox
 from web.fetch import fetch_web_resource
 
 
 def _local_tools() -> list[dict]:
-    return [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]
+    """Las herramientas locales; check_agents, solo en la ejecución --run-file que vigila agentes (watchAgents)."""
+    session = current_run_session()
+    extra = (CHECK_AGENTS_DEFINITION,) if session is not None and session.watch_agents else ()
+    return [dict(definition) for definition in (*LOCAL_TOOLS_DEFINITIONS, *extra)]
 
 
 def rpc_login(params: dict) -> RpcOutcome:

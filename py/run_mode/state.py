@@ -27,6 +27,7 @@ from storage.db import (
     _validate_conversation_id,
     get_conversation_launch,
     validate_agent_id,
+    validate_agent_watch_pattern,
     validate_project_prompt,
     delete_run_state,
     get_conversation,
@@ -68,9 +69,11 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
-RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS))
+RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode", "watchAgents") + tuple(RUN_FILE_LIMIT_KEYS))
 # Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
-RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "watchAgents") + tuple(RUN_FILE_LIMIT_KEYS)
+# Patrones de watchAgents que admite una ejecución (agentes que vigila con check_agents).
+MAX_WATCH_AGENTS = 32
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -98,6 +101,20 @@ def _run_request_object(raw: bytes) -> dict:
     return data
 
 
+def _agent_options(data: dict) -> dict:
+    """projectMode (sin él, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual) y
+    watchAgents (los agentes del mismo proyecto que la ejecución puede consultar con check_agents)."""
+    if "projectMode" in data and not isinstance(data["projectMode"], bool):
+        raise ValueError("projectMode debe ser true o false")
+    options = {"projectMode": data.get("projectMode", False)}
+    if "watchAgents" in data:
+        patterns = data["watchAgents"]
+        if not isinstance(patterns, list) or not 1 <= len(patterns) <= MAX_WATCH_AGENTS:
+            raise ValueError(f"watchAgents debe ser una lista de 1 a {MAX_WATCH_AGENTS} patrones")
+        options["watchAgents"] = list(dict.fromkeys(validate_agent_watch_pattern(pattern) for pattern in patterns))
+    return options
+
+
 def parse_run_request(raw: bytes) -> dict:
     """Valida el contenido de --run-file y devuelve sus campos limpios; ValueError con el motivo si no vale."""
     data = _run_request_object(raw)
@@ -116,10 +133,7 @@ def parse_run_request(raw: bytes) -> dict:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
         request["systemDataPrompt"] = validate_project_prompt(data["systemDataPrompt"])
-    # Sin projectMode, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual.
-    if "projectMode" in data and not isinstance(data["projectMode"], bool):
-        raise ValueError("projectMode debe ser true o false")
-    request["projectMode"] = data.get("projectMode", False)
+    request.update(_agent_options(data))
     for key, maximum in RUN_FILE_LIMIT_KEYS.items():
         if key in data:
             value = data[key]
@@ -402,7 +416,7 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None, launch: dict | None = None):
+                 agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = ()):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -420,6 +434,8 @@ class RunSession:
         self.agent = agent
         # Petición de lanzamiento de un agente (--run-file): finish_run la guarda en su conversación.
         self.launch = launch
+        # watchAgents de --run-file: habilita y autoriza check_agents solo en esta ejecución.
+        self.watch_agents = tuple(watch_agents)
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode

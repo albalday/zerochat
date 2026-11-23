@@ -33,7 +33,10 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 # Identificador de agente de una conversación: <subconjunto>.<nombre>, dos niveles dentro de su proyecto.
 MAX_AGENT_ID_LENGTH = 64
-_AGENT_ID_PATTERN = re.compile(r"[a-z0-9_-]+\.[a-z0-9_-]+")
+_AGENT_SEGMENT = r"[a-z0-9_-]+"
+_AGENT_ID_PATTERN = re.compile(rf"{_AGENT_SEGMENT}\.{_AGENT_SEGMENT}")
+# Patrón de watchAgents: todos los agentes del proyecto, los de un subconjunto o uno concreto.
+_AGENT_WATCH_PATTERN = re.compile(rf"\*|{_AGENT_SEGMENT}\.(?:\*|{_AGENT_SEGMENT})")
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
 CONVERSATION_UPLOAD_TTL_SECONDS = 300
@@ -465,6 +468,20 @@ def validate_agent_id(agent) -> str:
     if not isinstance(agent, str) or len(agent) > MAX_AGENT_ID_LENGTH or not _AGENT_ID_PATTERN.fullmatch(agent):
         raise ValueError(f"agent debe ser <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
     return agent
+
+
+def validate_agent_watch_pattern(pattern) -> str:
+    """Un patrón de watchAgents: '*', '<subconjunto>.*' o '<subconjunto>.<nombre>', con el tope de un identificador."""
+    if not isinstance(pattern, str) or len(pattern) > MAX_AGENT_ID_LENGTH or not _AGENT_WATCH_PATTERN.fullmatch(pattern):
+        raise ValueError("watchAgents admite '*', '<subconjunto>.*' o '<subconjunto>.<nombre>'")
+    return pattern
+
+
+def agent_matches(agent, patterns) -> bool:
+    """Si el agente de una conversación lo cubre alguno de los patrones de watchAgents; una sin agente, nunca."""
+    if not isinstance(agent, str) or not agent:
+        return False
+    return any(pattern in ("*", agent) or (pattern.endswith(".*") and agent.startswith(pattern[:-1])) for pattern in patterns)
 
 
 def _validate_conversation_title(title, allow_empty: bool = False) -> str:

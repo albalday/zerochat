@@ -1,8 +1,6 @@
-import io
 import os
 import sqlite3
 import stat
-import sys
 import unittest
 from unittest import mock
 from backend import use_data_dir, zerochat
@@ -366,7 +364,7 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNotNone(err)
         self.assertEqual(err["code"], -32601)
 
-    def test_cli_resolucion_perfiles_y_list_conversations(self):
+    def test_cli_resolucion_perfiles(self):
         parser = zerochat.build_parser()
         # Sin --profile y sin local guardado en SQLite, falla con RUN_EXIT_ARGS (4).
         with self.assertRaises(SystemExit) as missing_default:
@@ -393,28 +391,6 @@ class StorageEngineTest(unittest.TestCase):
         args_unknown = parser.parse_args(["--prompt", "Hola", "--profile", "Desconocido"])
         session_unknown = zerochat.run_session_from_args(parser, args_unknown)
         self.assertEqual(session_unknown.profile, "Desconocido")
-
-        output_empty = io.StringIO()
-        with mock.patch.object(sys, "argv", ["zerochat.py", "--list-conversations"]), mock.patch.object(sys, "stdout", output_empty):
-            zerochat.main()
-        self.assertIn("No hay conversaciones almacenadas en el servidor local.", output_empty.getvalue())
-
-        zerochat.save_conversation(
-            {"id": "conv_cli_1", "title": "Charla CLI", "updatedAt": 1700000000000},
-            [{"role": "user", "content": "Hola"}]
-        )
-        zerochat.save_conversation(
-            {"id": "conv_cli_2", "title": "Segunda charla", "updatedAt": 1700000010000},
-            [{"role": "user", "content": "Hola 1"}, {"role": "assistant", "content": "Hola 2"}]
-        )
-
-        output_full = io.StringIO()
-        with mock.patch.object(sys, "argv", ["zerochat.py", "--list-conversations"]), mock.patch.object(sys, "stdout", output_full):
-            zerochat.main()
-        val = output_full.getvalue()
-        self.assertIn("Conversaciones almacenadas:", val)
-        self.assertIn("- [conv_cli_2] Segunda charla (2 mensajes,", val)
-        self.assertIn("- [conv_cli_1] Charla CLI (1 mensaje,", val)
 
     def test_guardar_listar_recuperar_actualizar_renombrar_y_borrar_conversacion(self):
         meta = {

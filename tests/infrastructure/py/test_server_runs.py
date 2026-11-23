@@ -353,6 +353,78 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(initialized["projectEnvironment"]["systemDataPrompt"], "Eres el agente de informes.")
         self.assertEqual(zerochat.get_project_environment(ctx.key)["systemDataPrompt"], "Prompt del proyecto")
 
+    def test_check_agents_solo_con_watchagents_y_solo_agentes_vigilados_del_proyecto(self):
+        # watchAgents: patrones '*', '<subconjunto>.*' o '<subconjunto>.<nombre>', sin repetir y hasta MAX_WATCH_AGENTS.
+        parse = lambda patterns: zerochat.parse_run_request(json.dumps({"prompt": "Hola", "watchAgents": patterns}).encode())["watchAgents"]
+        self.assertEqual(parse(["*", "informes.*", "ventas.diario", "informes.*"]), ["*", "informes.*", "ventas.diario"])
+        at_limit = [f"a.n{index}" for index in range(zerochat.MAX_WATCH_AGENTS)]
+        self.assertEqual(parse(at_limit), at_limit)
+        for invalid in ([], at_limit + ["a.extra"], "*", ["informes"], ["a.b.c"], ["*.diario"], ["Informes.*"], [3]):
+            with self.assertRaisesRegex(ValueError, "watchAgents"):
+                parse(invalid)
+
+        ctx = use_project(self, Path(tempfile.mkdtemp()))
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        names = lambda: [tool["name"] for tool in zerochat._local_tools()]
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+
+        # Fuera de una ejecución con watchAgents no se publica ni responde.
+        self.assertNotIn("check_agents", names())
+        zerochat.RUN_SESSION = zerochat.RunSession("Hola")
+        self.assertNotIn("check_agents", names())
+        self.assertFalse(check()["success"])
+
+        def conv(conv_id, agent=None, project=ctx.key, history=None, updated_at=1000):
+            meta = {"id": conv_id, "title": conv_id, "updatedAt": updated_at, "project": project, **({"agent": agent} if agent else {})}
+            zerochat.save_conversation(meta, history or [{"id": f"{conv_id}_u", "role": "user", "content": "Empieza"}])
+
+        summary_limit = zerochat.AGENT_RESULT_SUMMARY_CHARS
+        conv("diario_viejo", "informes.diario", updated_at=1000)
+        conv("diario_nuevo", "informes.diario", updated_at=3000, history=[
+            {"id": "u1", "role": "user", "content": "Primero"}, {"id": "a1", "role": "assistant", "content": "Hecho"},
+            {"id": "u2", "role": "user", "content": "Ahora"},
+            {"id": "a2", "role": "assistant", "content": None, "tool_calls": [{"id": "c1", "function": {"name": "ask_user", "arguments": "{}"}}]},
+            {"id": "t1", "role": "tool", "tool_call_id": "c1", "name": "ask_user", "content": "{}"}])
+        conv("semanal", "informes.semanal", updated_at=2000)
+        conv("ventas", "ventas.diario")
+        conv("humana")
+        conv("otro_proyecto", "informes.otro", project="/otro/proyecto")
+        conv("master", "informes.master", updated_at=4000)
+        upsert_run({"run_id": "r1", "conversation_id": "diario_nuevo", "status": "needs_input", "pending": {"kind": "ask_user", "text": "¿Mes?"},
+                    "result_text": "x" * summary_limit})
+        upsert_run({"run_id": "r2", "conversation_id": "semanal", "status": "completed", "result_text": "y" * (summary_limit + 1),
+                    "warnings": ["run_command: denegado"]})
+
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        self.assertIn("check_agents", names())
+        zerochat.reset_session_authorizations()
+        self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("check_agents", {}, context=ctx).status, zerochat.POLICY_ALLOW)
+
+        # Listado: la conversación más reciente de cada agente vigilado del proyecto, nunca humanas, otros proyectos ni el master.
+        listed = check()["agents"]
+        self.assertEqual([(item["agent"], item["conversation_id"], item["status"]) for item in listed],
+                         [("informes.diario", "diario_nuevo", "needs_input"), ("informes.semanal", "semanal", "completed")])
+        self.assertEqual((listed[0]["pending"], listed[0]["result_text"], "result_truncated" in listed[0]), ({"kind": "ask_user", "text": "¿Mes?"}, "x" * summary_limit, False))
+        self.assertEqual((len(listed[1]["result_text"]), listed[1]["result_truncated"], listed[1]["warnings"]), (summary_limit, True, ["run_command: denegado"]))
+
+        # Detalle: el último turno, por agente (su conversación más reciente) o por conversación vigilada.
+        detail = check(agent="informes.diario")
+        self.assertEqual(detail["conversation_id"], "diario_nuevo")
+        self.assertEqual(detail["last_turn"], [{"role": "user", "content": "Ahora"}, {"role": "assistant", "content": "", "tool_calls": ["ask_user"]},
+                                               {"role": "tool", "content": "{}", "name": "ask_user"}])
+        self.assertEqual(check(conversation_id="diario_viejo")["conversation_id"], "diario_viejo")
+        for unwatched in ({"conversation_id": "ventas"}, {"conversation_id": "humana"}, {"conversation_id": "otro_proyecto"},
+                          {"conversation_id": "master"}, {"agent": "ventas.diario"}):
+            self.assertFalse(check(**unwatched)["success"], unwatched)
+
+        # Tope del último turno en el borde exacto: AGENT_TURN_MAX_CHARS de texto entre todos los mensajes, y uno más se recorta.
+        turn_limit = zerochat.AGENT_TURN_MAX_CHARS
+        for extra, truncated in ((0, False), (1, True)):
+            conv("largo", "informes.largo", updated_at=5000, history=[
+                {"id": "u", "role": "user", "content": "Haz"}, {"id": "a", "role": "assistant", "content": "z" * (turn_limit - 3 + extra)}])
+            detail = check(conversation_id="largo")
+            self.assertEqual((sum(len(m["content"]) for m in detail["last_turn"]), detail.get("last_turn_truncated", False)), (turn_limit, truncated))
+
     def test_los_permisos_denegados_quedan_en_los_avisos_de_la_ejecucion_con_tope(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)

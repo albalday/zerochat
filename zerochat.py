@@ -2413,7 +2413,10 @@ MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
 # Identificador de agente de una conversación: <subconjunto>.<nombre>, dos niveles dentro de su proyecto.
 MAX_AGENT_ID_LENGTH = 64
-_AGENT_ID_PATTERN = re.compile(r"[a-z0-9_-]+\.[a-z0-9_-]+")
+_AGENT_SEGMENT = r"[a-z0-9_-]+"
+_AGENT_ID_PATTERN = re.compile(rf"{_AGENT_SEGMENT}\.{_AGENT_SEGMENT}")
+# Patrón de watchAgents: todos los agentes del proyecto, los de un subconjunto o uno concreto.
+_AGENT_WATCH_PATTERN = re.compile(rf"\*|{_AGENT_SEGMENT}\.(?:\*|{_AGENT_SEGMENT})")
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
 CONVERSATION_UPLOAD_TTL_SECONDS = 300
@@ -2845,6 +2848,20 @@ def validate_agent_id(agent) -> str:
     if not isinstance(agent, str) or len(agent) > MAX_AGENT_ID_LENGTH or not _AGENT_ID_PATTERN.fullmatch(agent):
         raise ValueError(f"agent debe ser <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
     return agent
+
+
+def validate_agent_watch_pattern(pattern) -> str:
+    """Un patrón de watchAgents: '*', '<subconjunto>.*' o '<subconjunto>.<nombre>', con el tope de un identificador."""
+    if not isinstance(pattern, str) or len(pattern) > MAX_AGENT_ID_LENGTH or not _AGENT_WATCH_PATTERN.fullmatch(pattern):
+        raise ValueError("watchAgents admite '*', '<subconjunto>.*' o '<subconjunto>.<nombre>'")
+    return pattern
+
+
+def agent_matches(agent, patterns) -> bool:
+    """Si el agente de una conversación lo cubre alguno de los patrones de watchAgents; una sin agente, nunca."""
+    if not isinstance(agent, str) or not agent:
+        return False
+    return any(pattern in ("*", agent) or (pattern.endswith(".*") and agent.startswith(pattern[:-1])) for pattern in patterns)
 
 
 def _validate_conversation_title(title, allow_empty: bool = False) -> str:
@@ -5190,9 +5207,11 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
-RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS))
+RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode", "watchAgents") + tuple(RUN_FILE_LIMIT_KEYS))
 # Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
-RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "watchAgents") + tuple(RUN_FILE_LIMIT_KEYS)
+# Patrones de watchAgents que admite una ejecución (agentes que vigila con check_agents).
+MAX_WATCH_AGENTS = 32
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -5220,6 +5239,20 @@ def _run_request_object(raw: bytes) -> dict:
     return data
 
 
+def _agent_options(data: dict) -> dict:
+    """projectMode (sin él, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual) y
+    watchAgents (los agentes del mismo proyecto que la ejecución puede consultar con check_agents)."""
+    if "projectMode" in data and not isinstance(data["projectMode"], bool):
+        raise ValueError("projectMode debe ser true o false")
+    options = {"projectMode": data.get("projectMode", False)}
+    if "watchAgents" in data:
+        patterns = data["watchAgents"]
+        if not isinstance(patterns, list) or not 1 <= len(patterns) <= MAX_WATCH_AGENTS:
+            raise ValueError(f"watchAgents debe ser una lista de 1 a {MAX_WATCH_AGENTS} patrones")
+        options["watchAgents"] = list(dict.fromkeys(validate_agent_watch_pattern(pattern) for pattern in patterns))
+    return options
+
+
 def parse_run_request(raw: bytes) -> dict:
     """Valida el contenido de --run-file y devuelve sus campos limpios; ValueError con el motivo si no vale."""
     data = _run_request_object(raw)
@@ -5238,10 +5271,7 @@ def parse_run_request(raw: bytes) -> dict:
         if not isinstance(data["systemDataPrompt"], str):
             raise ValueError("systemDataPrompt debe ser un texto")
         request["systemDataPrompt"] = validate_project_prompt(data["systemDataPrompt"])
-    # Sin projectMode, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual.
-    if "projectMode" in data and not isinstance(data["projectMode"], bool):
-        raise ValueError("projectMode debe ser true o false")
-    request["projectMode"] = data.get("projectMode", False)
+    request.update(_agent_options(data))
     for key, maximum in RUN_FILE_LIMIT_KEYS.items():
         if key in data:
             value = data[key]
@@ -5524,7 +5554,7 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None, launch: dict | None = None):
+                 agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = ()):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -5542,6 +5572,8 @@ class RunSession:
         self.agent = agent
         # Petición de lanzamiento de un agente (--run-file): finish_run la guarda en su conversación.
         self.launch = launch
+        # watchAgents de --run-file: habilita y autoriza check_agents solo en esta ejecución.
+        self.watch_agents = tuple(watch_agents)
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode
@@ -6080,6 +6112,100 @@ def _atomic_write_text(target: Path, text: str):
     with open(temp_path, "w", encoding="utf-8") as f:
         f.write(text)
     temp_path.replace(target)
+
+# --- tools.agents ---
+"""check_agents: estado de los agentes que vigila un agente master, solo en la ejecución --run-file con watchAgents.
+
+Lee conversaciones y ejecuciones de SQLite filtrando estrictamente por el proyecto de la ejecución y por los patrones de
+watchAgents: nunca chats humanos (sin agent) ni conversaciones de otros proyectos.
+"""
+
+
+
+
+AGENTS_TOOL = "check_agents"
+# Resumen de la respuesta final de cada agente en el listado.
+AGENT_RESULT_SUMMARY_CHARS = 500
+# Texto de los mensajes del último turno que devuelve el detalle, entre todos.
+AGENT_TURN_MAX_CHARS = 20000
+
+
+def _clip(text: str, limit: int) -> tuple[str, bool]:
+    return (text, False) if len(text) <= limit else (text[:limit], True)
+
+
+def _conversation_project(ctx: SecurityContext) -> str:
+    """El proyecto de las conversaciones de esta ejecución: su carpeta, o vacío en la carpeta general."""
+    return "" if ctx.key == normalize_directory_path(str(get_no_project_dir())) else ctx.key
+
+
+def _watched_conversations(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str) -> list[dict]:
+    """Conversaciones de agentes vigilados del proyecto, de la más reciente a la más antigua, sin la del propio master."""
+    project = _conversation_project(ctx)
+    return [conv for conv in list_conversations()
+            if conv["id"] != own_id and (conv.get("project") or "") == project and agent_matches(conv.get("agent"), patterns)]
+
+
+def _agent_state(conv: dict) -> dict:
+    """Estado de la última ejecución de una conversación de agente, con la respuesta final resumida."""
+    run = get_run_state(conv["id"]) or {}
+    result, clipped = _clip(run.get("result_text") or "", AGENT_RESULT_SUMMARY_CHARS)
+    return {
+        "agent": conv["agent"],
+        "conversation_id": conv["id"],
+        "status": run.get("status"),
+        "updated_at": run.get("updated_at") or conv.get("updatedAt"),
+        "finished_at": run.get("finished_at"),
+        "step_text": run.get("step_text") or "",
+        "pending": run.get("pending"),
+        "error": run.get("error"),
+        "warnings": run.get("warnings") or [],
+        "result_text": result,
+        **({"result_truncated": True} if clipped else {}),
+    }
+
+
+def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
+    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó."""
+    start = max((index for index, message in enumerate(history) if message.get("role") == "user"), default=0)
+    budget, truncated, messages = AGENT_TURN_MAX_CHARS, False, []
+    for message in history[start:]:
+        content, clipped = _clip("" if message.get("content") is None else str(message["content"]), budget)
+        budget -= len(content)
+        truncated = truncated or clipped
+        entry = {"role": message.get("role"), "content": content}
+        if message.get("name"):
+            entry["name"] = message["name"]
+        calls = [call.get("function", {}).get("name") for call in message.get("tool_calls") or [] if isinstance(call, dict)]
+        if calls:
+            entry["tool_calls"] = calls
+        messages.append(entry)
+    return messages, truncated
+
+
+def check_agents(agent: str | None = None, conversation_id: str | None = None, ctx: SecurityContext | None = None) -> str:
+    """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente); con agent o conversation_id,
+    además los mensajes de su último turno."""
+    session = current_run_session()
+    patterns = session.watch_agents if session is not None else ()
+    if not patterns or ctx is None:
+        return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
+    convs = _watched_conversations(ctx, patterns, session.conversation_id or session.new_conversation_id or "")
+    if conversation_id is None and agent is None:
+        latest: dict[str, dict] = {}
+        for conv in convs:
+            latest.setdefault(conv["agent"], conv)
+        return json.dumps({"success": True, "agents": [_agent_state(conv) for conv in latest.values()]}, ensure_ascii=False)
+    if conversation_id is not None:
+        conv = next((item for item in convs if item["id"] == conversation_id), None)
+    else:
+        conv = next((item for item in convs if item["agent"] == agent), None)
+    if conv is None:
+        return _tool_error("That agent or conversation is not a watched agent of this project.")
+    full = get_conversation(conv["id"]) or {}
+    messages, truncated = _last_turn(full.get("history") or [])
+    return json.dumps({"success": True, **_agent_state(conv), "last_turn": messages,
+                       **({"last_turn_truncated": True} if truncated else {})}, ensure_ascii=False)
 
 # --- tools.browser_action ---
 """Herramienta browser_action: una sesión persistente de Playwright con los motores propios o el navegador del sistema."""
@@ -10016,6 +10142,24 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     }
 ]
+# Solo se publica en una ejecución --run-file con watchAgents (server/rpc.py), que además la autoriza; fuera de ella
+# el manejador se niega a responder.
+CHECK_AGENTS_DEFINITION = {
+    "name": AGENTS_TOOL,
+    "description": (
+        "Status of the agents of this project that this run supervises (watchAgents). Without arguments, one entry per "
+        "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
+        "error, warnings and a summary of its final answer. With agent or conversation_id, also the messages of its last turn."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"}
+        }
+    }
+}
+
 LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
     "read_file": read_file,
@@ -10027,6 +10171,7 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action,
     "browser_fill_secret": browser_fill_secret,
+    AGENTS_TOOL: check_agents,
 }
 
 
@@ -10051,7 +10196,7 @@ def _argument_error(name: str, value, prop: dict | None) -> str | None:
 
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
-    definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), None)
+    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, CHECK_AGENTS_DEFINITION) if item["name"] == tool_name), None)
     if definition is None:
         return None
 
@@ -10615,7 +10760,10 @@ decide quién atiende cada uno.
 
 
 def _local_tools() -> list[dict]:
-    return [dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS]
+    """Las herramientas locales; check_agents, solo en la ejecución --run-file que vigila agentes (watchAgents)."""
+    session = current_run_session()
+    extra = (CHECK_AGENTS_DEFINITION,) if session is not None and session.watch_agents else ()
+    return [dict(definition) for definition in (*LOCAL_TOOLS_DEFINITIONS, *extra)]
 
 
 def rpc_login(params: dict) -> RpcOutcome:
@@ -11290,10 +11438,9 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--no-venv", action="store_true", help="Omitir la comprobación/creación de ~/zerochat/.venv")
     parser.add_argument("--test", action="store_true", help="Ejecutar autocomprobación interna de herramientas")
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
-    parser.add_argument("--list-conversations", action="store_true", help="Listar las conversaciones almacenadas en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, agent (<subconjunto>.<nombre>: marca la conversación nueva como de ese agente), systemDataPrompt, projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, agent (<subconjunto>.<nombre>: marca la conversación nueva como de ese agente), systemDataPrompt, watchAgents (patrones de agentes del proyecto que vigila con check_agents), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
@@ -11436,7 +11583,8 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
-                      project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch)
+                      project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
+                      watch_agents=tuple(options.get("watchAgents") or ()))
 
 
 def redirect_log(args):
@@ -11724,20 +11872,6 @@ def main():
                 api_type = settings.get("apiType") or "openai"
                 api_url = settings.get("apiUrl") or ""
                 print(f"- {p['name']} ({api_type} / {model}) [{api_url}]")
-        return
-
-    if getattr(args, "list_conversations", False):
-        conversations = list_conversations()
-        if not conversations:
-            print("No hay conversaciones almacenadas en el servidor local.")
-        else:
-            print("Conversaciones almacenadas:")
-            for c in conversations:
-                date_str = datetime.datetime.fromtimestamp(c["updatedAt"] / 1000).strftime("%Y-%m-%d %H:%M") if c.get("updatedAt") else ""
-                count = c.get("messageCount", 0)
-                msg_text = "1 mensaje" if count == 1 else f"{count} mensajes"
-                date_suffix = f", {date_str}" if date_str else ""
-                print(f"- [{c['id']}] {c['title']} ({msg_text}{date_suffix})")
         return
 
     if args.test:

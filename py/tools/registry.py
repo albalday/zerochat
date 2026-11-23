@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from core.environment import DETECTED_OS
 from core.limits import MAX_COMMAND_LENGTH, MAX_HTTP_BODY_BYTES, MAX_PATH_LENGTH
+from storage.db import MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH
+from tools.agents import AGENTS_TOOL, check_agents
 from tools.browser_action import BROWSER_ACTIONS, browser_action
 from tools.browser_secret import BROWSER_SECRET_MODES, browser_fill_secret
 from tools.filesystem import edit_file, get_diagnostics, list_directory, read_file, search_files, write_file
@@ -209,6 +211,24 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     }
 ]
+# Solo se publica en una ejecución --run-file con watchAgents (server/rpc.py), que además la autoriza; fuera de ella
+# el manejador se niega a responder.
+CHECK_AGENTS_DEFINITION = {
+    "name": AGENTS_TOOL,
+    "description": (
+        "Status of the agents of this project that this run supervises (watchAgents). Without arguments, one entry per "
+        "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
+        "error, warnings and a summary of its final answer. With agent or conversation_id, also the messages of its last turn."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"}
+        }
+    }
+}
+
 LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
     "read_file": read_file,
@@ -220,6 +240,7 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action,
     "browser_fill_secret": browser_fill_secret,
+    AGENTS_TOOL: check_agents,
 }
 
 
@@ -244,7 +265,7 @@ def _argument_error(name: str, value, prop: dict | None) -> str | None:
 
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
-    definition = next((item for item in LOCAL_TOOLS_DEFINITIONS if item["name"] == tool_name), None)
+    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, CHECK_AGENTS_DEFINITION) if item["name"] == tool_name), None)
     if definition is None:
         return None
 
