@@ -1,7 +1,7 @@
-Agent run-file template (agents/template.json):
+Agent run-file template (agents/template.json — omit conversation_id for a fresh conversation per run; add "watchAgents": ["<set>.*"] for a master agent that supervises others with check_agents):
 ```json
 {
-  "conversation_id": "agent-role-daily",
+  "conversation_id": "<set>.<role>",
   "agent": "<set>.<role>",
   "profile": "local",
   "systemDataPrompt": "Read agents/<role>.md and follow its instructions strictly.",
@@ -20,6 +20,6 @@ set +e
 zerochat --run-file "agents/<role>.json"
 rc=$?
 set -e
-# 0: completed, 5: needs_input (Pending inbox in ZeroChat), 6: limit reached
+# 0: completed, 5: needs_input (answer in ZeroChat's Pending tasks view; resumes with stored launch), 6: limit reached
 exit "$rc"
 ```

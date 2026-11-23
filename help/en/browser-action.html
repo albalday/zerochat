@@ -30,11 +30,12 @@
 
     <div class="card" id="navegador-propio">
       <h2>ZeroChat’s own browser</h2>
-      <p>Playwright MCP opens a separate in-memory browser (<code>--isolated</code>), apart from yours: it keeps cookies and sessions while the session lasts, saves nothing to disk on close, and supports concurrent <code>zerochat</code> runs.</p>
+      <p>Playwright MCP opens a separate in-memory browser (<code>--isolated</code>), apart from yours: it keeps cookies and sessions while the session lasts, saves nothing to disk on close, and supports concurrent <code>zerochat</code> runs, including unattended runs without a graphical session.</p>
       <ul>
-        <li><strong>Engines:</strong> Chromium, Firefox or WebKit, downloaded to the Playwright cache, never to the system. Chromium is installed with the service; <strong>Install</strong> downloads the others and shows the progress, and <strong>Remove</strong> deletes them from the cache. Only an installed engine can be chosen; if you remove the chosen one, another installed one is used. WebKit and Firefox may need system libraries on Linux.</li>
+        <li><strong>Playwright engines and system browsers:</strong> Chromium, Firefox or WebKit (downloaded to the Playwright cache; Chromium is installed with the service, <strong>Install</strong> downloads the others showing progress, and <strong>Remove</strong> deletes them from the cache), or the browsers detected on the system (<strong>Google Chrome</strong>, <strong>Microsoft Edge</strong> or <strong>System Chromium</strong>) launched in an isolated ZeroChat profile without touching your session or needing the extension.</li>
         <li><strong>Browser data:</strong> <strong>Clear</strong> deletes all saved persistent storages of the chosen engine in <code>~/zerochat/playwright/profile/&lt;engine&gt;</code>. You will have to sign in to those sites again.</li>
-        <li><strong>Show the window:</strong> by default the browser runs without a window; check it to watch what the model does.</li>
+        <li><strong>User-Agent:</strong> <strong>Automatic</strong> reuses the last real User-Agent captured from your browser and stored in SQLite (also in unattended runs), <strong>Rotate on each launch</strong> picks a different modern browser User-Agent on each session, and <strong>Custom</strong> uses the string you enter (up to 512 characters).</li>
+        <li><strong>Show the window:</strong> by default the browser runs without a window (<code>--headless</code>); check it to watch what the model does.</li>
       </ul>
       <p>Removing an engine or clearing its data stops Playwright MCP if it is running and starts it again when done.</p>
     </div>
@@ -47,13 +48,13 @@
         <li>Keep that browser open. In Settings › Browser choose <strong>Your browser</strong> and the browser, and save.</li>
         <li>The first time the model browses after Playwright MCP starts, the extension asks you to accept the connection and choose the tab you share with it.</li>
       </ol>
-      <p>To avoid accepting every connection, copy the token shown in the extension window into <strong>Extension token</strong>; you can paste the whole <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> line. It is saved in <code>~/zerochat/config/browser.json</code>, readable only by your user, and Playwright MCP receives it when it starts. Whoever has the token can connect to your browser without your approval: do not share it.</p>
+      <p>To avoid accepting every connection, copy the token shown in the extension window into <strong>Extension token</strong>; you can paste the whole <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> line. It is saved obfuscated in the local SQLite database (<code>~/zerochat/storage/zerochat.db</code>), readable only by your user, and Playwright MCP receives it via environment variable when it starts. Whoever has the token can connect to your browser without your approval: do not share it.</p>
       <p>This mode always has a window: the model works in your open browser.</p>
     </div>
 
     <div class="card">
       <h2>On save</h2>
-      <p>With <strong>Save</strong>, the chosen tool is offered to the model, and the Playwright options are saved in <code>~/zerochat/config/browser.json</code> and used the next time Playwright MCP starts; if it is running, ZeroChat asks whether to restart it now. Without the local server, the section only lets you choose the tool.</p>
+      <p>With <strong>Save</strong>, the chosen tool is offered to the model in the active project, and the Playwright options are saved in SQLite and used the next time Playwright MCP starts; if it is running, ZeroChat asks whether to restart it now. Without the local server, the section only lets you choose the tool.</p>
     </div>
 
     <div class="alert alert-warning">

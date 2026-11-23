@@ -30,11 +30,12 @@
 
     <div class="card" id="navegador-propio">
       <h2>Navegador propio de ZeroChat</h2>
-      <p>Playwright MCP abre un navegador aparte en memoria (<code>--isolated</code>), separado del tuyo: conserva las cookies y sesiones mientras dura la sesión, no guarda nada en disco al cerrar y admite varias ejecuciones simultáneas de <code>zerochat</code>.</p>
+      <p>Playwright MCP abre un navegador aparte en memoria (<code>--isolated</code>), separado del tuyo: conserva las cookies y sesiones mientras dura la sesión, no guarda nada en disco al cerrar y admite varias ejecuciones simultáneas de <code>zerochat</code>, también en ejecuciones desatendidas sin sesión gráfica.</p>
       <ul>
-        <li><strong>Motores:</strong> Chromium, Firefox o WebKit, descargados en la caché de Playwright, nunca en el sistema. Chromium se instala con el servicio; <strong>Instalar</strong> descarga los demás y muestra el progreso, y <strong>Quitar</strong> los borra de la caché. Solo se elige un motor instalado; si quitas el elegido, se pasa a otro instalado. WebKit y Firefox pueden necesitar bibliotecas del sistema en Linux.</li>
+        <li><strong>Motores de Playwright y navegadores del sistema:</strong> Chromium, Firefox o WebKit (descargados en la caché de Playwright; Chromium se instala con el servicio, <strong>Instalar</strong> descarga los demás mostrando el progreso y <strong>Quitar</strong> los borra de la caché), o bien los navegadores instalados en el sistema (<strong>Google Chrome</strong>, <strong>Microsoft Edge</strong> o <strong>Chromium del sistema</strong>) ejecutados en un perfil aislado de ZeroChat sin tocar tu sesión ni necesitar la extensión.</li>
         <li><strong>Datos del navegador:</strong> <strong>Limpiar</strong> borra todos los almacenamientos persistentes guardados del motor elegido en <code>~/zerochat/playwright/profile/&lt;motor&gt;</code>. Tendrás que volver a iniciar sesión en esos sitios.</li>
-        <li><strong>Mostrar la ventana:</strong> por defecto el navegador funciona sin ventana; márcalo para ver lo que hace el modelo.</li>
+        <li><strong>User-Agent:</strong> <strong>Automático</strong> reutiliza el último User-Agent real de tu navegador guardado en SQLite (también en ejecuciones desatendidas), <strong>Rotar en cada arranque</strong> elige uno distinto entre navegadores actuales en cada sesión y <strong>Personalizado</strong> usa la cadena que escribas (hasta 512 caracteres).</li>
+        <li><strong>Mostrar la ventana:</strong> por defecto el navegador funciona sin ventana (<code>--headless</code>); márcalo para ver lo que hace el modelo.</li>
       </ul>
       <p>Quitar un motor o limpiar sus datos detiene Playwright MCP si está en marcha y lo vuelve a iniciar al terminar.</p>
     </div>
@@ -47,13 +48,13 @@
         <li>Deja abierto ese navegador. En Ajustes › Navegador elige <strong>Tu navegador</strong> y el navegador, y guarda.</li>
         <li>La primera vez que el modelo navega tras arrancar Playwright MCP, la extensión te pide aceptar la conexión y elegir la pestaña que compartes con él.</li>
       </ol>
-      <p>Para no aceptar cada conexión, copia el token que muestra la ventana de la extensión en <strong>Token de la extensión</strong>; puedes pegar la línea <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> entera. Se guarda en <code>~/zerochat/config/browser.json</code>, legible solo por tu usuario, y Playwright MCP lo recibe al arrancar. Quien tenga el token puede conectar con tu navegador sin que lo aceptes: no lo compartas.</p>
+      <p>Para no aceptar cada conexión, copia el token que muestra la ventana de la extensión en <strong>Token de la extensión</strong>; puedes pegar la línea <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> entera. Se guarda ofuscado en la base de datos SQLite local (<code>~/zerochat/storage/zerochat.db</code>), legible solo por tu usuario, y Playwright MCP lo recibe por variable de entorno al arrancar. Quien tenga el token puede conectar con tu navegador sin que lo aceptes: no lo compartas.</p>
       <p>Este modo siempre tiene ventana: el modelo trabaja en tu navegador abierto.</p>
     </div>
 
     <div class="card">
       <h2>Al guardar</h2>
-      <p>Con <strong>Guardar</strong>, la herramienta elegida pasa a ofrecerse al modelo, y las opciones de Playwright se guardan en <code>~/zerochat/config/browser.json</code> y se usan en el siguiente arranque de Playwright MCP; si está en marcha, ZeroChat pregunta si lo reinicia ahora. Sin el servidor local, la sección solo permite elegir la herramienta.</p>
+      <p>Con <strong>Guardar</strong>, la herramienta elegida pasa a ofrecerse al modelo en el proyecto actual, y las opciones de Playwright se guardan en SQLite y se usan en el siguiente arranque de Playwright MCP; si está en marcha, ZeroChat pregunta si lo reinicia ahora. Sin el servidor local, la sección solo permite elegir la herramienta.</p>
     </div>
 
     <div class="alert alert-warning">
