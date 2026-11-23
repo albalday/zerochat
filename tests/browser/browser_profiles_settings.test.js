@@ -1,6 +1,6 @@
 const { describe, test, after } = require('node:test');
 const assert = require('node:assert/strict');
-const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady } = require('../helpers/browser-env.js');
+const { createTestBrowser, closeGlobalBrowser, seedConnectionProfiles, getIndexUrl, waitForAppReady, openSavedSession } = require('../helpers/browser-env.js');
 
 describe('Browser UI - profiles_settings', { concurrency: 4 }, () => {
   after(async () => {
@@ -396,6 +396,28 @@ test('Browser UI - cambiar de serverId con perfiles previos pregunta antes de fu
     assert.equal(syncResult.cancelled, true);
     const localIds = await page.evaluate(() => window.ChatProfileRepository.list().map(p => p.id));
     assert.ok(localIds.includes('profile:a'));
+  } finally {
+    await browser.close();
+  }
+});
+
+test('Browser UI - abrir una conversación guardada con otro perfil no cambia el perfil activo de la pestaña', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5000);
+    await seedConnectionProfiles(page);
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:local"]');
+    await page.evaluate(() => window.ChatStorage.saveConversation(
+      { id: 'chat-remote-profile', title: 'Con perfil remoto', profileId: 'Remoto chat', createdAt: Date.now(), updatedAt: Date.now() },
+      [{ id: 'chat-remote-profile_m', role: 'user', content: 'hola' }]
+    ));
+    await openSavedSession(page, 'chat-remote-profile');
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile?.id), 'profile:local');
   } finally {
     await browser.close();
   }

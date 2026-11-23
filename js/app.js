@@ -281,7 +281,7 @@
         resetTelemetryDisplay({ syncState: false });
       },
       onSessionSwitched: conversation => {
-        applySessionModeAndProfile(conversation);
+        applySessionServerMode(conversation);
         return UIProject.followConversationProject(conversation).catch(error => console.warn('[App] Could not open the conversation project:', error));
       },
       isServerMode: () => isServerRunEnabled(),
@@ -306,16 +306,10 @@
 
   const getActiveProfileName = () => getRuntimeConfig().activeProfile?.name || getRuntimeConfig().activeProfile?.id || '';
 
-  function applySessionModeAndProfile(conversation) {
+  // Solo el modo servidor sigue a la conversación: el perfil activo lo gobierna el selector de la pestaña.
+  function applySessionServerMode(conversation) {
     if (!conversation) return;
-    const serverMode = ServerRun.isServerConversation(conversation) && ServerRun.isAvailable();
-    if (conversation.profileId) {
-      const match = Profiles.get(conversation.profileId) || Profiles.findByName(conversation.profileId);
-      if (match && match.id !== getRuntimeConfig().activeProfile?.id) {
-        Config.activateProfile(match.id);
-      }
-    }
-    UIProfiles.setServerMode(serverMode);
+    UIProfiles.setServerMode(ServerRun.isServerConversation(conversation) && ServerRun.isAvailable());
   }
 
   const isServerRunEnabled = () => ServerRun.isAvailable() && UIProfiles.isServerMode();
@@ -328,7 +322,7 @@
     }
     const activeId = getCurrentSessionId();
     const session = State.get('sessions')?.list?.find(s => s.id === activeId);
-    if (session) applySessionModeAndProfile(session);
+    if (session) applySessionServerMode(session);
     else UIProfiles.syncActiveProfileTrigger();
   }
 
@@ -420,7 +414,7 @@
     Engine.ensureConversationDate(newSession.history, newSession.createdAt);
     const result = State.importConversation(newSession, newSession.history);
     if (!result.ok) throw new Error(result.reason);
-    applySessionModeAndProfile(newSession);
+    applySessionServerMode(newSession);
     renderSessionMessages(getChatHistory());
     await saveCurrentSession();
     await Dialogs.alert(t('chat_imported_success'), { type: 'success' });
