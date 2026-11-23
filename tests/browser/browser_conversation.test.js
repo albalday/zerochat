@@ -647,8 +647,13 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
       await window.ChatStorage.saveConversation({ id: 'ag1', title: 'Informe', agent: 'informes.diario', profileId: 'Remoto chat', serverRun: true, createdAt: now, updatedAt: now }, [
         { id: 'u1', role: 'user', content: 'Haz el informe' },
         { id: 'a1', role: 'assistant', content: 'Necesito un dato.' },
-        { id: 'a2', role: 'assistant', content: null, tool_calls: [{ id: 'call_q', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿Mes?"}' } }] },
+        { id: 'a2', role: 'assistant', content: null, tool_calls: [{ id: 'call_q', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿Mes?","options":["Octubre","Noviembre"]}' } }] },
         { id: 't1', role: 'tool', tool_call_id: 'call_q', name: 'ask_user', content: '{"status":"shown_to_user"}' }
+      ]);
+      await window.ChatStorage.saveConversation({ id: 'ag_auth', title: 'Permiso', agent: 'informes.diario', profileId: 'Remoto chat', serverRun: true, createdAt: now - 500, updatedAt: now - 500 }, [
+        { id: 'u1', role: 'user', content: 'Ejecuta' },
+        { id: 'a1', role: 'assistant', content: null, tool_calls: [{ id: 'call_w', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt"}' } }] },
+        { id: 't1', role: 'tool', tool_call_id: 'call_w', name: 'write_file', content: '{"awaitingApproval":true}' }
       ]);
       await window.ChatStorage.saveConversation({ id: 'h1', title: 'Humana', createdAt: now - 1000, updatedAt: now - 1000 }, [{ id: 'hu', role: 'user', content: 'Hola' }]);
     });
@@ -677,9 +682,11 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
       send: true, attach: true, reuse: false, branch: true
     });
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile?.id), 'profile:local');
+    assert.equal(await page.locator('.ask-user-card [data-ask-option="Octubre"]').isDisabled(), true);
 
-    // Con el servidor conectado, el ask_user pendiente abre el compositor para contestarlo.
+    // Con el servidor conectado, el ask_user pendiente abre el compositor y habilita sus opciones.
     await page.evaluate(() => window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'connected' }));
+    await page.waitForFunction(() => !document.querySelector('.ask-user-card [data-ask-option="Octubre"]')?.disabled);
     assert.deepEqual(await page.evaluate(() => [document.getElementById('user-input').readOnly, document.getElementById('btn-attach-file').disabled]), [false, false]);
     // Contestar reanuda en el servidor con el perfil de la conversación, no con el de la pestaña.
     await page.evaluate(() => {
@@ -692,6 +699,12 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
     await page.waitForFunction(() => window.__runs.length === 1);
     assert.deepEqual(await page.evaluate(() => window.__runs[0]), { conversationId: 'ag1', profile: 'Remoto chat', toolDecision: undefined });
     await page.evaluate(() => window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), status: 'disconnected' }));
+
+    // Sin servidor conectado, un reto de herramienta pendiente de agente no muta el historial al pulsar denegar.
+    await page.locator('.sidebar-chat-item[data-session-id="ag_auth"]').evaluate(item => item.click());
+    await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'ag_auth');
+    await page.click('.tool-auth-actions .btn-auth-deny');
+    assert.equal(await page.evaluate(() => JSON.parse(window.ChatState.get('messages').at(-1).content).awaitingApproval), true);
 
     // Una conversación humana vuelve al compositor normal.
     await page.locator('.sidebar-chat-item[data-session-id="h1"]').evaluate(item => item.click());

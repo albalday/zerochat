@@ -334,6 +334,7 @@
     const session = State.get('sessions')?.list?.find(s => s.id === getCurrentSessionId());
     return ConversationService.isAgentConversation(session) ? session : null;
   };
+  const isAgentServerBlocked = () => Boolean(activeAgentSession()) && !ServerRun.isAvailable();
 
   /**
    * Una conversación de agente es de solo lectura: el compositor solo se abre para contestar su ask_user pendiente,
@@ -362,7 +363,7 @@
   }
 
   async function handleHistoricalToolAuthorization(decision, { toolName, args }) {
-    if (isBusy() || ServerRun.isActiveSessionRunning()) return;
+    if (isBusy() || ServerRun.isActiveSessionRunning() || isAgentServerBlocked()) return;
     const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
     const nextMessages = decisionType === 'deny'
       ? getChatHistory().map(msg => {
@@ -476,7 +477,7 @@
   function syncAskUserCards() {
     const messages = getChatHistory();
     const last = messages[messages.length - 1];
-    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy() && !ServerRun.isActiveSessionRunning();
+    const pending = last?.role === 'tool' && last.name === 'ask_user' && !isBusy() && !ServerRun.isActiveSessionRunning() && !isAgentServerBlocked();
     const cards = [...elements.messagesList.querySelectorAll('.ask-user-card')];
     cards.forEach((card, index) => {
       const active = pending && index === cards.length - 1;
@@ -486,7 +487,7 @@
   }
 
   async function handleAskUserOption(button) {
-    if (button.disabled || isBusy() || ServerRun.isActiveSessionRunning()) return;
+    if (button.disabled || isBusy() || ServerRun.isActiveSessionRunning() || isAgentServerBlocked()) return;
     const label = button.getAttribute('data-ask-option');
     if (!label) return;
     // Lo que el usuario ya hubiera escrito acompaña a la opción como aclaración.
@@ -849,7 +850,10 @@
     const scheduleAskUserSync = () => setTimeout(syncAskUserCards, 0);
     State.subscribe('messages', scheduleAskUserSync);
     State.subscribe('messages', syncComposerBusyControls);
-    State.subscribe(state => state.mcp.status, syncComposerBusyControls);
+    State.subscribe(state => state.mcp.status, () => {
+      syncComposerBusyControls();
+      scheduleAskUserSync();
+    });
     State.subscribe('streaming', scheduleAskUserSync);
 
     Config.subscribe((nextConfig, previousConfig) => {
