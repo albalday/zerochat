@@ -60,6 +60,8 @@ AGENT_MAX_WAIT = TOOL_WAIT_MAX_SECONDS
 # Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
 # ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
 AGENT_WAIT_RECHECK_SECONDS = 5.0
+# Estados que cortan una espera aunque otros agentes sigan en marcha: alguien tiene que mirarlos.
+AGENT_ATTENTION_STATUSES = ("needs_input", "error")
 # Tope de prune_keep: cuántas conversaciones recientes de cada agente puede pedir conservar el master.
 AGENT_PRUNE_KEEP_MAX = 1000
 # Estados que la limpieza nunca borra: una ejecución en marcha o una pausa que espera a una persona.
@@ -95,10 +97,18 @@ def _target_project(ctx: SecurityContext, project: str | None, access: str) -> S
 
 
 def _watched_conversations(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str) -> list[dict]:
-    """Conversaciones de agentes vigilados del proyecto, de la más reciente a la más antigua, sin la del propio master."""
+    """Conversaciones de agentes vigilados del proyecto, de la más reciente a la más antigua, sin la del propio master.
+    Incluye las que este master lanzó y el agente aún no ha guardado: su fila de runs ya está en marcha."""
     project = _conversation_project(ctx)
-    return [conv for conv in list_conversations()
-            if conv["id"] != own_id and (conv.get("project") or "") == project and agent_matches(conv.get("agent"), patterns)]
+    convs = [conv for conv in list_conversations()
+             if conv["id"] != own_id and (conv.get("project") or "") == project and agent_matches(conv.get("agent"), patterns)]
+    session = current_run_session()
+    saved = {conv["id"] for conv in convs}
+    pending = [{"id": conv_id, **meta} for conv_id, meta in (session.launched_agents if session else {}).items()
+               if conv_id not in saved and meta["project"] == project and agent_matches(meta["agent"], patterns)]
+    if not pending:
+        return convs
+    return sorted(convs + pending, key=lambda conv: conv.get("updatedAt") or 0, reverse=True)
 
 
 def _agent_state(conv: dict, run: dict) -> dict:
@@ -180,17 +190,31 @@ def _selected(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str, agen
     return [(conv, get_run_state(conv["id"]) or {}) for conv in picked] or None
 
 
-def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None, str]:
-    """Relee con read() hasta que cambie alguna conversación consultada o su estado (una nueva, otra que termina o
-    se pausa), o pase wait. Devuelve lo último leído y el motivo."""
-    def signature(selected):
-        return None if selected is None else [(conv["id"], _agent_state(conv, run)["status"]) for conv, run in selected]
+def _wait_reason(selected: list[tuple[dict, dict]] | None, attention: dict[str, str]) -> str | None:
+    """Por qué deja de esperar con lo leído, o None para seguir: ninguna consultada en marcha (not_running), o una
+    que pasa a needs_input o error durante la espera (needs_attention); attention es el estado de cada una al empezar."""
+    if selected is None:
+        return "not_running"
+    statuses = {conv["id"]: _agent_state(conv, run)["status"] for conv, run in selected}
+    if any(status in AGENT_ATTENTION_STATUSES and attention.get(conv_id) != status for conv_id, status in statuses.items()):
+        return "needs_attention"
+    if all(status != "running" for status in statuses.values()):
+        return "not_running"
+    return None
 
+
+def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None, str]:
+    """Relee con read() mientras alguna conversación consultada siga en marcha, como mucho wait: vuelve en cuanto
+    ninguna lo está (también al empezar, sin esperar) o cuando una pasa a necesitar a alguien. Devuelve lo último
+    leído y el motivo (not_running, needs_attention o wait_elapsed)."""
     deadline = time.monotonic() + wait
     seq = live_change_seq()
     selected = read()
-    initial = signature(selected)
+    attention = {conv["id"]: _agent_state(conv, run)["status"] for conv, run in selected or ()}
     while True:
+        reason = _wait_reason(selected, attention)
+        if reason:
+            return selected, reason
         for _conv, run in selected or ():
             if run.get("status") == "running" and run.get("pid"):
                 watch_run_exit(run["pid"], run.get("pid_start"))
@@ -199,8 +223,6 @@ def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None,
             return selected, "wait_elapsed"
         seq = wait_live_change(seq, min(remaining, AGENT_WAIT_RECHECK_SECONDS))
         selected = read()
-        if signature(selected) != initial:
-            return selected, "agent_changed"
 
 
 def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
@@ -339,6 +361,10 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, patterns
     except ValueError:
         raise ValueError(f"The conversation {request['conversation_id']} is already running: nothing was launched.") from None
     launched = launch_run_file(request, Path(target.workspace_dir))
+    session = current_run_session()
+    if session is not None:
+        session.launched_agents[request["conversation_id"]] = {
+            "agent": agent, "project": _conversation_project(target), "updatedAt": int(time.time() * 1000)}
     return json.dumps({"success": True, "agent": agent, "conversation_id": request["conversation_id"], "new": conv is None,
                        "run_id": launched["run_id"], "project": target.key,
                        "note": "It runs on its own: follow it with check_agents (with the same project), which can wait for it."},

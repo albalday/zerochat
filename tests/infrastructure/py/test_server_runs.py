@@ -570,52 +570,108 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                         {"agent": "informes.solo", "prune_keep": 1, "include_turn": True}):
             self.assertFalse(check(**invalid)["success"], invalid)
 
-    def test_check_agents_espera_sin_sondeo_a_que_cambie_algun_agente_vigilado(self):
+    def test_check_agents_espera_mientras_haya_agentes_en_marcha_y_vuelve_al_momento_si_no_hay_ninguno(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
         check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
-        for conv_id, updated_at in (("diario", 1000), ("semanal", 2000), ("master", 3000)):
-            agent = "informes.master" if conv_id == "master" else f"informes.{conv_id}"
+        alive = {"pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
+        for conv_id, updated_at in (("diario", 1000), ("semanal", 2000), ("mensual", 3000), ("master", 4000)):
+            agent = f"informes.{conv_id}"
             zerochat.save_conversation({"id": conv_id, "title": conv_id, "updatedAt": updated_at, "project": ctx.key, "agent": agent},
                                        [{"id": f"{conv_id}_u", "role": "user", "content": "Empieza"}])
-        worker = start_worker(self)
-        upsert_run({"run_id": "r1", "conversation_id": "diario", "status": "running", "pid": worker.pid,
-                    "pid_start": zerochat._process_start_token(worker.pid)})
-        upsert_run({"run_id": "r2", "conversation_id": "semanal", "status": "completed"})
+        run = lambda conv_id, status, **extra: upsert_run({"run_id": f"r_{conv_id}", "conversation_id": conv_id, "status": status, **extra})
+        later = lambda *args, **kwargs: threading.Timer(0.3, run, args, kwargs).start()
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
         self.assertIsNone(zerochat.validate_local_tool_arguments("check_agents", {"wait_seconds": 30}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"wait_seconds": "30"}))
 
-        # Sin cambios, vuelve al agotar el plazo con el mismo estado; sin wait_seconds no espera ni lo indica.
+        # (1) Ninguno en marcha (terminados, en pausa o sin ejecución): vuelve al momento, sin agotar wait_seconds.
+        run("diario", "completed")
+        run("semanal", "needs_input")
+        started = time.monotonic()
+        result = check(wait_seconds=30)
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertEqual(result["returned_because"], "not_running")
+        self.assertEqual(check(conversation_id="diario", wait_seconds=30)["returned_because"], "not_running")
         self.assertNotIn("returned_because", check())
+
+        # (2) Con varios en marcha sigue esperando hasta que termina el último; el que termina antes no corta la espera.
+        run("diario", "running", **alive)
+        run("mensual", "running", **alive)
+        threading.Timer(0.3, run, ("diario", "completed")).start()
+        threading.Timer(0.9, run, ("mensual", "completed")).start()
+        started = time.monotonic()
+        result = check(wait_seconds=30)
+        self.assertGreaterEqual(time.monotonic() - started, 0.9)
+        self.assertEqual((result["returned_because"], sorted(item["status"] for item in result["agents"])),
+                         ("not_running", ["completed", "completed", "needs_input"]))
+        # Uno que pasa a needs_input o error corta la espera aunque otro siga en marcha; el que ya esperaba al empezar, no.
+        for status in ("needs_input", "error"):
+            run("diario", "running", **alive)
+            run("mensual", "running", **alive)
+            later("diario", status)
+            result = check(wait_seconds=30)
+            self.assertEqual(result["returned_because"], "needs_attention", status)
+            self.assertEqual({item["agent"]: item["status"] for item in result["agents"]}["informes.mensual"], "running")
+        # Sin cambios, vuelve al agotar el plazo con el mismo estado.
+        run("diario", "completed")
         started = time.monotonic()
         result = check(wait_seconds=1)
         self.assertGreaterEqual(time.monotonic() - started, 1)
-        self.assertEqual((result["returned_because"], [item["status"] for item in result["agents"]]), ("wait_elapsed", ["completed", "running"]))
+        self.assertEqual(result["returned_because"], "wait_elapsed")
 
-        # Un agente que termina en otro proceso despierta la espera por su PID, sin releer SQLite cada tanto.
+        # Un agente que termina en otro proceso despierta la espera por su PID, sin releer SQLite cada tanto; si murió
+        # sin guardar su final se da como error, no como en marcha para siempre.
+        worker = start_worker(self)
+        run("mensual", "completed")
+        run("diario", "running", pid=worker.pid, pid_start=zerochat._process_start_token(worker.pid))
         with mock.patch.object(zerochat, "AGENT_WAIT_RECHECK_SECONDS", 60):
             threading.Timer(0.3, worker.terminate).start()
             started = time.monotonic()
-            result = check(wait_seconds=30)
+            result = check(agent="informes.diario", wait_seconds=30, include_turn=True)
         self.assertLess(time.monotonic() - started, 10)
-        self.assertEqual(result["returned_because"], "agent_changed")
-        # Murió sin guardar su final: se da como error, no como en marcha para siempre.
-        diario = next(item for item in result["agents"] if item["agent"] == "informes.diario")
-        self.assertEqual((diario["status"], diario["error"]), ("error", "The agent's run process ended unexpectedly."))
-
-        # Un cambio guardado en SQLite (una ejecución nueva de un agente) también la despierta, y en el detalle trae su último turno.
-        threading.Timer(0.3, upsert_run, [{"run_id": "r3", "conversation_id": "semanal", "status": "running", "pid": os.getpid(),
-                                           "pid_start": zerochat._process_start_token(os.getpid())}]).start()
-        result = check(agent="informes.semanal", wait_seconds=30, include_turn=True)
-        self.assertEqual((result["returned_because"], result["status"], result["last_turn"][0]["content"]), ("agent_changed", "running", "Empieza"))
+        self.assertEqual((result["returned_because"], result["status"], result["error"]), ("needs_attention", "error", "The agent's run process ended unexpectedly."))
+        self.assertEqual(result["last_turn"][0]["content"], "Empieza")
 
         # El plazo tiene tope (por debajo del que el runner de Node espera una respuesta) y uno negativo no espera.
         self.assertLess(zerochat.AGENT_MAX_WAIT, 300)
-        started = time.monotonic()
-        self.assertEqual(check(wait_seconds=-5).get("returned_because"), None)
-        self.assertLess(time.monotonic() - started, 1)
+        self.assertNotIn("returned_because", check(wait_seconds=-5))
         self.assertFalse(check(agent="ventas.diario", wait_seconds=1)["success"])
+
+    def test_check_agents_ve_desde_el_lanzamiento_la_conversacion_que_lanzo_launch_agent(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        (ctx.workspace_dir / "agents").mkdir()
+        (ctx.workspace_dir / "agents" / "diario.json").write_text(json.dumps({"agent": "informes.diario", "prompt": "Haz el informe"}))
+        zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
+        zerochat.save_conversation({"id": "anterior", "title": "anterior", "updatedAt": 1000, "project": ctx.key, "agent": "informes.diario"},
+                                   [{"id": "u", "role": "user", "content": "Empieza"}])
+        upsert_run({"run_id": "r_ant", "conversation_id": "anterior", "status": "completed", "result_text": "Viejo"})
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        alive = {"pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
+
+        def fake_launch(request, _cwd):
+            # Como launch_run_file: la fila de runs queda en marcha antes de que el agente guarde su conversación.
+            upsert_run({"run_id": "r_nuevo", "conversation_id": request["conversation_id"], "status": "running", **alive})
+            return {"run_id": "r_nuevo", "pid": os.getpid()}
+
+        with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
+            launched = json.loads(zerochat.launch_agent(run_file="agents/diario.json", ctx=ctx))
+        new_id = launched["conversation_id"]
+        self.assertIsNone(zerochat.get_conversation(new_id), "El agente aún no la ha guardado")
+        # Sin esperar: la conversación existe para check_agents, en marcha, y es la más reciente de su agente.
+        self.assertEqual((check(conversation_id=new_id)["status"]), "running")
+        self.assertEqual([(item["conversation_id"], item["status"]) for item in check()["agents"]], [(new_id, "running")])
+        # La espera no sale al pasar de no existir a en marcha: sigue hasta que termina.
+        threading.Timer(0.3, upsert_run, [{"run_id": "r_nuevo", "conversation_id": new_id, "status": "completed", "result_text": "Nuevo"}]).start()
+        result = check(conversation_id=new_id, wait_seconds=30)
+        self.assertEqual((result["returned_because"], result["status"], result["result_text"]), ("not_running", "completed", "Nuevo"))
+        # Cuando el agente la guarda, se lista una sola vez.
+        zerochat.save_conversation({"id": new_id, "title": "nueva", "updatedAt": int(time.time() * 1000), "project": ctx.key,
+                                    "agent": "informes.diario"}, [{"id": "u", "role": "user", "content": "Haz el informe"}])
+        self.assertEqual([item["conversation_id"] for item in check()["agents"]], [new_id])
+        self.assertEqual(check(agent="informes.diario")["conversation_id"], new_id)
 
     def test_check_agents_borra_solo_a_peticion_las_conversaciones_antiguas_de_los_agentes_vigilados(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))

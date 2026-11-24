@@ -480,6 +480,9 @@ class RunSession:
         self.launch = launch
         # watchAgents de --run-file: habilita y autoriza check_agents solo en esta ejecución.
         self.watch_agents = tuple(watch_agents)
+        # Conversaciones que este master lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
+        # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
+        self.launched_agents: dict[str, dict] = {}
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode

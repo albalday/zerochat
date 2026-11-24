@@ -232,9 +232,10 @@ CHECK_AGENTS_DEFINITION = {
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). With agent or conversation_id, the final answer in blocks of "
         f"{AGENT_RESULT_PAGE_CHARS} characters (pass next_offset as offset for the next one) and, with include_turn=true, the messages of its last turn. "
-        "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
-        "changes status (finishes, pauses or a new run starts) or when the time is up (returned_because says which); "
-        "call it again with wait_seconds while they are still running. To clean up old conversations of the watched agents "
+        "To wait for the agents instead of calling it repeatedly, give wait_seconds: it keeps waiting while any of the "
+        "agents asked about is running and returns at once when none is (returned_because: not_running), as soon as one "
+        "of them turns needs_input or error (needs_attention) or when the time is up (wait_elapsed); call it again with "
+        "wait_seconds while they are still running. Agents started with launch_agent are listed from the start. To clean up old conversations of the watched agents "
         "(for example, one per scheduled run), give prune_keep=N, optionally with agent: it deletes all but the N most recent "
         "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped."
     ),
