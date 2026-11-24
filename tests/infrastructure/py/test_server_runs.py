@@ -1093,38 +1093,40 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                       HEARTBEAT_LAST_SEEN=0.0, ACTIVE_USER_AGENT="test-agent")
         patches.start()
         self.addCleanup(patches.stop)
-        server = zerochat.ThreadingHTTPServer(("127.0.0.1", 0), zerochat.ZeroChatServerHandler)
-        self.addCleanup(server.server_close)
-        threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
-        self.addCleanup(server.shutdown)
-        base = f"http://127.0.0.1:{server.server_address[1]}"
 
-        def post(path, method, sent_token):
+        def post(method, sent_token):
+            """Una petición HTTP entera al manejador, en memoria: sin sockets ni plazos de red."""
             body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {}}).encode()
-            request = zerochat.urllib.request.Request(f"{base}{path}", data=body, headers={
-                "Content-Type": "application/json", "X-ZeroChat-Token": sent_token})
-            try:
-                with zerochat.urllib.request.urlopen(request, timeout=5) as response:
-                    return response.status
-            except zerochat.urllib.error.HTTPError as error:
-                return error.code
+            head = (f"POST / HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
+                    f"X-ZeroChat-Token: {sent_token}\r\nContent-Length: {len(body)}\r\n\r\n").encode()
+            connection = mock.Mock(sent=bytearray())
+            connection.makefile.side_effect = lambda mode, *args: io.BytesIO(head + body) if "r" in mode else io.BytesIO()
+            connection.sendall.side_effect = connection.sent.extend
+            with mock.patch("sys.stderr", io.StringIO()):
+                zerochat.ZeroChatServerHandler(connection, ("127.0.0.1", 50000), mock.Mock())
+            return int(bytes(connection.sent).split(b" ", 2)[1])
 
-        def renews(path, method, sent_token, status):
-            before = zerochat.HEARTBEAT_LAST_SEEN
-            time.sleep(0.05)  # más que la resolución de time.monotonic en Windows (~16 ms)
-            self.assertEqual(post(path, method, sent_token), status)
-            self.assertGreater(zerochat.HEARTBEAT_LAST_SEEN, before, (path, method, sent_token))
+        def renews(method, sent_token, status):
+            # Un valor que ninguna lectura de time.monotonic() puede dar: renovar es dejar de tenerlo, sin esperar a que avance el reloj.
+            zerochat.HEARTBEAT_LAST_SEEN = float("-inf")
+            self.assertEqual(post(method, sent_token), status)
+            self.assertNotEqual(zerochat.HEARTBEAT_LAST_SEEN, float("-inf"), (method, sent_token))
 
-        renews("/", "zerochat/heartbeat", token, 200)
+        renews("zerochat/heartbeat", token, 200)
         self.assertTrue(zerochat.HEARTBEAT_INITIALIZED)
         # Un token caducado o erróneo (401) también es presencia: el auto-cierre no salta al cambiar el día.
-        renews("/", "zerochat/heartbeat", "token-caducado", 401)
+        renews("zerochat/heartbeat", "token-caducado", 401)
         # Cualquier otra RPC autenticada renueva la presencia sin zerochat/heartbeat.
-        renews("/", "tools/list", token, 200)
+        renews("tools/list", token, 200)
 
+        # Con la última presencia ya más antigua que el plazo, el vigilante detiene el servidor sin esperar nada.
+        server = mock.Mock()
+        zerochat.HEARTBEAT_LAST_SEEN = time.monotonic() - zerochat.DEFAULT_HEARTBEAT_TIMEOUT - 1
+        waiting = waiting_on(self, zerochat._WATCHDOG_COND)
         with mock.patch.object(zerochat, "stop_zerochat_server") as stop:
-            zerochat.heartbeat_watchdog(server, inactivity_timeout_seconds=0.1)
+            zerochat.heartbeat_watchdog(server)
         stop.assert_called_once_with(server)
+        self.assertEqual(waiting.timeouts, [], "Decide sin esperar en la condición")
 
     def test_heartbeat_watchdog_no_apaga_si_hay_run_activo_y_apaga_en_cuanto_termina_su_proceso(self):
         worker = start_worker(self)
