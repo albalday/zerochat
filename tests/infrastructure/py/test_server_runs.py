@@ -53,6 +53,12 @@ def start_worker(test) -> subprocess.Popen:
     return worker
 
 
+def save_conv(*conversation_ids):
+    """Conversaciones guardadas para filas de runs: list_server_runs limpia las terminadas sin conversación."""
+    for conv_id in conversation_ids:
+        zerochat.save_conversation({"id": conv_id, "title": conv_id, "updatedAt": 1}, [{"id": f"{conv_id}_u", "role": "user", "content": "Hola"}])
+
+
 def upsert_run(fields):
     """Guarda un estado de ejecución completo con los campos que importan a cada prueba."""
     now = int(time.time() * 1000)
@@ -1031,6 +1037,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "pending": None,
             "error": None
         }
+        # conv_1 sigue en marcha: su fila se conserva aunque su agente aún no haya guardado la conversación.
+        save_conv("conv_2", "conv_dead", "conv_ok")
         upsert_run(state1)
         upsert_run(state2)
         upsert_run(state_dead)
@@ -1268,6 +1276,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
     def test_el_latido_en_espera_despierta_al_terminar_una_ejecucion_y_solo_relee_con_su_conversacion_a_la_vista(self):
         ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)
         waiting = waiting_on(self, zerochat._LIVE_STATE_COND)
+        save_conv("conv_vista")
         for focus in (None, "conv_vista"):
             with self.subTest(focus=focus):
                 worker = start_worker(self)
@@ -1302,6 +1311,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
     def test_heartbeat_long_poll_despierta_con_cambio(self):
         ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)
+        save_conv("conv_lp")
         initial = zerochat.live_state(ctx)
         self.assertEqual(initial["rev"], zerochat.live_state(ctx)["rev"])
 
