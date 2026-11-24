@@ -41,6 +41,7 @@
     btnOpenProjectFiles: 'btn-open-project-files',
     sidebarSearchInput: 'sidebar-search-input',
     sidebarProjectFilter: 'sidebar-project-filter',
+    sidebarHistorySwitch: 'sidebar-history-switch',
     sidebarChatsList: 'sidebar-chats-list',
     sidebarSearchStatus: 'sidebar-search-status',
     btnImportChatFile: 'btn-import-chat-file',

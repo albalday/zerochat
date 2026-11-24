@@ -121,12 +121,18 @@
         <svg class="ui-icon sidebar-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg>
         <input type="text" id="sidebar-search-input" class="sidebar-search-input" data-i18n-placeholder="sidebar_search_placeholder" placeholder="Buscar en historial...">
       </div>
-      <select id="sidebar-project-filter" class="sidebar-project-filter" data-i18n-aria="sidebar_project_filter_label" aria-label="Conversaciones a mostrar">
-        <option value="current">Este proyecto</option>
-        <option value="none">general</option>
-        <option value="all" data-i18n="sidebar_project_all">Todos los proyectos</option>
-        <option value="pending" hidden>Tareas pendientes</option>
-      </select>
+      <div class="sidebar-history-filters">
+        <div id="sidebar-history-switch" class="sidebar-history-switch" role="group" data-i18n-aria="sidebar_history_label" aria-label="Historial a mostrar" hidden>
+          <button type="button" data-history="user" aria-pressed="true" data-i18n="sidebar_history_user">Chats</button>
+          <button type="button" data-history="agents" aria-pressed="false" data-i18n="sidebar_history_agents">Agentes</button>
+        </div>
+        <select id="sidebar-project-filter" class="sidebar-project-filter" data-i18n-aria="sidebar_project_filter_label" aria-label="Conversaciones a mostrar">
+          <option value="current">Este proyecto</option>
+          <option value="none">general</option>
+          <option value="all" data-i18n="sidebar_project_all">Todos los proyectos</option>
+          <option value="pending" hidden>Tareas pendientes</option>
+        </select>
+      </div>
 
       <div id="sidebar-chats-list" class="sidebar-chats-list">
         <!-- Lista de chats generada dinámicamente -->

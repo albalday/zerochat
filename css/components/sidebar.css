@@ -431,8 +431,59 @@
 }
 
 /* Selector de proyecto: conversaciones del proyecto actual, de la carpeta general o de todos */
-.sidebar-project-filter {
+/* Fila del historial: conmutador chats/agentes y selector de proyecto */
+.sidebar-history-filters {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   margin: 0.5rem 0.85rem 0;
+}
+
+.sidebar-history-switch {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+
+.sidebar-history-switch button {
+  position: relative;
+  padding: 0.35rem 0.6rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.sidebar-history-switch button[aria-pressed="true"] {
+  background-color: var(--bg-hover);
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.sidebar-history-switch button:focus-visible {
+  outline: 2px solid var(--input-border-focus);
+  outline-offset: -2px;
+}
+
+/* Algún agente espera la respuesta del usuario mientras se ven los chats */
+.sidebar-history-switch button.has-pending::after {
+  content: '';
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background-color: var(--warning);
+}
+
+.sidebar-project-filter {
+  flex: 1;
+  min-width: 0;
   padding: 0.35rem 0.6rem;
   border-radius: var(--radius-full);
   border: 1px solid var(--input-border);
@@ -545,8 +596,10 @@
   transform: rotate(90deg);
 }
 
-/* Agente dentro de su grupo: plegable, sangrado y sin la línea de proyecto */
+/* Agente en su proyecto: plegable, sangrado y sin la línea de proyecto. Es hijo directo de la lista en
+   columna: sin flex: none heredaría el flex: 1 de la cabecera de proyecto y se estiraría en vertical. */
 .sidebar-agent-header {
+  flex: none;
   width: 100%;
   padding-left: 0.9rem;
   font-size: 0.78rem;

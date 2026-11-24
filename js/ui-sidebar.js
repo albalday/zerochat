@@ -28,6 +28,9 @@
   let groupLimits = {};
   // Proyectos desplegados en la vista de todos: se vacía cada vez que se elige, porque sirve de selector.
   let expandedGroups = new Set();
+  // Historial a la vista, de chats ('user') o de agentes ('agents'), y la conversación activa a la que siguió por última vez.
+  let historyView = 'user';
+  let followedSession = { id: null, found: false };
   const SEARCH_DEBOUNCE_MS = 180;
   let searchState = { seq: 0, query: '', ids: null, timer: null };
 
@@ -137,7 +140,7 @@
 
   /**
    * Selector de proyecto, siempre visible: el actual (la carpeta general sin servidor), general si el actual es
-   * otro, todos y, si hay `pendingCount` conversaciones con ejecución en servidor sin completar, la vista de
+   * otro, todos y, si hay `pendingCount` conversaciones esperando la respuesta del usuario, la vista de
    * tareas pendientes. Devuelve lo que da getSelectedProject.
    */
   function renderProjectFilter(select, project, pendingCount) {
@@ -154,30 +157,49 @@
     return getSelectedProject(select, project);
   }
 
-  // Las conversaciones de agentes (session.agent) van tras las humanas de su proyecto, no mezcladas por fecha.
-  const humansFirst = sessions => [...sessions.filter(session => !session.agent), ...sessions.filter(session => session.agent)];
+  /**
+   * Conmutador entre el historial de chats y el de agentes (session.agent), que no se mezclan. Solo se ve si hay
+   * conversaciones de agentes. Al cambiar la conversación activa, el historial pasa al suyo para que se vea en la
+   * lista; una nueva aún sin guardar es un chat. El botón de agentes lleva una marca si alguno espera respuesta
+   * del usuario y no se están viendo. Devuelve si la vista es la de agentes.
+   */
+  function renderHistorySwitch(container, sessions, currentSessionId, runStatusMap) {
+    const current = sessions.find(session => session.id === currentSessionId);
+    if (currentSessionId !== followedSession.id || (current && !followedSession.found)) {
+      followedSession = { id: currentSessionId, found: Boolean(current) };
+      historyView = current?.agent ? 'agents' : 'user';
+    }
+    const agentSessions = sessions.filter(session => session.agent);
+    if (agentSessions.length === 0) historyView = 'user';
+    container.hidden = agentSessions.length === 0;
+    container.querySelectorAll('[data-history]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.history === historyView)));
+    const agentWaiting = agentSessions.some(session => runStatusMap.get(session.id) === 'needs_input');
+    container.querySelector('[data-history="agents"]').classList.toggle('has-pending', agentWaiting && historyView !== 'agents');
+    return historyView === 'agents';
+  }
+
+  // Grupo sin cabecera de las conversaciones de agentes de un proyecto: cada agente lleva la suya.
+  const AGENTS_GROUP = Object.freeze({ key: 'agents', kind: 'agents' });
 
   /**
    * Conversaciones en el orden en que se muestran, cada una con su grupo ({ key, kind, label, title },
-   * de tipo 'date' o 'project'): las de un proyecto (`project`, vacío para la carpeta general), por fecha y las de
-   * agentes en el grupo final 'agents'; y al ver todos (null), por proyecto (el de conversación más reciente primero)
-   * con la carpeta general al final y, en cada uno, las de agentes tras las humanas. Las listas llegan de la más
-   * reciente a la más antigua.
+   * de tipo 'date', 'project' o 'agents'): las de un proyecto (`project`, vacío para la carpeta general), por
+   * fecha, o las de agentes en el grupo 'agents'; y al ver todos (null), por proyecto (el de conversación más
+   * reciente primero) con la carpeta general al final. Las listas llegan de la más reciente a la más antigua.
    */
   function groupSessions(sessions, project) {
-    const agents = { key: 'agents', kind: 'date', label: t('sidebar_group_agents') };
     const byDate = session => {
-      if (session.agent) return { session, group: agents };
+      if (session.agent) return { session, group: AGENTS_GROUP };
       const category = getChronologicalCategory(sessionDate(session));
       return { session, group: { key: category, kind: 'date', label: t(GROUP_LABEL_KEYS[category]) } };
     };
-    if (project !== null) return humansFirst(sessions.filter(session => (session.project || '') === project)).map(byDate);
+    if (project !== null) return sessions.filter(session => (session.project || '') === project).map(byDate);
     const noProject = { key: '', kind: 'project', label: NO_PROJECT_NAME };
     const projects = [...new Set(sessions.map(session => session.project).filter(Boolean))];
     return [
-      ...projects.flatMap(path => humansFirst(sessions.filter(session => session.project === path))
+      ...projects.flatMap(path => sessions.filter(session => session.project === path)
         .map(session => ({ session, group: { key: path, kind: 'project', label: projectName(path), title: path } }))),
-      ...humansFirst(sessions.filter(session => !session.project)).map(session => ({ session, group: noProject }))
+      ...sessions.filter(session => !session.project).map(session => ({ session, group: noProject }))
     ];
   }
 
@@ -185,7 +207,7 @@
   const RUN_STATUS_PRIORITY = ['needs_input', 'error', 'limit', 'running'];
 
   /**
-   * Cabecera plegable de un agente dentro de su grupo: icono, identificador <subconjunto>.<nombre>, estado más
+   * Cabecera plegable de un agente en su proyecto: icono, identificador <subconjunto>.<nombre>, estado más
    * urgente de sus ejecuciones y número de conversaciones.
    */
   function renderAgentHeader(key, agent, count, runStatus, expanded) {
@@ -212,6 +234,7 @@
    * las de fecha. Con `expanded` booleano la cabecera es un botón que pliega o despliega el grupo.
    */
   function renderGroupHeader(group, count, expanded = null) {
+    if (group.kind === 'agents') return '';
     const label = `<span class="sidebar-group-label">${escapeHtml(group.label)}</span>`;
     if (group.kind !== 'project') return `<div class="sidebar-group-header">${label}</div>`;
     const title = group.title ? ` title="${escapeHtml(group.title)}"` : '';
@@ -230,14 +253,17 @@
   const isGroupExpanded = group => expandedGroups.has(group.key);
 
   /**
-   * Lista de conversaciones de la vista elegida, agrupada. `project` es el del servidor (vacío sin
-   * servidor o en la carpeta general). Con texto en el buscador se filtra por título y solo quedan las
-   * cabeceras de proyecto de los grupos con coincidencias, desplegados.
+   * Lista de conversaciones del historial (chats o agentes) y la vista elegidos, agrupada. `project` es el del
+   * servidor (vacío sin servidor o en la carpeta general). Con texto en el buscador se filtra por título y solo
+   * quedan las cabeceras de proyecto de los grupos con coincidencias, desplegados.
    */
-  function renderSidebarChats(elements, sessions, currentSessionId, serverRuns, project) {
+  function renderSidebarChats(elements, allSessions, currentSessionId, serverRuns, project) {
     const filter = elements.sidebarSearchInput.value.toLowerCase().trim();
     const runStatusMap = new Map(serverRuns.map(run => [run.conversationId, run.status]));
-    const pendingSessions = sessions.filter(session => runStatusMap.has(session.id));
+    const agentsView = renderHistorySwitch(elements.sidebarHistorySwitch, allSessions, currentSessionId, runStatusMap);
+    const sessions = allSessions.filter(session => Boolean(session.agent) === agentsView);
+    // Pendiente es lo que espera una acción del usuario: en marcha, con error o parada por un límite ya lo dice su icono.
+    const pendingSessions = sessions.filter(session => runStatusMap.get(session.id) === 'needs_input');
     const viewProject = renderProjectFilter(elements.sidebarProjectFilter, project, pendingSessions.length);
     const pendingView = viewProject === undefined;
     elements.btnDeleteAllChats.disabled = pendingView;
@@ -272,8 +298,7 @@
         return renderAgentHeader(key, agent, agentSessions.length, runStatus, expanded) + (expanded ? renderChats({ key }, agentSessions) : '');
       }).join('');
     };
-    const renderGroupChats = (group, items) => renderChats(group, items.filter(session => !session.agent))
-      + renderAgents(group, items.filter(session => session.agent));
+    const renderGroupChats = agentsView ? renderAgents : renderChats;
     const collapsible = showAll && !filter;
     elements.sidebarChatsList.innerHTML = toRuns(matching).map(({ group, sessions: items }) => {
       const chats = () => renderGroupChats(group, items);
@@ -358,6 +383,12 @@
           console.warn('[UISidebar] Conversation search failed:', error);
         }
       }, SEARCH_DEBOUNCE_MS);
+    });
+    listen(elements.sidebarHistorySwitch, 'click', event => {
+      const button = event.target.closest('[data-history]');
+      if (!button || button.dataset.history === historyView) return;
+      historyView = button.dataset.history;
+      callbacks.renderList();
     });
     listen(elements.sidebarProjectFilter, 'change', () => {
       expandedGroups = new Set();

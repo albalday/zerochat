@@ -22,7 +22,7 @@ test('Browser UI - en móvil la barra ocupa toda la pantalla, deja el chat inert
     const activeSessionId = await page.evaluate(() => {
       ChatState.saveSessionMetadata({ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() });
       const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input'), sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
-        btnDeleteAllChats: document.getElementById('btn-delete-all-chats') };
+        sidebarHistorySwitch: document.getElementById('sidebar-history-switch'), btnDeleteAllChats: document.getElementById('btn-delete-all-chats') };
       ChatUISidebar.renderSidebarChats(elements, ChatState.get('sessions').list.filter(session => session.id === 'chat-options'), '', [], '');
       return ChatState.get('sessions').activeId;
     });
@@ -107,6 +107,7 @@ test('Browser UI - el selector muestra el proyecto actual, general, todos agrupa
         sidebarChatsList: document.getElementById('sidebar-chats-list'),
         sidebarSearchInput: document.getElementById('sidebar-search-input'),
         sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
+        sidebarHistorySwitch: document.getElementById('sidebar-history-switch'),
         btnDeleteAllChats: document.getElementById('btn-delete-all-chats')
       };
       const now = Date.now();
@@ -150,8 +151,8 @@ test('Browser UI - el selector muestra el proyecto actual, general, todos agrupa
     await render('/repo/vacio');
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
 
-    // Tareas pendientes: las conversaciones con ejecución sin completar de todos los proyectos, desplegadas,
-    // con un icono por estado; no se borran en bloque y, sin ninguna, la vista vuelve al proyecto actual.
+    // Tareas pendientes: solo las que esperan respuesta del usuario, de todos los proyectos y desplegadas; en marcha,
+    // con error o paradas por un límite no lo son. No se borran en bloque y, sin ninguna, la vista vuelve al proyecto actual.
     const runs = [
       { conversationId: 'a2', runId: 'r1', status: 'limit' },
       { conversationId: 'n1', runId: 'r2', status: 'error' },
@@ -160,13 +161,13 @@ test('Browser UI - el selector muestra el proyecto actual, general, todos agrupa
     ];
     const pendingOption = () => page.$eval('#sidebar-project-filter option[value="pending"]', option => ({ hidden: option.hidden, text: option.textContent }));
     await render('/repo/app', runs);
-    assert.deepEqual(await pendingOption(), { hidden: false, text: await page.evaluate(() => window.ChatI18n.t('sidebar_project_pending', { count: 3 })) });
+    assert.deepEqual(await pendingOption(), { hidden: false, text: await page.evaluate(() => window.ChatI18n.t('sidebar_project_pending', { count: 1 })) });
     await choose('pending');
     await render('/repo/app', runs);
     const pendingItems = () => page.$$eval('#sidebar-chats-list .sidebar-chat-item', items => items.map(item => [
       item.dataset.sessionId, item.querySelector('.sidebar-chat-status-icon').getAttribute('class').split(' ').at(-1)]));
-    assert.deepEqual(await pendingItems(), [['b1', 'needs-input'], ['a2', 'limit'], ['n1', 'error']]);
-    assert.deepEqual(await sidebarHeaders(page), ['lib', 'app', 'general']);
+    assert.deepEqual(await pendingItems(), [['b1', 'needs-input']]);
+    assert.deepEqual(await sidebarHeaders(page), ['lib']);
     assert.equal(await page.isDisabled('#btn-delete-all-chats'), true);
     await search('nada');
     await render('/repo/app', runs);
@@ -228,7 +229,7 @@ test('Browser UI - en la vista de todos los proyectos empiezan plegados y vuelve
   });
 });
 
-test('Browser UI - las conversaciones de agentes van tras las humanas, plegadas por agente con su estado, en el proyecto y en todos', async () => {
+test('Browser UI - el historial de agentes va aparte de los chats, plegado por agente con su estado, y sigue a la conversación activa', async () => {
   await withTestApp(async page => {
     await page.evaluate(day => {
       const now = Date.now();
@@ -254,32 +255,67 @@ test('Browser UI - las conversaciones de agentes van tras las humanas, plegadas 
       count: header.querySelector('.sidebar-group-count').textContent,
       status: header.querySelector('.sidebar-chat-status-icon')?.getAttribute('class').split(' ').at(-1) || null
     })));
+    const historySwitch = () => page.$eval('#sidebar-history-switch', group => ({
+      hidden: group.hidden,
+      pressed: group.querySelector('[aria-pressed="true"]').dataset.history,
+      agentWaiting: group.querySelector('[data-history="agents"]').classList.contains('has-pending')
+    }));
+    const setActive = id => page.evaluate(id => {
+      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: id });
+      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
+    }, id);
 
-    // Proyecto actual: las humanas por fecha y, al final, cada agente plegado con su estado más urgente.
-    assert.deepEqual(await sidebarHeaders(page), [await t('sidebar_group_today'), await t('sidebar_group_last7days'), await t('sidebar_group_agents'), 'informes.diario', 'informes.semanal']);
+    // Chats: solo las humanas por fecha; el botón de agentes avisa de que uno espera respuesta.
+    assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'user', agentWaiting: true });
+    assert.deepEqual(await sidebarHeaders(page), [await t('sidebar_group_today'), await t('sidebar_group_last7days')]);
     assert.deepEqual(await shownIds(), ['h1', 'h2']);
+
+    // Agentes: cada agente plegado con su estado más urgente, sin cabeceras de fecha.
+    await page.click('#sidebar-history-switch [data-history="agents"]');
+    assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'agents', agentWaiting: false });
+    assert.deepEqual(await sidebarHeaders(page), ['informes.diario', 'informes.semanal']);
+    assert.deepEqual(await shownIds(), []);
     assert.deepEqual(await agentHeaders(), [
       { key: 'agents|agent:informes.diario', expanded: 'false', count: '2', status: 'needs-input' },
       { key: 'agents|agent:informes.semanal', expanded: 'false', count: '1', status: null }
     ]);
     await page.click('.sidebar-agent-header[data-group-key="agents|agent:informes.diario"]');
-    assert.deepEqual(await shownIds(), ['h1', 'h2', 'ag1', 'ag2']);
+    assert.deepEqual(await shownIds(), ['ag1', 'ag2']);
 
     // El buscador también encuentra por identificador de agente y despliega su grupo.
     await page.fill('#sidebar-search-input', 'semanal');
     assert.deepEqual(await shownIds(), ['ag3']);
     await page.fill('#sidebar-search-input', '');
 
-    // Todos: dentro del proyecto desplegado, las humanas y después los agentes, plegados.
+    // Todos: dentro del proyecto desplegado, sus agentes plegados.
     await page.selectOption('#sidebar-project-filter', 'all');
     await page.click('.sidebar-group-toggle[data-group-key="/repo/app"]');
-    assert.deepEqual(await shownIds(), ['h1', 'h2']);
+    assert.deepEqual(await shownIds(), []);
     assert.deepEqual((await agentHeaders()).map(({ key, expanded }) => `${key}:${expanded}`),
       ['/repo/app|agent:informes.diario:false', '/repo/app|agent:informes.semanal:false']);
 
-    // Tareas pendientes: los agentes con ejecución sin completar, desplegados.
+    // Tareas pendientes: solo el agente que espera respuesta, no el que sigue en marcha.
     await page.selectOption('#sidebar-project-filter', 'pending');
-    assert.deepEqual(await shownIds(), ['ag1', 'ag2']);
+    assert.deepEqual(await shownIds(), ['ag2']);
+
+    // En los chats nadie espera respuesta: la vista de pendientes desaparece y vuelve al proyecto actual.
+    await page.click('#sidebar-history-switch [data-history="user"]');
+    assert.equal(await page.$eval('#sidebar-project-filter', select => select.value), 'current');
+    assert.deepEqual(await shownIds(), ['h1', 'h2']);
+
+    // Abrir una conversación de agente pasa a su historial, y una nueva aún sin guardar vuelve a los chats.
+    await setActive('ag3');
+    assert.equal((await historySwitch()).pressed, 'agents');
+    await setActive('session_nueva');
+    assert.equal((await historySwitch()).pressed, 'user');
+
+    // Sin conversaciones de agentes no hay conmutador.
+    await page.evaluate(() => {
+      const sessions = window.ChatState.get('sessions');
+      window.ChatState.set('sessions', { ...sessions, list: sessions.list.filter(session => !session.agent) });
+      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
+    });
+    assert.equal((await historySwitch()).hidden, true);
   });
 });
 
@@ -518,6 +554,7 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
         sidebarChatsList: document.getElementById('sidebar-chats-list'),
         sidebarSearchInput: document.getElementById('sidebar-search-input'),
         sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
+        sidebarHistorySwitch: document.getElementById('sidebar-history-switch'),
         btnDeleteAllChats: document.getElementById('btn-delete-all-chats')
       }, list, 'chat_local_1', [], '');
     });

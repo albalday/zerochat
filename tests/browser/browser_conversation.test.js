@@ -671,9 +671,10 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
       };
     });
 
-    // Como el usuario: en la barra, la conversación está dentro del grupo plegado de su agente.
+    // Como el usuario: en la barra, la conversación está en el historial de agentes, dentro del grupo plegado de su agente.
     await page.reload({ waitUntil: 'load' });
     await waitForAppReady(page);
+    await page.click('#sidebar-history-switch [data-history="agents"]');
     await page.click('.sidebar-agent-header[data-group-key="agents|agent:informes.diario"]');
     await page.locator('.sidebar-chat-item[data-session-id="ag1"]').evaluate(item => item.click());
     await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'ag1');
@@ -706,7 +707,8 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
     await page.click('.tool-auth-actions .btn-auth-deny');
     assert.equal(await page.evaluate(() => JSON.parse(window.ChatState.get('messages').at(-1).content).awaitingApproval), true);
 
-    // Una conversación humana vuelve al compositor normal.
+    // Una conversación humana, en el historial de chats, vuelve al compositor normal.
+    await page.click('#sidebar-history-switch [data-history="user"]');
     await page.locator('.sidebar-chat-item[data-session-id="h1"]').evaluate(item => item.click());
     await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'h1');
     assert.deepEqual(await composer(), {
