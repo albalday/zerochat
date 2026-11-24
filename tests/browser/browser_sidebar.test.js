@@ -229,7 +229,7 @@ test('Browser UI - en la vista de todos los proyectos empiezan plegados y vuelve
   });
 });
 
-test('Browser UI - el historial de agentes va aparte de los chats, plegado por agente con su estado, y sigue a la conversación activa', async () => {
+test('Browser UI - el historial de agentes va aparte de los chats, cada conversación con el nombre de su agente, y sigue a la conversación activa', async () => {
   await withTestApp(async page => {
     await page.evaluate(day => {
       const now = Date.now();
@@ -237,7 +237,7 @@ test('Browser UI - el historial de agentes va aparte de los chats, plegado por a
         { id: 'h1', title: 'Humana hoy', project: '/repo/app', updatedAt: now },
         { id: 'ag1', title: 'Informe lunes', project: '/repo/app', agent: 'informes.diario', updatedAt: now - 500 },
         { id: 'ag2', title: 'Informe martes', project: '/repo/app', agent: 'informes.diario', updatedAt: now - 1000 },
-        { id: 'ag3', title: 'Resumen', project: '/repo/app', agent: 'informes.semanal', updatedAt: now - 2000 },
+        { id: 'ag3', title: 'Resumen', project: '/repo/app', agent: 'informes.semanal', updatedAt: now - 3 * day },
         { id: 'h2', title: 'Humana antigua', project: '/repo/app', updatedAt: now - 3 * day }
       ];
       window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: 'h1', list });
@@ -249,12 +249,6 @@ test('Browser UI - el historial de agentes va aparte de los chats, plegado por a
     }, DAY_MS);
     const shownIds = () => page.$$eval('#sidebar-chats-list .sidebar-chat-item', items => items.map(item => item.dataset.sessionId));
     const t = key => page.evaluate(key => window.ChatI18n.t(key), key);
-    const agentHeaders = () => page.$$eval('.sidebar-agent-header', headers => headers.map(header => ({
-      key: header.dataset.groupKey,
-      expanded: header.getAttribute('aria-expanded'),
-      count: header.querySelector('.sidebar-group-count').textContent,
-      status: header.querySelector('.sidebar-chat-status-icon')?.getAttribute('class').split(' ').at(-1) || null
-    })));
     const historySwitch = () => page.$eval('#sidebar-history-switch', group => ({
       hidden: group.hidden,
       pressed: group.querySelector('[aria-pressed="true"]').dataset.history,
@@ -264,35 +258,24 @@ test('Browser UI - el historial de agentes va aparte de los chats, plegado por a
       window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: id });
       document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
     }, id);
+    const dateHeaders = async () => [await t('sidebar_group_today'), await t('sidebar_group_last7days')];
 
     // Chats: solo las humanas por fecha; el botón de agentes avisa de que uno espera respuesta.
     assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'user', agentWaiting: true });
-    assert.deepEqual(await sidebarHeaders(page), [await t('sidebar_group_today'), await t('sidebar_group_last7days')]);
+    assert.deepEqual(await sidebarHeaders(page), await dateHeaders());
     assert.deepEqual(await shownIds(), ['h1', 'h2']);
 
-    // Agentes: cada agente plegado con su estado más urgente, sin cabeceras de fecha.
+    // Agentes: por fecha como los chats, sin niveles; cada una se llama como su agente, con el título de descripción.
     await page.click('#sidebar-history-switch [data-history="agents"]');
     assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'agents', agentWaiting: false });
-    assert.deepEqual(await sidebarHeaders(page), ['informes.diario', 'informes.semanal']);
-    assert.deepEqual(await shownIds(), []);
-    assert.deepEqual(await agentHeaders(), [
-      { key: 'agents|agent:informes.diario', expanded: 'false', count: '2', status: 'needs-input' },
-      { key: 'agents|agent:informes.semanal', expanded: 'false', count: '1', status: null }
-    ]);
-    await page.click('.sidebar-agent-header[data-group-key="agents|agent:informes.diario"]');
-    assert.deepEqual(await shownIds(), ['ag1', 'ag2']);
+    assert.deepEqual(await sidebarHeaders(page), await dateHeaders());
+    assert.deepEqual(await page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.map(title => [title.lastChild.textContent, title.title])),
+      [['informes.diario', 'Informe lunes'], ['informes.diario', 'Informe martes'], ['informes.semanal', 'Resumen']]);
 
-    // El buscador también encuentra por identificador de agente y despliega su grupo.
+    // El buscador también encuentra por identificador de agente.
     await page.fill('#sidebar-search-input', 'semanal');
     assert.deepEqual(await shownIds(), ['ag3']);
     await page.fill('#sidebar-search-input', '');
-
-    // Todos: dentro del proyecto desplegado, sus agentes plegados.
-    await page.selectOption('#sidebar-project-filter', 'all');
-    await page.click('.sidebar-group-toggle[data-group-key="/repo/app"]');
-    assert.deepEqual(await shownIds(), []);
-    assert.deepEqual((await agentHeaders()).map(({ key, expanded }) => `${key}:${expanded}`),
-      ['/repo/app|agent:informes.diario:false', '/repo/app|agent:informes.semanal:false']);
 
     // Tareas pendientes: solo el agente que espera respuesta, no el que sigue en marcha.
     await page.selectOption('#sidebar-project-filter', 'pending');

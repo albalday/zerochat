@@ -431,23 +431,23 @@
 }
 
 /* Selector de proyecto: conversaciones del proyecto actual, de la carpeta general o de todos */
-/* Fila del historial: conmutador chats/agentes y selector de proyecto */
+/* Historial: conmutador chats/agentes y, debajo, selector de proyecto */
 .sidebar-history-filters {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 0.4rem;
   margin: 0.5rem 0.85rem 0;
 }
 
 .sidebar-history-switch {
   display: flex;
-  flex-shrink: 0;
   border: 1px solid var(--input-border);
   border-radius: var(--radius-full);
   overflow: hidden;
 }
 
 .sidebar-history-switch button {
+  flex: 1;
   position: relative;
   padding: 0.35rem 0.6rem;
   background: none;
@@ -482,8 +482,6 @@
 }
 
 .sidebar-project-filter {
-  flex: 1;
-  min-width: 0;
   padding: 0.35rem 0.6rem;
   border-radius: var(--radius-full);
   border: 1px solid var(--input-border);
@@ -596,15 +594,6 @@
   transform: rotate(90deg);
 }
 
-/* Agente en su proyecto: plegable, sangrado y sin la línea de proyecto. Es hijo directo de la lista en
-   columna: sin flex: none heredaría el flex: 1 de la cabecera de proyecto y se estiraría en vertical. */
-.sidebar-agent-header {
-  flex: none;
-  width: 100%;
-  padding-left: 0.9rem;
-  font-size: 0.78rem;
-}
-
 /* Siguiente tanda de conversaciones de un grupo */
 .sidebar-show-more {
   margin: 0.1rem 0.75rem 0.3rem;
@@ -680,8 +669,9 @@
   line-height: 1.35;
 }
 
-.sidebar-chat-status-icon {
-  display: inline-flex;
+/* En línea con el título: sin el selector del título perdería frente a svg.ui-icon, que lo pone en bloque */
+.sidebar-chat-title .sidebar-chat-status-icon {
+  display: inline-block;
   vertical-align: -2px;
   margin-right: 0.35rem;
   flex-shrink: 0;

@@ -31,4 +31,5 @@ Done when: las tareas acordadas de M87 están implementadas con todos los nivele
 - [ ] M87-T5 Salida para orquestadores de shell: emitir en stderr (siempre, también con --log off) el conversation_id de la ejecución de --run-file, sobre todo si es nueva, para que el script la siga sin HTTP; documentarlo en py/README.md y las plantillas, con prueba
 - [ ] M87-T6 Mejoras menores a valorar con el usuario: consumo de tokens por ejecución en la fila de runs, retención o limpieza de conversaciones efímeras por agente y hooks antes/después de herramientas (decidir cuáles se hacen o descartar con --drop)
 - [x] M87-T7 Historial: conmutador Chats/Agentes en lugar de mezclar ambos, Tareas pendientes solo con needs_input y cabeceras de agente sin estirarse en vertical (2026-11-24)
+- [x] M87-T8 Historial de agentes plano: cada conversación con el nombre de su agente y fecha, sin secciones plegables; conmutador Chats/Agentes en su propia línea (2026-11-24)
 

@@ -671,11 +671,10 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
       };
     });
 
-    // Como el usuario: en la barra, la conversación está en el historial de agentes, dentro del grupo plegado de su agente.
+    // Como el usuario: en la barra, la conversación está en el historial de agentes.
     await page.reload({ waitUntil: 'load' });
     await waitForAppReady(page);
     await page.click('#sidebar-history-switch [data-history="agents"]');
-    await page.click('.sidebar-agent-header[data-group-key="agents|agent:informes.diario"]');
     await page.locator('.sidebar-chat-item[data-session-id="ag1"]').evaluate(item => item.click());
     await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'ag1');
     assert.deepEqual(await composer(), {

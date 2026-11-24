@@ -96,8 +96,10 @@
     limit: { icon: 'pause-circle', className: 'limit', titleKey: 'sidebar_run_limit_title' }
   };
 
+  // La conversación de un agente se nombra por su agente (<subconjunto>.<nombre>) y su título queda de descripción.
   function renderChatItem(session, date, isActive, runStatus = null) {
-    const title = escapeHtml(session.title || t('chat_untitled'));
+    const conversationTitle = escapeHtml(session.title || t('chat_untitled'));
+    const title = session.agent ? escapeHtml(session.agent) : conversationTitle;
     const time = `${date.toLocaleDateString()} ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
     const action = (className, icon, labelKey) => {
       const label = escapeHtml(t(labelKey));
@@ -110,7 +112,7 @@
       : '';
     return `<div class="sidebar-chat-item${isActive ? ' active' : ''}" data-session-id="${escapeHtml(session.id)}"${runStatus ? ` data-run-status="${escapeHtml(runStatus)}"` : ''}>
         <div class="sidebar-chat-info">
-          <span class="sidebar-chat-title" title="${title}">${statusIcon}${title}</span>
+          <span class="sidebar-chat-title" title="${conversationTitle}">${statusIcon}${title}</span>
           <span class="sidebar-chat-time">${time}</span>
         </div>
         <div class="sidebar-chat-menu">
@@ -178,18 +180,14 @@
     return historyView === 'agents';
   }
 
-  // Grupo sin cabecera de las conversaciones de agentes de un proyecto: cada agente lleva la suya.
-  const AGENTS_GROUP = Object.freeze({ key: 'agents', kind: 'agents' });
-
   /**
    * Conversaciones en el orden en que se muestran, cada una con su grupo ({ key, kind, label, title },
-   * de tipo 'date', 'project' o 'agents'): las de un proyecto (`project`, vacío para la carpeta general), por
-   * fecha, o las de agentes en el grupo 'agents'; y al ver todos (null), por proyecto (el de conversación más
-   * reciente primero) con la carpeta general al final. Las listas llegan de la más reciente a la más antigua.
+   * de tipo 'date' o 'project'): las de un proyecto (`project`, vacío para la carpeta general), por fecha; y al
+   * ver todos (null), por proyecto (el de conversación más reciente primero) con la carpeta general al final. Las
+   * listas llegan de la más reciente a la más antigua.
    */
   function groupSessions(sessions, project) {
     const byDate = session => {
-      if (session.agent) return { session, group: AGENTS_GROUP };
       const category = getChronologicalCategory(sessionDate(session));
       return { session, group: { key: category, kind: 'date', label: t(GROUP_LABEL_KEYS[category]) } };
     };
@@ -201,21 +199,6 @@
         .map(session => ({ session, group: { key: path, kind: 'project', label: projectName(path), title: path } }))),
       ...sessions.filter(session => !session.project).map(session => ({ session, group: noProject }))
     ];
-  }
-
-  // Estado más urgente de las ejecuciones de un agente, para verlo con su grupo plegado.
-  const RUN_STATUS_PRIORITY = ['needs_input', 'error', 'limit', 'running'];
-
-  /**
-   * Cabecera plegable de un agente en su proyecto: icono, identificador <subconjunto>.<nombre>, estado más
-   * urgente de sus ejecuciones y número de conversaciones.
-   */
-  function renderAgentHeader(key, agent, count, runStatus, expanded) {
-    const status = RUN_STATUS_ICONS[runStatus];
-    const statusIcon = status
-      ? Icons.get(status.icon, { size: 13, className: `sidebar-chat-status-icon ${status.className}`, title: t(status.titleKey) })
-      : '';
-    return `<button type="button" class="sidebar-group-header sidebar-project-header sidebar-agent-header sidebar-group-toggle" data-group-key="${escapeHtml(key)}" aria-expanded="${expanded}" title="${escapeHtml(agent)}">${Icons.get('chevron-right', { size: 14, className: 'sidebar-group-chevron' })}${Icons.get('bot', { size: 14 })}<span class="sidebar-group-label">${escapeHtml(agent)}</span>${statusIcon}<span class="sidebar-group-count">${count}</span></button>`;
   }
 
   /** Agrupa las conversaciones consecutivas del mismo grupo: [{ group, sessions }]. */
@@ -234,7 +217,6 @@
    * las de fecha. Con `expanded` booleano la cabecera es un botón que pliega o despliega el grupo.
    */
   function renderGroupHeader(group, count, expanded = null) {
-    if (group.kind === 'agents') return '';
     const label = `<span class="sidebar-group-label">${escapeHtml(group.label)}</span>`;
     if (group.kind !== 'project') return `<div class="sidebar-group-header">${label}</div>`;
     const title = group.title ? ` title="${escapeHtml(group.title)}"` : '';
@@ -286,22 +268,9 @@
       const more = rest > 0 ? `<button type="button" class="sidebar-show-more" data-group-key="${escapeHtml(group.key)}">${escapeHtml(t('sidebar_show_more', { count: rest }))}</button>` : '';
       return shown.map(renderItem).join('') + more;
     };
-    // Cada agente del grupo, plegable; al buscar o en tareas pendientes, desplegado.
-    const renderAgents = (group, items) => {
-      const byAgent = new Map();
-      items.forEach(session => byAgent.set(session.agent, [...(byAgent.get(session.agent) || []), session]));
-      return [...byAgent].map(([agent, agentSessions]) => {
-        const key = `${group.key}|agent:${agent}`;
-        const statuses = agentSessions.map(session => runStatusMap.get(session.id));
-        const runStatus = RUN_STATUS_PRIORITY.find(status => statuses.includes(status)) || null;
-        const expanded = Boolean(filter) || pendingView || isGroupExpanded({ key });
-        return renderAgentHeader(key, agent, agentSessions.length, runStatus, expanded) + (expanded ? renderChats({ key }, agentSessions) : '');
-      }).join('');
-    };
-    const renderGroupChats = agentsView ? renderAgents : renderChats;
     const collapsible = showAll && !filter;
     elements.sidebarChatsList.innerHTML = toRuns(matching).map(({ group, sessions: items }) => {
-      const chats = () => renderGroupChats(group, items);
+      const chats = () => renderChats(group, items);
       if (filter) return (group.kind === 'project' ? renderGroupHeader(group, items.length, null) : '') + chats();
       if (!collapsible) return renderGroupHeader(group, items.length) + chats();
       // Un grupo plegado no pinta sus conversaciones: con miles serían miles de nodos ocultos.
