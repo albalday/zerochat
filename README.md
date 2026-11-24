@@ -7,17 +7,22 @@
 <a name="english"></a>
 ## English
 
-ZeroChat is a personal, private web client for chatting with AI models, consulting documents and running tools. This documentation covers the **10.x** series. Free and open source under the MIT licence.
+ZeroChat is a personal, private AI environment that scales progressively across five usage levels on the same engine: from a static browser chat client to a local workspace with project files and MCP services, CLI automation, unattended background runs on the server, and multi-agent orchestrations. This documentation covers the **10.x** series. Free and open source under the MIT licence.
 
-The interface runs entirely in the browser as static files: history and settings remain in local browser storage without automatic cloud synchronization.
+### Usage levels
+
+1. **Simple web chat (frontend only):** Static files in the browser, with no local filesystem access; history and settings stay in local browser storage.
+2. **Chat with local backend:** Adds project workspaces, filesystem and shell tools, diagnostics, MCP services and local SQLite persistence.
+3. **CLI (`--prompt`, `--conversation`):** Non-interactive requests for shell scripts and `cron`.
+4. **Unattended server runs:** Execute turns in the background on the server so you can close the browser and inspect or resume the conversation later.
+5. **Agent orchestrations (`--run-file`):** Unattended scheduled or coordinated agents (`launch_agent`, `check_agents`) with human-in-the-loop (HITL) supervision.
 
 ### Key features
 
-- **AI Profiles:** OpenAI and compatible chat APIs, Ollama, OpenRouter, Claude and Gemini. Supports reasoning, vision and function calling.
-- **WebLLM:** In-browser WebGPU inference with downloadable models (requires compatible hardware).
+- **AI Profiles & WebLLM:** OpenAI and compatible APIs, Ollama, OpenRouter, Claude, Gemini, plus in-browser WebGPU inference via WebLLM. Supports reasoning, vision and tool calling.
 - **Documents & RAG:** Local document attachments and collections with client-side text extraction and Orama lexical search (no external embeddings required).
-- **Agentic Tools:** JavaScript sandbox, web search, page fetching, interactive charts and read-only subagents. The optional local backend adds filesystem access, shell commands, diagnostics and MCP services.
-- **Diagnostics:** Conversation branches, JSON and Markdown export, PDF print, context metrics and request inspector.
+- **Agentic Tools & Projects:** JavaScript sandbox, web search/fetch, interactive charts and subagents; with the local backend, adds project folders, shell commands, MCP services and agent templates.
+- **Diagnostics & History:** Conversation branches, JSON/Markdown export, PDF print, context metrics and request inspector.
 
 ### Quick start
 
@@ -57,17 +62,22 @@ For development rules, architecture and test suites, see [`AGENTS.md`](./AGENTS.
 <a name="español"></a>
 ## Español
 
-ZeroChat es un cliente web de uso personal para conversar con modelos de IA, consultar documentos y ejecutar herramientas. Esta documentación corresponde a la serie **10.x**. Proyecto de libre uso bajo licencia MIT.
+ZeroChat es un entorno personal y privado de IA que escala de forma progresiva en cinco niveles sobre un mismo motor: desde un cliente de chat estático en el navegador hasta un entorno local con archivos de proyecto y servicios MCP, automatización por CLI, ejecución desatendida en segundo plano en el servidor y orquestación de agentes. Esta documentación corresponde a la serie **10.x**. Proyecto de libre uso bajo licencia MIT.
 
-La interfaz se ejecuta íntegramente en el navegador como archivos estáticos: el historial y la configuración se conservan en el almacenamiento local del navegador, sin sincronización automática en la nube.
+### Niveles de uso
+
+1. **Chat web simple (solo frontend):** Archivos estáticos en el navegador, sin acceso a archivos locales; historial y configuración se guardan en el almacenamiento local del navegador.
+2. **Chat con backend local:** Añade proyectos, herramientas de archivos y comandos, diagnósticos, servicios MCP y persistencia local en SQLite.
+3. **CLI (`--prompt`, `--conversation`):** Peticiones no interactivas desde terminal, scripts o `cron`.
+4. **Ejecución desatendida en servidor:** Lanza turnos en segundo plano para poder cerrar el navegador y consultar o retomar la conversación más tarde.
+5. **Orquestación de agentes (`--run-file`):** Agentes autónomos y coordinados (`launch_agent`, `check_agents`) en segundo plano con supervisión humana (*HITL*).
 
 ### Características principales
 
-- **Perfiles de IA:** OpenAI y APIs compatibles, Ollama, OpenRouter, Claude y Gemini. Soporta razonamiento, visión y llamadas a herramientas (*tool calling*).
-- **WebLLM:** Inferencia local en el navegador mediante WebGPU tras descargar el modelo (requiere hardware compatible).
+- **Perfiles de IA y WebLLM:** OpenAI y APIs compatibles, Ollama, OpenRouter, Claude, Gemini e inferencia local WebGPU en el navegador con WebLLM. Soporta razonamiento, visión y llamadas a herramientas (*tool calling*).
 - **Documentos y RAG:** Adjuntos y colecciones locales con extracción de texto en el cliente y búsqueda léxica mediante Orama (sin requerir *embeddings* externos).
-- **Herramientas agénticas:** Entorno aislado de JavaScript, búsqueda y lectura web, gráficos interactivos y subagentes de solo lectura. El backend local opcional añade acceso al sistema de archivos, ejecución de comandos, diagnósticos y servicios MCP.
-- **Diagnóstico e historial:** Ramas de conversación, exportación a JSON y Markdown, impresión en PDF, métricas de contexto e inspección de peticiones.
+- **Herramientas agénticas y proyectos:** Entorno aislado de JavaScript, búsqueda/lectura web, gráficos interactivos y subagentes; con el backend local añade carpetas de proyecto, comandos, servicios MCP y plantillas de agente.
+- **Diagnóstico e historial:** Ramas de conversación, exportación a JSON/Markdown, impresión en PDF, métricas de contexto e inspección de peticiones.
 
 ### Inicio rápido
 

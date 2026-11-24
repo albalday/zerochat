@@ -25,20 +25,20 @@
     </header>
 
     <div class="card" id="modos-arranque">
-      <h2>Elige el modo de uso</h2>
-      <p>La web se ejecuta en el navegador. El servidor Python opcional añade herramientas del equipo; la interfaz sigue siendo la misma.</p>
+      <h2>Niveles de uso</h2>
+      <p>ZeroChat utiliza el mismo motor agéntico en cinco niveles progresivos: puedes empezar con el navegador sin instalar nada y añadir el servidor local o la ejecución desatendida solo cuando los necesites.</p>
       <div class="table-responsive"><table>
-        <thead><tr><th>Qué necesitas</th><th>Solo web</th><th>Con servidor local</th></tr></thead>
+        <thead><tr><th>Nivel</th><th>Qué necesitas</th><th>Qué permite</th></tr></thead>
         <tbody>
-          <tr><td>Chat, perfiles, historial, adjuntos y RAG</td><td>Sí</td><td>Sí</td></tr>
-          <tr><td>JavaScript y herramientas web</td><td>Sí; las de red requieren acceso a sus servicios</td><td>Mismos requisitos</td></tr>
-          <tr><td>Modelos locales con WebLLM</td><td>Requiere WebGPU compatible y memoria suficiente</td><td>Mismos requisitos</td></tr>
-          <tr><td>Archivos y comandos del equipo</td><td>No</td><td>Requiere herramientas habilitadas y permisos</td></tr>
-          <tr><td>Servicios MCP y automatización de navegador</td><td>No</td><td>Requiere las dependencias de cada herramienta</td></tr>
+          <tr><td><strong>1. Chat simple (solo frontend)</strong></td><td>Navegador (o PWA)</td><td>Chat, perfiles, adjuntos, RAG local en navegador, JavaScript en sandbox, búsqueda/lectura web y WebLLM (WebGPU). Sin acceso a archivos del equipo.</td></tr>
+          <tr><td><strong>2. Chat con backend local</strong></td><td><code>zerochat</code> (Python)</td><td>Acceso controlado por proyecto a ficheros y comandos (reglas <code>RWX</code>), desarrollo con modo proyecto, servicios MCP, navegador del modelo y sincronización en SQLite.</td></tr>
+          <tr><td><strong>3. Ejecución por CLI</strong></td><td><code>zerochat</code> + Node.js ≥ 22.13</td><td>Peticiones desde shell o <code>cron</code> con <code>--prompt</code> y <code>--conversation</code> sin abrir navegador, con la respuesta directa en <code>stdout</code>.</td></tr>
+          <tr><td><strong>4. Segundo plano en servidor</strong></td><td><code>zerochat</code> + Node.js ≥ 22.13</td><td>Turnos lanzados desde la interfaz como procesos independientes: puedes cerrar el cliente y volver luego para ver el avance o responder un <code>needs_input</code>.</td></tr>
+          <tr><td><strong>5. Orquestaciones de agentes</strong></td><td><code>zerochat</code> + Node.js ≥ 22.13</td><td>Agentes desatendidos con <code>--run-file</code>, agentes master que lanzan y supervisan workers (<code>launch_agent</code>, <code>check_agents</code>) y consola de supervisión humana (pestaña <strong>Agentes</strong>).</td></tr>
         </tbody>
       </table></div>
-      <p><a href="install.html#servidor-local">Instalar y arrancar el servidor local →</a> · <a href="mcp.html">Configurar herramientas y MCP →</a></p>
-      <p>Si el navegador lo permite, instala la web como PWA desde sus opciones. La caché no garantiza que todas las funciones estén disponibles sin conexión.</p>
+      <p><a href="install.html#servidor-local">Instalar y arrancar el servidor local →</a> · <a href="mcp.html">Herramientas y MCP →</a> · <a href="run-mode.html">CLI y agentes desatendidos →</a></p>
+      <p>Si el navegador lo permite, puedes instalar la web como PWA. La caché no garantiza que todas las funciones funcionen sin conexión.</p>
       <div class="alert alert-info" style="margin-top:1rem;">
         <strong>Entornos probados:</strong> Linux (x86_64 y ARM), Windows 10/11 (PowerShell y lanzador <code>py -m zerochat</code>) y Android (Termux con paquete <code>python</code>). En Termux no es posible usar Playwright actualmente, así que <code>browser_action</code> y Playwright MCP no están disponibles.
       </div>
@@ -50,14 +50,17 @@
     <div class="card">
       <h2>Dónde se guardan los datos</h2>
       <h3>En el navegador</h3>
-      <p>Las conversaciones, perfiles, adjuntos y RAG se guardan en el navegador. Pertenecen a la dirección web, navegador y perfil utilizados; no hay sincronización automática entre dispositivos. Exporta copias antes de limpiar los datos.</p>
+      <p>Sin servidor, conversaciones, perfiles, adjuntos y RAG viven en el navegador (ligados al origen web y perfil del navegador). Al conectar el servidor local, perfiles y conversaciones se sincronizan con SQLite para continuar desde otro navegador o dispositivo. Exporta copias antes de limpiar los datos.</p>
       <p>Las conversaciones no están cifradas como una bóveda. Consulta el cifrado de claves API y sus límites en <a href="profiles.html">Perfiles</a>.</p>
       <h3>En el equipo, con el servidor local</h3>
       <pre><code>~/zerochat/
-├── config/      Token y configuración
-├── services/    Definiciones, dependencias y credenciales MCP
-└── .venv/       Dependencias de MCP Python</code></pre>
-      <p>PyPI y el script descargado utilizan la misma carpeta. Borrarla elimina la configuración local y los servicios gestionados, incluidas sus credenciales. No elimina el ejecutable, el historial del navegador ni archivos modificados fuera de ella.</p>
+├── storage/     Base de datos SQLite (conversaciones, perfiles, permisos, secretos y runs)
+├── config/      Token diario de sesión
+├── general/     Carpeta por defecto para chats sin proyecto
+├── services/    Servicios MCP gestionados y sus dependencias
+├── cache/       Caché de módulos del runner de Node.js
+└── .venv/       Entorno aislado para servicios MCP en Python</code></pre>
+      <p>PyPI y el script descargado utilizan la misma carpeta. Borrarla restablece todo el estado del backend (incluida la base de datos y los servicios gestionados), sin tocar el ejecutable, la copia del navegador ni archivos de tus proyectos.</p>
     </div>
 
     <div class="card">
