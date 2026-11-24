@@ -72,13 +72,14 @@ def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
     return False
 
 
-# zerochat/run/progress ya se registra con su propio texto en dispatch_run.
+# zerochat/run/progress ya se registra con su propio texto en dispatch_run; zerochat/run/usage llega tras cada paso.
 QUIET_RPC_METHODS = frozenset({
     "zerochat/heartbeat",
     "zerochat/jobs/get",
     "zerochat/jobs/log",
     "zerochat/jobs/list",
     "zerochat/run/progress",
+    "zerochat/run/usage",
     "zerochat/project/context",
 })
 DEV_CONTENT_TYPES = {

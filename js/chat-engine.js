@@ -261,6 +261,7 @@
    * `params.activateProfile(profileId)` activa un perfil como el selector de quien lanza el turno; sin
    * ella, switch_model solo cambia el nivel de razonamiento.
    * `params.onStepHistory(history)` recibe el historial tras cada paso con herramientas (el runner lo graba).
+   * `params.onUsage(usage)` recibe el consumo acumulado del turno tras cada llamada al modelo (AgentRuntime).
    * @param {Object} params - Parámetros de ejecución.
    * @returns {Promise<{ finalAssistantText?: string, accumulatedMarkdown?: string, loopDetected?: boolean, stepLimit?: boolean, truncated?: boolean, stats?: Object, chatHistory: Array, cancelled?: boolean, error?: any }>}
    */
@@ -280,6 +281,7 @@
       onGenerationStatus,
       onProgress,
       onStepHistory,
+      onUsage,
       activateProfile = null,
       maxSteps = null
     } = params;
@@ -412,7 +414,8 @@
           }
           view.scrollToBottom();
           if (step.history) onStepHistory?.(step.history);
-        }
+        },
+        onUsage: usage => onUsage?.(usage)
       }
     });
 

@@ -60,6 +60,7 @@ def _agent_state(conv: dict, run: dict) -> dict:
         "pending": run.get("pending"),
         "error": "The agent's run process ended unexpectedly." if died else run.get("error"),
         "warnings": run.get("warnings") or [],
+        "usage": run.get("usage"),
         "result_text": result,
         **({"result_truncated": True} if clipped else {}),
     }

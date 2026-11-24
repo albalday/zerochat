@@ -504,6 +504,7 @@ RUNNER_ALLOWED_METHODS = frozenset({
     "zerochat/run/prompt",
     "zerochat/run/profile",
     "zerochat/run/progress",
+    "zerochat/run/usage",
     "zerochat/run/export",
     "zerochat/run/result",
     "zerochat/web/fetch",
@@ -2596,6 +2597,10 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
         ALTER TABLE runs ADD COLUMN result_text TEXT;
         ALTER TABLE runs ADD COLUMN warnings_json TEXT;
     """),
+    # Tokens que lleva gastados la ejecución (zerochat/run/usage), para quien la lanzó y el master que la vigila.
+    (14, "014_add_run_usage_column", """
+        ALTER TABLE runs ADD COLUMN usage_json TEXT;
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
@@ -3637,6 +3642,7 @@ def _row_to_run_state(row: sqlite3.Row) -> dict:
         "finished_at": row["finished_at"],
         "result_text": row["result_text"],
         "warnings": _json_column(row["warnings_json"]) or [],
+        "usage": _json_column(row["usage_json"]),
     }
 
 
@@ -3647,11 +3653,13 @@ def upsert_run_state(payload: dict) -> None:
     pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
     warnings = payload.get("warnings")
     warnings_json = json.dumps(warnings, ensure_ascii=False) if warnings else None
+    usage = payload.get("usage")
+    usage_json = json.dumps(usage, ensure_ascii=False) if usage else None
     with open_storage() as conn:
         conn.execute("""
             INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error,
-                              finished_at, result_text, warnings_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              finished_at, result_text, warnings_json, usage_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 run_id = excluded.run_id,
                 pid = excluded.pid,
@@ -3664,7 +3672,8 @@ def upsert_run_state(payload: dict) -> None:
                 error = excluded.error,
                 finished_at = excluded.finished_at,
                 result_text = excluded.result_text,
-                warnings_json = excluded.warnings_json;
+                warnings_json = excluded.warnings_json,
+                usage_json = excluded.usage_json;
         """, (
             conv_id,
             payload["run_id"],
@@ -3679,6 +3688,7 @@ def upsert_run_state(payload: dict) -> None:
             payload.get("finished_at"),
             payload.get("result_text"),
             warnings_json,
+            usage_json,
         ))
         conn.commit()
     notify_live_change()
@@ -5218,6 +5228,9 @@ RUN_EXIT_NEEDS_INPUT = 5
 RUN_NEEDS_INPUT_KINDS = ("ask_user", "tool_approval")
 # Alcanzó maxSteps o timeout de --run-file: lo hecho queda grabado y se continúa con la conversación.
 RUN_EXIT_LIMIT = 6
+# Contadores de zerochat/run/usage (la suma de todas las llamadas al modelo de la ejecución) y su tope.
+RUN_USAGE_COUNTERS = ("model_calls", "prompt_tokens", "completion_tokens", "cached_tokens", "reasoning_tokens")
+RUN_USAGE_MAX = 10 ** 12
 # La conversación ya tiene otra ejecución en marcha (p. ej. dos cron solapados con el mismo conversation_id): no se lanza.
 RUN_EXIT_BUSY = 7
 # Perfil por defecto de --prompt cuando no se indica --profile.
@@ -5372,6 +5385,7 @@ def write_run_state(session: RunSession) -> None:
         "finished_at": None if session.status == "running" else now,
         "result_text": session.result_text,
         "warnings": warnings,
+        "usage": session.usage,
     }
     upsert_run_state(payload)
 
@@ -5640,6 +5654,8 @@ class RunSession:
         self.result_text: str | None = None
         self.warnings: list[str] = []
         self.warnings_omitted = 0
+        # Tokens acumulados que informa el runner (zerochat/run/usage); None hasta su primera llamada al modelo.
+        self.usage: dict | None = None
         self.runner_token: str | None = None
         write_run_state(self)
 
@@ -5818,6 +5834,20 @@ def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
     return rpc_result({"ok": True})
 
 
+def _rpc_usage(params: dict, session: RunSession) -> RpcOutcome:
+    """Tokens acumulados de la ejecución hasta su último paso: el runner los manda tras cada llamada al modelo, así
+    que quedan en la fila aunque la ejecución se corte por tiempo o muera."""
+    usage = {key: params.get(key) for key in RUN_USAGE_COUNTERS}
+    estimated = params.get("estimated")
+    if any(isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= RUN_USAGE_MAX
+           for value in usage.values()) or not isinstance(estimated, bool):
+        return rpc_error(INVALID_PARAMS, "Consumo no válido.")
+    with session.lock:
+        session.usage = {**usage, "estimated": estimated}
+        write_run_state(session)
+    return rpc_result({"ok": True})
+
+
 def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
     content = params.get("content")
     if session.export_path is None or not isinstance(content, str):
@@ -5883,6 +5913,7 @@ RUN_SESSION_METHODS = {
     "zerochat/run/prompt": _rpc_prompt,
     "zerochat/run/profile": _rpc_profile,
     "zerochat/run/progress": _rpc_progress,
+    "zerochat/run/usage": _rpc_usage,
     "zerochat/run/export": _rpc_export,
     "zerochat/run/result": _rpc_result,
 }
@@ -6224,6 +6255,7 @@ def _agent_state(conv: dict, run: dict) -> dict:
         "pending": run.get("pending"),
         "error": "The agent's run process ended unexpectedly." if died else run.get("error"),
         "warnings": run.get("warnings") or [],
+        "usage": run.get("usage"),
         "result_text": result,
         **({"result_truncated": True} if clipped else {}),
     }
@@ -10261,7 +10293,7 @@ CHECK_AGENTS_DEFINITION = {
     "description": (
         "Status of the agents of this project that this run supervises (watchAgents). Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
-        "error, warnings and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
+        "error, warnings, token usage of the run and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
         "changes status (finishes, pauses or a new run starts) or when the time is up (returned_because says which); "
         "call it again with wait_seconds while they are still running."
@@ -11153,13 +11185,14 @@ def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
     return False
 
 
-# zerochat/run/progress ya se registra con su propio texto en dispatch_run.
+# zerochat/run/progress ya se registra con su propio texto en dispatch_run; zerochat/run/usage llega tras cada paso.
 QUIET_RPC_METHODS = frozenset({
     "zerochat/heartbeat",
     "zerochat/jobs/get",
     "zerochat/jobs/log",
     "zerochat/jobs/list",
     "zerochat/run/progress",
+    "zerochat/run/usage",
     "zerochat/project/context",
 })
 DEV_CONTENT_TYPES = {

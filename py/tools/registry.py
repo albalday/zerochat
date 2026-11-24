@@ -218,7 +218,7 @@ CHECK_AGENTS_DEFINITION = {
     "description": (
         "Status of the agents of this project that this run supervises (watchAgents). Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
-        "error, warnings and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
+        "error, warnings, token usage of the run and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
         "changes status (finishes, pauses or a new run starts) or when the time is up (returned_because says which); "
         "call it again with wait_seconds while they are still running."

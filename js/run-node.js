@@ -369,6 +369,7 @@
         view,
         onProgress: sendOptions.onProgress,
         maxSteps: sendOptions.maxSteps ?? null,
+        onUsage: sendOptions.onUsage,
         // Cada paso cerrado queda grabado: si la ejecución se corta, se conserva lo hecho.
         onStepHistory: history => {
           sessionManager.saveActiveConversation(history).catch(error => console.warn('[RunNode] Could not save the step:', error));

@@ -86,7 +86,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
     State.replaceConversation({ sessionId: 'reset', messages: [], sessions: [] });
   });
 
-  async function runScenario({ promptPayload, submitResult, afterSubmitMessages = [] }) {
+  async function runScenario({ promptPayload, submitResult, afterSubmitMessages = [], usageUpdates = [] }) {
     const calls = [];
     let activated = null;
     let startedNew = null;
@@ -109,6 +109,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
       activateSessionProfile: async id => { activated = id; },
       submitComposerText: async (text, opts) => {
         submitted = { text, opts };
+        for (const usage of usageUpdates) opts.onUsage(usage);
         State.replaceMessages(afterSubmitMessages);
         return submitResult;
       },
@@ -131,7 +132,11 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
       project_mode: false
     },
     submitResult: { text: 'Listo' },
-    afterSubmitMessages: [{ role: 'user', content: 'Hola' }, { role: 'assistant', content: 'Listo' }]
+    afterSubmitMessages: [{ role: 'user', content: 'Hola' }, { role: 'assistant', content: 'Listo' }],
+    usageUpdates: [
+      { modelCalls: 1, promptTokens: 100, completionTokens: 20, cachedTokens: 0, reasoningTokens: 5, estimated: false },
+      { modelCalls: 2, promptTokens: 250, completionTokens: 45, cachedTokens: 90, reasoningTokens: 5, estimated: false }
+    ]
   });
   assert.equal(ok.startedNew, 'session_nueva_1');
   assert.equal(ok.activated, 'p1');
@@ -140,6 +145,14 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.equal(Config.getActive().projectMode, false, '--run-file sin projectMode no inyecta las normas del proyecto');
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', text: 'Listo' });
+  // El consumo acumulado llega tras cada llamada al modelo, en orden y antes del resultado.
+  const usageCalls = ok.calls.filter(c => c.method === 'zerochat/run/usage');
+  assert.deepEqual(usageCalls.map(c => c.params.model_calls), [1, 2]);
+  assert.deepEqual(usageCalls.at(-1).params, {
+    run_id: 'run_test_id_123456', model_calls: 2, prompt_tokens: 250, completion_tokens: 45, cached_tokens: 90, reasoning_tokens: 5, estimated: false
+  });
+  assert.ok(ok.calls.findIndex(c => c.method === 'zerochat/run/usage' && c.params.model_calls === 2)
+    < ok.calls.findIndex(c => c.method === 'zerochat/run/result'));
 
   // 2. Límite de pasos; projectMode true vuelve a inyectarlas.
   const limit = await runScenario({

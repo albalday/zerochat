@@ -126,6 +126,19 @@
     const report = createProgressReporter(event => {
       send('zerochat/run/progress', event).catch(error => console.warn('[RunMode] Could not report progress:', error));
     });
+    // El consumo acumulado tras cada llamada al modelo, en orden: el resultado espera al último para que la
+    // fila de la ejecución quede con el total aunque el proceso termine justo después.
+    let usageSent = Promise.resolve();
+    const reportUsage = usage => {
+      usageSent = usageSent.then(() => send('zerochat/run/usage', {
+        model_calls: usage.modelCalls,
+        prompt_tokens: usage.promptTokens,
+        completion_tokens: usage.completionTokens,
+        cached_tokens: usage.cachedTokens,
+        reasoning_tokens: usage.reasoningTokens,
+        estimated: usage.estimated
+      })).catch(error => console.warn('[RunMode] Could not report usage:', error));
+    };
     try {
       await waitForBackend(startupConnection, connectBackend);
       const {
@@ -193,9 +206,9 @@
         if (cleaned.length !== messages.length) {
           State.replaceMessages(cleaned);
         }
-        generated = await submitComposerText('', { resume: true, onProgress: report, maxSteps });
+        generated = await submitComposerText('', { resume: true, onProgress: report, onUsage: reportUsage, maxSteps });
       } else {
-        generated = await submitComposerText(prompt, { onProgress: report, maxSteps });
+        generated = await submitComposerText(prompt, { onProgress: report, onUsage: reportUsage, maxSteps });
       }
 
       const question = pendingAskUserQuestion(getState().get('messages'));
@@ -224,6 +237,7 @@
         }
       }
 
+      await usageSent;
       if (result.needs_input) {
         await send('zerochat/run/result', { needs_input: result.needs_input });
       } else if (result.limit) {
@@ -235,6 +249,7 @@
       }
     } catch (error) {
       console.error('[RunMode] Unattended run failed:', error);
+      await usageSent;
       await send('zerochat/run/result', { error: error?.message || String(error) })
         .catch(sendError => console.error('[RunMode] Could not send the result:', sendError));
     } finally {

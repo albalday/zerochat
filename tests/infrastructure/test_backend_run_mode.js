@@ -100,6 +100,8 @@ if delivered["export"]:
 if scenario == "ok":
     rpc("zerochat/run/progress", kind="tool", text="y" * 500)
     rpc("zerochat/run/progress", kind="tool", text="x" * 501)
+    info["usage_reply"] = rpc("zerochat/run/usage", model_calls=1, prompt_tokens=120, completion_tokens=8, cached_tokens=0,
+                              reasoning_tokens=0, estimated=False)
     info["bad_result"] = rpc("zerochat/run/result", text="a", error="b").get("error", {}).get("message")
     save()
     rpc("zerochat/run/result", text=f"Respuesta a: {prompt}")
@@ -238,6 +240,8 @@ test('zerochat.py --prompt: arranque normal, respuesta solo en stdout, códigos 
     assert.deepEqual([ok.info.daily_token_status, ok.info.login_status], [401, 401]);
     assert.equal(ok.info.second_prompt, 'El prompt ya se entregó.');
     assert.equal(ok.info.bad_result, 'El resultado lleva text, error, needs_input con kind y text, o limit.');
+    // El token del runner admite el consumo acumulado.
+    assert.deepEqual(ok.info.usage_reply.result, { ok: true });
     // La conversación exportada se escribe una sola vez en el fichero, con el formato de su extensión.
     assert.equal(ok.info.export, 'markdown');
     assert.equal(fs.readFileSync(exportPath, 'utf8'), 'markdown: hola mundo');

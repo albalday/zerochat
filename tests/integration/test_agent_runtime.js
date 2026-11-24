@@ -196,6 +196,33 @@ test('AgentRuntime - pasos secuenciales, error de herramienta con recuperación 
   assert.equal(emptySteps, 2);
 });
 
+test('AgentRuntime - suma el consumo de todas las llamadas al modelo del turno y lo avisa tras cada una', async t => {
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'get_user_id', execute: async () => ({ userId: 'usr_1' }) }));
+  const steps = [
+    { accumulatedText: '', toolCalls: [{ id: 'c1', function: { name: 'get_user_id', arguments: '{}' } }],
+      stats: { promptTokens: 1000, completionTokens: 40, cachedTokens: 800, reasoningTokens: 10, isEstimated: false } },
+    { accumulatedText: 'Listo.', toolCalls: [], stats: { promptTokens: 1200, completionTokens: 15, cachedTokens: 1000, reasoningTokens: 0, isEstimated: false } }
+  ];
+  const updates = [];
+  const result = await runAgent(t, registry, {
+    api: { streamChatCompletion: async () => steps.shift() },
+    messages: [{ role: 'user', content: 'ID' }],
+    callbacks: { onUsage: usage => updates.push(usage) }
+  });
+  const total = { modelCalls: 2, promptTokens: 2200, completionTokens: 55, cachedTokens: 1800, reasoningTokens: 10, estimated: false };
+  assert.deepEqual(updates.map(usage => usage.modelCalls), [1, 2]);
+  assert.deepEqual(updates.at(-1), total);
+  assert.deepEqual(result.usage, total);
+
+  // Un paso sin cifras del servidor cuenta como llamada y deja el total como estimado.
+  const estimated = await runAgent(t, registry, {
+    api: { streamChatCompletion: async () => ({ accumulatedText: 'Hola.', toolCalls: [], stats: { tokens: 7 } }) },
+    messages: [{ role: 'user', content: 'Hola' }]
+  });
+  assert.deepEqual(estimated.usage, { modelCalls: 1, promptTokens: 0, completionTokens: 7, cachedTokens: 0, reasoningTokens: 0, estimated: true });
+});
+
 test('AgentRuntime - reenvía el razonamiento de cada paso dentro del turno, no lo guarda y si se rechaza deja de enviarlo', async t => {
   const ChatEngine = require('../../js/chat-engine.js');
   const registry = new ToolRegistry();

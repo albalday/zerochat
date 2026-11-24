@@ -58,6 +58,9 @@ RUN_EXIT_NEEDS_INPUT = 5
 RUN_NEEDS_INPUT_KINDS = ("ask_user", "tool_approval")
 # Alcanzó maxSteps o timeout de --run-file: lo hecho queda grabado y se continúa con la conversación.
 RUN_EXIT_LIMIT = 6
+# Contadores de zerochat/run/usage (la suma de todas las llamadas al modelo de la ejecución) y su tope.
+RUN_USAGE_COUNTERS = ("model_calls", "prompt_tokens", "completion_tokens", "cached_tokens", "reasoning_tokens")
+RUN_USAGE_MAX = 10 ** 12
 # La conversación ya tiene otra ejecución en marcha (p. ej. dos cron solapados con el mismo conversation_id): no se lanza.
 RUN_EXIT_BUSY = 7
 # Perfil por defecto de --prompt cuando no se indica --profile.
@@ -212,6 +215,7 @@ def write_run_state(session: RunSession) -> None:
         "finished_at": None if session.status == "running" else now,
         "result_text": session.result_text,
         "warnings": warnings,
+        "usage": session.usage,
     }
     upsert_run_state(payload)
 
@@ -480,6 +484,8 @@ class RunSession:
         self.result_text: str | None = None
         self.warnings: list[str] = []
         self.warnings_omitted = 0
+        # Tokens acumulados que informa el runner (zerochat/run/usage); None hasta su primera llamada al modelo.
+        self.usage: dict | None = None
         self.runner_token: str | None = None
         write_run_state(self)
 
@@ -658,6 +664,20 @@ def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
     return rpc_result({"ok": True})
 
 
+def _rpc_usage(params: dict, session: RunSession) -> RpcOutcome:
+    """Tokens acumulados de la ejecución hasta su último paso: el runner los manda tras cada llamada al modelo, así
+    que quedan en la fila aunque la ejecución se corte por tiempo o muera."""
+    usage = {key: params.get(key) for key in RUN_USAGE_COUNTERS}
+    estimated = params.get("estimated")
+    if any(isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= RUN_USAGE_MAX
+           for value in usage.values()) or not isinstance(estimated, bool):
+        return rpc_error(INVALID_PARAMS, "Consumo no válido.")
+    with session.lock:
+        session.usage = {**usage, "estimated": estimated}
+        write_run_state(session)
+    return rpc_result({"ok": True})
+
+
 def _rpc_export(params: dict, session: RunSession) -> RpcOutcome:
     content = params.get("content")
     if session.export_path is None or not isinstance(content, str):
@@ -723,6 +743,7 @@ RUN_SESSION_METHODS = {
     "zerochat/run/prompt": _rpc_prompt,
     "zerochat/run/profile": _rpc_profile,
     "zerochat/run/progress": _rpc_progress,
+    "zerochat/run/usage": _rpc_usage,
     "zerochat/run/export": _rpc_export,
     "zerochat/run/result": _rpc_result,
 }

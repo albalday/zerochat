@@ -191,6 +191,10 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
         ALTER TABLE runs ADD COLUMN result_text TEXT;
         ALTER TABLE runs ADD COLUMN warnings_json TEXT;
     """),
+    # Tokens que lleva gastados la ejecución (zerochat/run/usage), para quien la lanzó y el master que la vigila.
+    (14, "014_add_run_usage_column", """
+        ALTER TABLE runs ADD COLUMN usage_json TEXT;
+    """),
 ]
 # Tope de un secreto guardado (una API key cabe de sobra).
 MAX_SECRET_LENGTH = 4096
@@ -1232,6 +1236,7 @@ def _row_to_run_state(row: sqlite3.Row) -> dict:
         "finished_at": row["finished_at"],
         "result_text": row["result_text"],
         "warnings": _json_column(row["warnings_json"]) or [],
+        "usage": _json_column(row["usage_json"]),
     }
 
 
@@ -1242,11 +1247,13 @@ def upsert_run_state(payload: dict) -> None:
     pending_json = json.dumps(pending, ensure_ascii=False) if pending is not None else None
     warnings = payload.get("warnings")
     warnings_json = json.dumps(warnings, ensure_ascii=False) if warnings else None
+    usage = payload.get("usage")
+    usage_json = json.dumps(usage, ensure_ascii=False) if usage else None
     with open_storage() as conn:
         conn.execute("""
             INSERT INTO runs (conversation_id, run_id, pid, pid_start, started_at, updated_at, status, step_text, pending_json, error,
-                              finished_at, result_text, warnings_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              finished_at, result_text, warnings_json, usage_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(conversation_id) DO UPDATE SET
                 run_id = excluded.run_id,
                 pid = excluded.pid,
@@ -1259,7 +1266,8 @@ def upsert_run_state(payload: dict) -> None:
                 error = excluded.error,
                 finished_at = excluded.finished_at,
                 result_text = excluded.result_text,
-                warnings_json = excluded.warnings_json;
+                warnings_json = excluded.warnings_json,
+                usage_json = excluded.usage_json;
         """, (
             conv_id,
             payload["run_id"],
@@ -1274,6 +1282,7 @@ def upsert_run_state(payload: dict) -> None:
             payload.get("finished_at"),
             payload.get("result_text"),
             warnings_json,
+            usage_json,
         ))
         conn.commit()
     notify_live_change()

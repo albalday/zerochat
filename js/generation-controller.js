@@ -260,6 +260,7 @@
           options.onProgress?.({ kind: update.phase === 'tool' ? 'tool' : 'status', text: update.text || update.phase || '' });
         },
         onProgress: options.onProgress,
+        onUsage: options.onUsage,
         maxSteps: options.maxSteps ?? null,
         onLog: (type, text) => {
           if (isCurrentSession()) Debug.addLog(type, text);

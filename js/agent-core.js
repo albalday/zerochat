@@ -643,6 +643,8 @@
       let workingMessages = [...messages];
       let finalText = '';
       let lastStats = null;
+      // Consumo acumulado de todas las llamadas al modelo del turno (callbacks.onUsage tras cada una).
+      const usage = { modelCalls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, reasoningTokens: 0, estimated: false };
       let toolCallCount = 0;
       const trackToolBatch = this.createLoopGuard();
       let compressionUnavailable = false;
@@ -739,6 +741,8 @@
             toolCalls = [];
           }
           lastStats = step.stats || lastStats;
+          addStepUsage(usage, step.stats);
+          callbacks.onUsage?.({ ...usage });
 
           // Sin llamadas a herramientas, el paso es la respuesta final.
           if (toolCalls.length === 0) {
@@ -799,6 +803,7 @@
         truncated,
         toolCallCount,
         history: workingMessages.map(withoutReasoningReplay),
+        usage,
         stats: {
           tokens: lastStats?.tokens || 0,
           tokensPerSec: lastStats?.tokensPerSec || 0,
@@ -815,6 +820,20 @@
         error: executionError
       };
     }
+  }
+
+  /**
+   * Suma a `usage` los tokens de una llamada al modelo. `promptTokens` ya incluye los de caché; sin cifras del
+   * servidor la llamada cuenta igual y el total queda como estimado.
+   */
+  function addStepUsage(usage, stats) {
+    const count = value => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0);
+    usage.modelCalls += 1;
+    usage.promptTokens += count(stats?.promptTokens);
+    usage.completionTokens += count(stats?.completionTokens || stats?.tokens);
+    usage.cachedTokens += count(stats?.cachedTokens);
+    usage.reasoningTokens += count(stats?.reasoningTokens);
+    if (!stats || stats.isEstimated !== false) usage.estimated = true;
   }
 
   const registry = new ToolRegistry();

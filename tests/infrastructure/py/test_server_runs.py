@@ -113,6 +113,21 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual((err, prog_res), (None, {"ok": True}))
         self.assertEqual(zerochat.get_run_state(conv_id)["step_text"], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
 
+        # zerochat/run/usage guarda el consumo acumulado (el último que llega) con contadores enteros hasta RUN_USAGE_MAX.
+        self.assertIsNone(zerochat.get_run_state(conv_id)["usage"])
+        usage = {"model_calls": 2, "prompt_tokens": zerochat.RUN_USAGE_MAX, "completion_tokens": 45, "cached_tokens": 90,
+                 "reasoning_tokens": 0, "estimated": False}
+        for invalid in ({**usage, "prompt_tokens": zerochat.RUN_USAGE_MAX + 1}, {**usage, "completion_tokens": -1},
+                        {**usage, "cached_tokens": 1.5}, {**usage, "model_calls": True}, {**usage, "estimated": "no"},
+                        {key: value for key, value in usage.items() if key != "reasoning_tokens"}):
+            _, err, _ = dispatch_run("zerochat/run/usage", {"run_id": session.run_id, **invalid})
+            self.assertEqual(err["code"], zerochat.INVALID_PARAMS, invalid)
+        self.assertIsNone(zerochat.get_run_state(conv_id)["usage"])
+        used, err, _ = dispatch_run("zerochat/run/usage", {"run_id": session.run_id, **usage, "extra": 1})
+        self.assertEqual((err, used), (None, {"ok": True}))
+        self.assertEqual(zerochat.get_run_state(conv_id)["usage"], usage)
+        self.assertIn("zerochat/run/usage", zerochat.RUNNER_ALLOWED_METHODS)
+
         # needs_input necesita un kind conocido y su texto; el válido guarda la pausa y su fin.
         for invalid in ({"kind": "ask_user"}, {"kind": "otro", "text": "x"}, {"kind": "ask_user", "question": "¿Seguir?"}):
             _, err, _ = dispatch_run("zerochat/run/result", {"run_id": session.run_id, "needs_input": invalid})
@@ -126,6 +141,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertTrue(session.finished.is_set())
 
         data = zerochat.get_run_state(conv_id)
+        self.assertEqual(data["usage"], usage, "El resultado conserva el consumo")
         self.assertEqual(data["status"], "needs_input")
         self.assertEqual(data["pending"], {"kind": "ask_user", "text": "¿Deseas continuar?"})
         self.assertIsNotNone(data["finished_at"])
@@ -144,6 +160,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             "error": "Modelo no disponible"
         })
         data_err = zerochat.get_run_state(conv_id)
+        self.assertIsNone(data_err["usage"], "Cada ejecución cuenta lo suyo")
         self.assertEqual(data_err["status"], "error")
         self.assertEqual(data_err["error"], "Modelo no disponible")
 
@@ -468,7 +485,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         upsert_run({"run_id": "r1", "conversation_id": "diario_nuevo", "status": "needs_input", "pending": {"kind": "ask_user", "text": "¿Mes?"},
                     "result_text": "x" * summary_limit})
         upsert_run({"run_id": "r2", "conversation_id": "semanal", "status": "completed", "result_text": "y" * (summary_limit + 1),
-                    "warnings": ["run_command: denegado"]})
+                    "warnings": ["run_command: denegado"], "usage": {"model_calls": 3, "prompt_tokens": 900, "completion_tokens": 30,
+                                                                      "cached_tokens": 0, "reasoning_tokens": 0, "estimated": True}})
 
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
         self.assertIn("check_agents", names())
@@ -481,6 +499,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                          [("informes.diario", "diario_nuevo", "needs_input"), ("informes.semanal", "semanal", "completed")])
         self.assertEqual((listed[0]["pending"], listed[0]["result_text"], "result_truncated" in listed[0]), ({"kind": "ask_user", "text": "¿Mes?"}, "x" * summary_limit, False))
         self.assertEqual((len(listed[1]["result_text"]), listed[1]["result_truncated"], listed[1]["warnings"]), (summary_limit, True, ["run_command: denegado"]))
+        self.assertEqual((listed[0]["usage"], listed[1]["usage"]["prompt_tokens"]), (None, 900))
 
         # Detalle: el último turno, por agente (su conversación más reciente) o por conversación vigilada.
         detail = check(agent="informes.diario")
