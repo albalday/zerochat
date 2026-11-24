@@ -17,9 +17,11 @@ Agent launcher template (agents/template.sh):
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set +e
+# stderr carries "[run] conversation_id=<id> new=true|false" even with --log off: keep it to follow the run.
 zerochat --run-file "agents/<role>.json"
 rc=$?
 set -e
-# 0: completed, 5: needs_input (answer in ZeroChat's Pending tasks view; resumes with stored launch), 6: limit reached
+# 0: completed, 5: needs_input (answer in ZeroChat's Pending tasks view; resumes with stored launch), 6: limit reached,
+# 7: this conversation is already running (overlapping cron), nothing was launched
 exit "$rc"
 ```

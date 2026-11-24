@@ -58,6 +58,8 @@ RUN_EXIT_NEEDS_INPUT = 5
 RUN_NEEDS_INPUT_KINDS = ("ask_user", "tool_approval")
 # Alcanzó maxSteps o timeout de --run-file: lo hecho queda grabado y se continúa con la conversación.
 RUN_EXIT_LIMIT = 6
+# La conversación ya tiene otra ejecución en marcha (p. ej. dos cron solapados con el mismo conversation_id): no se lanza.
+RUN_EXIT_BUSY = 7
 # Perfil por defecto de --prompt cuando no se indica --profile.
 DEFAULT_RUN_PROFILE = "local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
@@ -314,10 +316,11 @@ def _run_target(params: dict) -> tuple[str, dict, str]:
     return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
 
-def _check_no_active_run(conv_id: str):
-    """Una conversación solo tiene una ejecución en marcha."""
+def check_no_active_run(conv_id: str, own_run_id: str | None = None):
+    """Una conversación solo tiene una ejecución en marcha. `own_run_id` es la del proceso que pregunta: el hijo que
+    lanza zerochat/run/start ya está anotado con su run_id antes de arrancar y no se cuenta como otra."""
     existing = get_run_state(conv_id)
-    if existing and existing.get("status") == "running" and _run_process_alive(existing):
+    if existing and existing.get("status") == "running" and existing.get("run_id") != own_run_id and _run_process_alive(existing):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
@@ -326,7 +329,7 @@ def start_server_run(params: dict) -> dict:
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
-    _check_no_active_run(clean_conv_id)
+    check_no_active_run(clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -738,6 +741,15 @@ def run_error(message: str):
             session.error = message
             write_run_state(session)
     console_error(timestamp_message(f"[run] {message}"))
+
+
+def announce_run_conversation(session: RunSession):
+    """
+    Con --run-file, una línea en stderr (también con --log off) con la conversación de la ejecución, para que un
+    orquestador de shell la siga sin HTTP: `[run] conversation_id=<id> new=<true|false>`, nueva si no existía.
+    """
+    console_error(f"[run] conversation_id={session.conversation_id or session.new_conversation_id} "
+                  f"new={'false' if session.conversation_id else 'true'}")
 
 
 def run_outcome(session: RunSession) -> tuple[int, str | None]:

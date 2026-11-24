@@ -5193,6 +5193,8 @@ RUN_EXIT_NEEDS_INPUT = 5
 RUN_NEEDS_INPUT_KINDS = ("ask_user", "tool_approval")
 # Alcanzó maxSteps o timeout de --run-file: lo hecho queda grabado y se continúa con la conversación.
 RUN_EXIT_LIMIT = 6
+# La conversación ya tiene otra ejecución en marcha (p. ej. dos cron solapados con el mismo conversation_id): no se lanza.
+RUN_EXIT_BUSY = 7
 # Perfil por defecto de --prompt cuando no se indica --profile.
 DEFAULT_RUN_PROFILE = "local"
 # Formato de --export según la extensión del fichero; la interfaz genera el contenido con ChatExport.
@@ -5449,10 +5451,11 @@ def _run_target(params: dict) -> tuple[str, dict, str]:
     return clean_conv_id, conv, profile_entry.get("name", profile.strip())
 
 
-def _check_no_active_run(conv_id: str):
-    """Una conversación solo tiene una ejecución en marcha."""
+def check_no_active_run(conv_id: str, own_run_id: str | None = None):
+    """Una conversación solo tiene una ejecución en marcha. `own_run_id` es la del proceso que pregunta: el hijo que
+    lanza zerochat/run/start ya está anotado con su run_id antes de arrancar y no se cuenta como otra."""
     existing = get_run_state(conv_id)
-    if existing and existing.get("status") == "running" and _run_process_alive(existing):
+    if existing and existing.get("status") == "running" and existing.get("run_id") != own_run_id and _run_process_alive(existing):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
@@ -5461,7 +5464,7 @@ def start_server_run(params: dict) -> dict:
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
-    _check_no_active_run(clean_conv_id)
+    check_no_active_run(clean_conv_id)
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -5873,6 +5876,15 @@ def run_error(message: str):
             session.error = message
             write_run_state(session)
     console_error(timestamp_message(f"[run] {message}"))
+
+
+def announce_run_conversation(session: RunSession):
+    """
+    Con --run-file, una línea en stderr (también con --log off) con la conversación de la ejecución, para que un
+    orquestador de shell la siga sin HTTP: `[run] conversation_id=<id> new=<true|false>`, nueva si no existía.
+    """
+    console_error(f"[run] conversation_id={session.conversation_id or session.new_conversation_id} "
+                  f"new={'false' if session.conversation_id else 'true'}")
 
 
 def run_outcome(session: RunSession) -> tuple[int, str | None]:
@@ -11345,9 +11357,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         capture_frontend_user_agent(self.headers.get("User-Agent", ""))
         mark_browser_active()
         grant = self._resolve_grant()
+        # Una ejecución solo atiende a su runner: ni el token diario ni sesiones remotas, ni zerochat/login.
+        run = current_run_session() is not None
+        if run and grant is not None and grant.kind != "runner":
+            grant = None
         if grant is None:
-            # Sin token válido solo cabe identificarse para obtenerlo.
-            if self._serve_login(safe_path, t0):
+            # Sin token válido solo cabe identificarse para obtenerlo, salvo en una ejecución.
+            if not run and self._serve_login(safe_path, t0):
                 return
             self._log_req("POST", safe_path)
             self._reject(401, {
@@ -11440,8 +11456,8 @@ def build_parser() -> ZeroChatArgumentParser:
     parser = ZeroChatArgumentParser(description=f"ZeroChat Local Server v{VERSION}")
     # Desde Python 3.14 argparse colorea la ayuda con códigos ANSI; la consola la muestra en texto plano.
     parser.color = False  # pyright: ignore[reportAttributeAccessIssue] (atributo de Python 3.14)
-    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; en modo ejecución, si está ocupado se usa otro libre)")
-    parser.add_argument("--host", default=os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST), help=f"Host de escucha (default: {DEFAULT_HOST})")
+    parser.add_argument("--port", type=int, default=None, help=f"Puerto de escucha (default: ZEROCHAT_PORT o {DEFAULT_PORT}; en modo ejecución, uno libre que elige el sistema)")
+    parser.add_argument("--host", default=None, help=f"Host de escucha (default: ZEROCHAT_HOST o {DEFAULT_HOST}; el modo ejecución escucha siempre en {DEFAULT_HOST})")
     parser.add_argument("--ui-url", default=None, help="URL de la interfaz web a abrir (por defecto: interfaz local en desarrollo o GitHub Pages)")
     parser.add_argument("--no-browser", action="store_true", help="No abrir automáticamente el navegador")
     parser.add_argument("--keep-server", action="store_true", help="Servidor: seguir en marcha al cerrar el navegador (no se combina con --prompt)")
@@ -11464,6 +11480,8 @@ def _check_run_flags(parser: ZeroChatArgumentParser, args):
         parser.error("--prompt, --conversation y --run-file ejecutan la interfaz de forma autónoma: no se combina con --no-browser")
     if args.keep_server:
         parser.error("--prompt, --conversation y --run-file terminan al devolver el resultado: no se combina con --keep-server")
+    if args.host is not None:
+        parser.error(f"--prompt, --conversation y --run-file solo atienden a su runner en {DEFAULT_HOST}: no se combina con --host")
 
 
 def _run_prompt(parser: ZeroChatArgumentParser, raw_prompt: str | None) -> str | None:
@@ -11583,6 +11601,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                          f"de su lanzamiento, '{launch_profile}', no con '{raw_profile.strip()}'")
         raw_profile = launch_profile or raw_profile
     _check_run_flags(parser, args)
+    _require_no_active_run(conversation_id or new_conversation_id)
     profile_name, profile_data = _run_profile(parser, raw_profile, conv)
     export_path = _run_export_path(parser, args)
     if conversation_id and args.run_file is None:
@@ -11595,6 +11614,20 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
                       watch_agents=tuple(options.get("watchAgents") or ()), track_run=args.run_file is not None)
+
+
+def _require_no_active_run(conversation_id: str | None):
+    """Como zerochat/run/start, la CLI no lanza una segunda ejecución de una conversación que ya tiene otra en marcha
+    (--conversation, o --run-file con conversation_id fijo, p. ej. dos cron solapados): sale con RUN_EXIT_BUSY. Va antes
+    de crear la RunSession, que anota su propio estado sobre el de la otra. El hijo de zerochat/run/start ya está
+    anotado con el run_id que recibe en ZEROCHAT_RUN_ID."""
+    if not conversation_id:
+        return
+    try:
+        check_no_active_run(conversation_id, own_run_id=os.environ.get("ZEROCHAT_RUN_ID", "").strip() or None)
+    except ValueError as exc:
+        run_error(str(exc))
+        sys.exit(RUN_EXIT_BUSY)
 
 
 def redirect_log(args):
@@ -11679,25 +11712,24 @@ def reset_session_authorizations():
 
 
 def open_server(args) -> ThreadingHTTPServer:
-    """Abre el puerto de escucha; en modo ejecución, si el puerto por defecto está ocupado, usa uno libre."""
-    host = args.host
-    port = args.port if args.port is not None else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
-    set_active_address(host, port)
+    """
+    Abre el puerto de escucha y publica la dirección real: con --port 0, el puerto que elige el sistema. Una ejecución
+    (--prompt, --conversation, --run-file) solo atiende a su runner: escucha en DEFAULT_HOST, sin ZEROCHAT_HOST, y,
+    salvo --port, en un puerto libre del sistema, nunca en el del servidor principal (DEFAULT_PORT o ZEROCHAT_PORT).
+    """
+    run = current_run_session() is not None
+    host = DEFAULT_HOST if run else (args.host or os.environ.get("ZEROCHAT_HOST", DEFAULT_HOST))
+    if args.port is not None:
+        port = args.port
+    else:
+        port = 0 if run else int(os.environ.get("ZEROCHAT_PORT", DEFAULT_PORT))
     try:
-        return ZeroChatHTTPServer((host, port), ZeroChatServerHandler)
+        server = ZeroChatHTTPServer((host, port), ZeroChatServerHandler)
     except OSError as exc:
-        if not current_run_session():
+        if not run:
             raise
-        if args.port is not None:
-            run_error(f"No se pudo escuchar en {host}:{port}: {exc}")
-            sys.exit(RUN_EXIT_SETUP)
-    # Otro zerochat (u otro programa) usa el puerto por defecto: la ejecución usa uno libre.
-    try:
-        server = ZeroChatHTTPServer((host, 0), ZeroChatServerHandler)
-    except OSError as retry_exc:
-        run_error(f"No se pudo escuchar en {host}: {retry_exc}")
+        run_error(f"No se pudo escuchar en {host}:{port}: {exc}")
         sys.exit(RUN_EXIT_SETUP)
-    log_event(f"El puerto {port} está ocupado; la ejecución usa el {server.server_address[1]}.")
     set_active_address(host, server.server_address[1])
     return server
 
@@ -11856,6 +11888,8 @@ def _prepare_run_environment(parser: ZeroChatArgumentParser, args, session: RunS
         require_saved_environment()
         if session and session.conversation_id:
             mark_conversation_server_run(session.conversation_id, session.profile)
+        if session:
+            announce_run_conversation(session)
 
 
 def main():

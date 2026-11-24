@@ -222,7 +222,47 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(session_with_prompt.prompt, "Nuevo prompt")
         self.assertEqual(session_with_prompt.conversation_id, "conv_vacia")
 
+    def test_la_cli_no_lanza_otra_ejecucion_de_una_conversacion_en_marcha(self):
+        zerochat.save_general_profile({"name": "local", "settings": {}})
+        zerochat.save_conversation({"id": "conv_cron", "title": "Cron"}, [{"id": "u1", "role": "user", "content": "Tarea"}])
+        parser = zerochat.build_parser()
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        request = folder / "nueva.json"
+        request.write_text(json.dumps({"prompt": "Hola", "conversation_id": "conv_cron_nueva"}), encoding="utf-8")
+        worker = start_worker(self)
+        running = {"status": "running", "pid": worker.pid, "pid_start": zerochat._process_start_token(worker.pid)}
+
+        def busy(argv):
+            with self.assertRaises(SystemExit) as cm, mock.patch("sys.stderr", io.StringIO()) as err:
+                zerochat.run_session_from_args(parser, parser.parse_args(argv))
+            self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_BUSY)
+            self.assertIn("Ya hay una ejecución en marcha", err.getvalue())
+
+        # --conversation y --run-file con un conversation_id fijo (aún sin crear) que otra ejecución viva ya usa.
+        upsert_run({"run_id": "otra", "conversation_id": "conv_cron", **running})
+        busy(["--conversation", "conv_cron"])
+        upsert_run({"run_id": "otra", "conversation_id": "conv_cron_nueva", **running})
+        busy(["--run-file", str(request)])
+
+        # Terminada la otra, se lanza.
+        worker.kill()
+        worker.wait()
+        self.assertIsNotNone(zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_cron"])))
+
+        # El hijo que lanzó zerochat/run/start ya está anotado con su propio run_id: no es otra ejecución.
+        child = start_worker(self)
+        upsert_run({"run_id": "propia", "conversation_id": "conv_cron", "status": "running", "pid": child.pid,
+                    "pid_start": zerochat._process_start_token(child.pid)})
+        with mock.patch.dict(os.environ, {"ZEROCHAT_RUN_ID": "propia"}):
+            self.assertEqual(zerochat.run_session_from_args(parser, parser.parse_args(["--conversation", "conv_cron"])).run_id, "propia")
+
     def test_run_file_valida_la_peticion_crea_o_continua_la_conversacion_y_exige_entorno_guardado(self):
+        # Las sesiones de esta prueba quedan anotadas en runs como vivas (son este proceso) y nunca terminan: con un
+        # run_id fijo, como el hijo de zerochat/run/start, la siguiente de la misma conversación no las toma por otra.
+        run_id = mock.patch.dict(os.environ, {"ZEROCHAT_RUN_ID": "run_de_prueba"})
+        run_id.start()
+        self.addCleanup(run_id.stop)
         zerochat.save_general_profile({"name": "local", "settings": {}})
         parser = zerochat.build_parser()
         folder = Path(tempfile.mkdtemp())
@@ -369,6 +409,19 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(err)
         self.assertEqual(initialized["projectEnvironment"]["systemDataPrompt"], "Eres el agente de informes.")
         self.assertEqual(zerochat.get_project_environment(ctx.key)["systemDataPrompt"], "Prompt del proyecto")
+        zerochat.RUN_SESSION = None
+
+        # Ya preparada, --run-file anuncia en stderr, también sin registro, la conversación que sigue: nueva o la indicada.
+        zerochat.save_conversation({"id": "session_agente_3", "project": str(ctx.workspace_dir), "agent": "informes.diario"},
+                                   [{"id": "u1", "role": "user", "content": "Hola"}])
+        for request, new in (({"prompt": "Hola", "agent": "informes.efimero"}, "true"),
+                             ({"conversation_id": "session_agente_3", "agent": "informes.diario"}, "false")):
+            args = parser.parse_args(["--run-file", write_request(request)])
+            session = zerochat.run_session_from_args(parser, args)
+            with mock.patch("sys.stderr", io.StringIO()) as stderr:
+                zerochat._prepare_run_environment(parser, args, session)
+            conv_id = session.conversation_id or session.new_conversation_id
+            self.assertEqual(stderr.getvalue(), f"[run] conversation_id={conv_id} new={new}\n")
 
     def test_check_agents_solo_con_watchagents_y_solo_agentes_vigilados_del_proyecto(self):
         # watchAgents: patrones '*', '<subconjunto>.*' o '<subconjunto>.<nombre>', sin repetir y hasta MAX_WATCH_AGENTS.

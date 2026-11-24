@@ -24,7 +24,8 @@ function tokenDataDir(token) {
   return dataDir;
 }
 
-// Puerto libre asignado por el sistema: evita colisiones con otros procesos o suites en paralelo.
+// Un puerto libre ahora mismo, que se suelta al devolverlo: sirve como valor que zerochat.py no debe usar
+// (p. ej. ZEROCHAT_PORT), nunca para que escuche en él (startServer usa el puerto 0, sin carrera).
 function freePort() {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -38,18 +39,19 @@ function freePort() {
 }
 
 /**
- * Espera a que `serverProc` anuncie en su cabecera que escucha en `baseUrl` (la imprime tras abrir el
- * puerto y la vuelca con flush) y lo confirma con un latido: sin sondear el puerto.
+ * Arranca zerochat.py con `spawnServer(port)` en el puerto 0 (el sistema elige uno libre al abrirlo, sin carrera con
+ * otros procesos de la suite), espera a que anuncie en su cabecera la URL en la que escucha (la imprime tras abrir el
+ * puerto y la vuelca con flush) y lo confirma con un latido, sin sondear el puerto. Devuelve { baseUrl, serverProc }.
  */
-async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) {
+async function startServer(spawnServer, testToken, maxWaitMs = 15000) {
+  const serverProc = spawnServer(0);
   let output = '';
   let cleanup = () => {};
   const listening = new Promise((resolve, reject) => {
     const onData = chunk => {
       output += chunk.toString();
       const announced = output.match(/Servidor HTTP\s*:\s*(\S+)/);
-      if (announced?.[1] === baseUrl) resolve();
-      else if (announced) reject(new Error(`escucha en ${announced[1]}`));
+      if (announced) resolve(announced[1]);
     };
     const onErr = chunk => { output += chunk.toString(); };
     // 'close' llega tras vaciar stdout y stderr: el error de arranque ya está en la salida.
@@ -65,42 +67,23 @@ async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) 
       serverProc.off('close', onExit);
     };
   });
+  let baseUrl;
   try {
-    await listening;
+    baseUrl = await listening;
   } catch (error) {
-    assert.fail(`El servidor zerochat.py no está disponible en ${baseUrl}: ${error.message}. Salida: ${output}`);
+    serverProc.kill('SIGTERM');
+    assert.fail(`El servidor zerochat.py no arrancó: ${error.message}. Salida: ${output}`);
   } finally {
     cleanup();
   }
+  assert.match(baseUrl, /^http:\/\/127\.0\.0\.1:[1-9]\d*$/, 'Anuncia el puerto real que abrió, no el 0');
   const probe = await fetch(baseUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(testToken ? { 'X-ZeroChat-Token': testToken } : {}) },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/heartbeat', params: {} })
   });
   assert.ok(probe.ok, `El latido de arranque respondió ${probe.status}`);
-}
-
-// Intentos de arranque de startServer: cada uno con otro puerto de freePort().
-const START_ATTEMPTS = 3;
-
-/**
- * Arranca zerochat.py con `spawnServer(port)` en un puerto de freePort() y espera su cabecera; devuelve
- * { baseUrl, serverProc }. freePort() libera el puerto antes de que zerochat.py lo ocupe: si entretanto otro
- * proceso de la suite lo toma, el servidor termina con "Address already in use" y se repite con otro puerto.
- */
-async function startServer(spawnServer, testToken) {
-  for (let attempt = 1; ; attempt++) {
-    const port = await freePort();
-    const baseUrl = `http://127.0.0.1:${port}`;
-    const serverProc = spawnServer(port);
-    try {
-      await waitForServer(baseUrl, testToken, serverProc);
-      return { baseUrl, serverProc };
-    } catch (error) {
-      serverProc.kill('SIGTERM');
-      if (attempt >= START_ATTEMPTS || !/Address already in use/.test(error.message)) throw error;
-    }
-  }
+  return { baseUrl, serverProc };
 }
 
 module.exports = { createTokenDataDir, tokenDataDir, startServer, freePort };

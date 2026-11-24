@@ -15,7 +15,7 @@ from core.environment import get_static_root, is_loopback_host
 from core.limits import MAX_HTTP_BODY_BYTES, MAX_RPC_METHOD_LENGTH, MAX_TOOL_NAME_LENGTH
 from core.logging import format_log_error, log_event
 from core.version import VERSION
-from run_mode.state import http_body_limit
+from run_mode.state import current_run_session, http_body_limit
 from security.context import PROJECT_GONE_CODE, ProjectGoneError, request_project_context
 from server.state import mark_browser_active
 from server.rpc import dispatch_local, rpc_login
@@ -370,9 +370,13 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         capture_frontend_user_agent(self.headers.get("User-Agent", ""))
         mark_browser_active()
         grant = self._resolve_grant()
+        # Una ejecución solo atiende a su runner: ni el token diario ni sesiones remotas, ni zerochat/login.
+        run = current_run_session() is not None
+        if run and grant is not None and grant.kind != "runner":
+            grant = None
         if grant is None:
-            # Sin token válido solo cabe identificarse para obtenerlo.
-            if self._serve_login(safe_path, t0):
+            # Sin token válido solo cabe identificarse para obtenerlo, salvo en una ejecución.
+            if not run and self._serve_login(safe_path, t0):
                 return
             self._log_req("POST", safe_path)
             self._reject(401, {
