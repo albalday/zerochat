@@ -43,6 +43,7 @@ import shlex
 import shutil
 import signal
 import socket
+import socketserver
 import sqlite3
 import subprocess
 import sys
@@ -11805,6 +11806,14 @@ class ZeroChatHTTPServer(ThreadingHTTPServer):
     decenas de módulos a la vez, y con la cola de 5 por defecto macOS descarta las que sobran (el cliente agota el
     plazo de conexión) y Windows las reinicia."""
     request_queue_size = 128
+
+    def server_bind(self):
+        """Como HTTPServer.server_bind, sin socket.getfqdn: su resolución inversa del host puede tardar decenas de
+        segundos (en macOS sin DNS inverso, ~35 s) y el nombre del servidor no se usa."""
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = port
 
 # --- cli.main ---
 """Punto de entrada de zerochat: argumentos de la línea de órdenes, arranque del servidor, interfaz, ejecución desatendida y cierre."""

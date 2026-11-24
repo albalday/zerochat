@@ -314,7 +314,8 @@ def _build_email_message(conn: imaplib.IMAP4_SSL | None, cfg: dict, args: dict) 
         msg["Cc"] = cc_header
     msg["Subject"] = subject
     msg["Date"] = email.utils.formatdate(localtime=True)
-    msg["Message-ID"] = email.utils.make_msgid()
+    # Con el dominio del remitente: sin él, make_msgid llama a socket.getfqdn, que puede tardar decenas de segundos.
+    msg["Message-ID"] = email.utils.make_msgid(domain=str(cfg["user"]).rpartition("@")[2] or "localhost")
 
     reply_to_uid = args.get("reply_to_uid")
     if reply_to_uid is not None and str(reply_to_uid).strip():

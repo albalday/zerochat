@@ -8,7 +8,7 @@ import tempfile
 import threading
 import unittest
 from functools import partial
-from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, SimpleHTTPRequestHandler
 from pathlib import Path
 from unittest import mock
 
@@ -58,7 +58,7 @@ class RunnerLoaderTest(unittest.TestCase):
         self.cache_dir = base / "cache"
         self.cache_dir.mkdir()
         RecordingSite.requests = []
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(RecordingSite, directory=str(self.site)))
+        self.server = zerochat.ZeroChatHTTPServer(("127.0.0.1", 0), partial(RecordingSite, directory=str(self.site)))
         threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.url = f"http://127.0.0.1:{self.server.server_address[1]}/zerochat.html#run=r1"
@@ -220,7 +220,7 @@ class RealNodeRunTest(unittest.TestCase):
 
     def setUp(self):
         use_data_dir(self)
-        model = ThreadingHTTPServer(("127.0.0.1", 0), FakeModel)
+        model = zerochat.ZeroChatHTTPServer(("127.0.0.1", 0), FakeModel)
         threading.Thread(target=model.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(model.server_close)
         self.addCleanup(model.shutdown)

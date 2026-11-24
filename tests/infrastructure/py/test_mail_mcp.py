@@ -153,6 +153,12 @@ class MailMcpOperationsTest(unittest.TestCase):
             smtp_tls.starttls.assert_called_once()
             smtp_tls.login.assert_called_once_with("bot@gmail.com", "app-password")
 
+    def test_el_mensaje_se_compone_sin_resolver_el_nombre_del_equipo(self):
+        # make_msgid sin dominio llama a socket.getfqdn, que sin DNS inverso tarda decenas de segundos (macOS).
+        with patch("socket.getfqdn", side_effect=AssertionError("getfqdn")):
+            msg = mail_mcp._build_email_message(None, self.CFG, {"to": "dest@example.com", "subject": "Hola", "body": "Cuerpo"})
+        self.assertTrue(msg["Message-ID"].endswith("@gmail.com>"), msg["Message-ID"])
+
     def test_adjuntos_en_el_borde_exacto_y_aviso_de_truncado(self):
         for count, expect_truncated in ((mail_mcp.MAX_ATTACHMENTS, False), (mail_mcp.MAX_ATTACHMENTS + 1, True)):
             msg = email.message.EmailMessage()

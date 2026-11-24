@@ -1,6 +1,6 @@
 import email.message
 import gzip
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 import io
 import os
 from pathlib import Path
@@ -12,6 +12,16 @@ from unittest.mock import patch
 import urllib.request
 
 from backend import use_data_dir, zerochat
+
+
+class ServerBindTest(unittest.TestCase):
+    def test_el_servidor_arranca_sin_resolver_el_nombre_del_equipo(self):
+        # HTTPServer.server_bind llama a socket.getfqdn, que sin DNS inverso tarda decenas de segundos (macOS).
+        with patch("socket.getfqdn", side_effect=AssertionError("getfqdn")):
+            server = zerochat.ZeroChatHTTPServer(("127.0.0.1", 0), zerochat.ZeroChatServerHandler)
+        self.addCleanup(server.server_close)
+        self.assertEqual((server.server_name, server.server_port), ("127.0.0.1", server.server_address[1]))
+        self.assertNotEqual(server.server_port, 0)
 
 
 class LoopbackTest(unittest.TestCase):
@@ -141,7 +151,7 @@ class WebFetchTest(unittest.TestCase):
             def log_message(self, *args):
                 pass
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), Chain)
+        server = zerochat.ZeroChatHTTPServer(("127.0.0.1", 0), Chain)
         self.addCleanup(server.server_close)
         threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(server.shutdown)

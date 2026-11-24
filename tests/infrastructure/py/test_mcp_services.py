@@ -9,7 +9,7 @@ import threading
 import time
 import unittest
 from functools import partial
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from http.server import SimpleHTTPRequestHandler
 from unittest.mock import Mock, patch
 
 from backend import ZEROCHAT_PY, use_data_dir, zerochat
@@ -259,7 +259,7 @@ class ServiceCatalogTest(unittest.TestCase):
         self.root = data_dir / "services"
         self.site = data_dir / "site"
         self.site.mkdir()
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), partial(QuietFiles, directory=str(self.site)))
+        self.server = zerochat.ZeroChatHTTPServer(("127.0.0.1", 0), partial(QuietFiles, directory=str(self.site)))
         threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(self.server.server_close)
         self.base = zerochat.catalog_base(f"http://127.0.0.1:{self.server.server_address[1]}/zerochat.html#token=t")
