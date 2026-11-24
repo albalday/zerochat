@@ -183,3 +183,46 @@ test('RunNode - startNewSession guarda project, title y createdAt del proyecto c
 });
 
 
+
+test('RunNode - submitComposerText pasa al bucle la carpeta del proyecto y, con projectMode, sus normas y estado como la interfaz', async t => {
+  const ProjectContext = require('../../js/project-context.js');
+  const Config = require('../../js/config-store.js');
+  let capturedOptions = null;
+  t.mock.method(MCP.manager, 'connectProxy', async () => ({ success: true }));
+  t.mock.method(RunMode, 'start', async (_runId, opts) => {
+    capturedOptions = opts;
+    return { ok: true };
+  });
+  await RunNode.startHeadlessRun(['--port', '8284', '--token', 'test_tok', '--run', 'run_project_context']);
+
+  t.mock.method(MCP.manager, 'requestExternalControl', async () => ({ success: true }));
+  const project = { cwd: '/repo/proyecto-b', status: 'ready', rules: { content: 'Normas', truncated: false }, state: { content: 'Estado', truncated: false } };
+  const refresh = t.mock.method(ProjectContext, 'refresh', async () => {
+    State.setProjectContext(project);
+    return project;
+  });
+  const loops = [];
+  t.mock.method(Engine, 'executeAgentTurnLoop', async params => {
+    loops.push({ projectContext: params.projectContext, projectDirectory: params.projectDirectory });
+    return { chatHistory: [...params.chatHistory, { id: 'a', role: 'assistant', content: 'ok' }], finalAssistantText: 'ok' };
+  });
+  State.set('mcp', { status: 'connected', serverInfo: { cwd: '/repo/proyecto-b', noProjectDir: '/home/u/zerochat/general' } });
+  const previousProjectMode = Config.getActive().projectMode;
+  t.after(() => {
+    State.set('mcp', { status: 'disconnected', serverInfo: null });
+    Config.updateRuntime({ projectMode: previousProjectMode });
+  });
+
+  Config.updateRuntime({ projectMode: false });
+  capturedOptions.startNewSession('session_sin_modo');
+  await capturedOptions.submitComposerText('Sin modo proyecto');
+  Config.updateRuntime({ projectMode: true });
+  capturedOptions.startNewSession('session_con_modo');
+  await capturedOptions.submitComposerText('Con modo proyecto');
+
+  assert.equal(refresh.mock.callCount(), 1, 'Solo con projectMode lee las normas y el estado antes del turno');
+  assert.deepEqual(loops[0], { projectContext: null, projectDirectory: '/repo/proyecto-b' });
+  assert.equal(loops[1].projectDirectory, '/repo/proyecto-b');
+  assert.equal(loops[1].projectContext.rules.content, 'Normas');
+  assert.equal(loops[1].projectContext.state.content, 'Estado');
+});

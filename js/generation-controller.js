@@ -228,10 +228,9 @@
     }
 
     // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada.
-    const projectContext = config.projectMode === true ? State.get('project') : null;
-    // Base de las rutas relativas de las herramientas locales, con o sin modo proyecto.
-    const mcpState = State.get('mcp');
-    const projectDirectory = mcpState.status === 'connected' ? String(mcpState.serverInfo?.cwd || '') : '';
+    const { projectContext, projectDirectory } = resolveDep('ChatProjectContext', './project-context.js').turnContext(config);
+    // Cada paso cerrado queda grabado, como en el runner: si la pestaña se cierra a mitad del turno, se conserva lo hecho.
+    let stepSave = Promise.resolve();
 
     let cancelled = false;
     try {
@@ -258,6 +257,12 @@
         onGenerationStatus: update => {
           if (isCurrentSession()) status.setStatus(elements.generationStatus, update);
           options.onProgress?.({ kind: update.phase === 'tool' ? 'tool' : 'status', text: update.text || update.phase || '' });
+        },
+        onStepHistory: history => {
+          if (!isCurrentSession()) return;
+          State.replaceMessages(history);
+          stepSave = stepSave.then(() => options.saveCurrentSession())
+            .catch(error => console.warn('[GenerationController] Could not save the step:', error));
         },
         onProgress: options.onProgress,
         onUsage: options.onUsage,
@@ -334,6 +339,7 @@
       return { error: generationError };
     } finally {
       if (toolDecision) resolveDep('ChatToolCards', './tool-cards.js').setAuthorizationResponder(null);
+      await stepSave;
       await finishGeneration(elements, {
         skipSave: !isCurrentSession(),
         saveCurrentSession: options.saveCurrentSession,

@@ -126,7 +126,10 @@
     };
     let match;
     try {
-      match = context.services.profiles.list()
+      // Como switch_model: en una ejecución en el servidor, sus perfiles (de sesión) van primero.
+      const repository = context.services.profiles;
+      const session = repository.listSessionProfiles?.() || [];
+      match = [...session, ...repository.list().filter(profile => !session.some(item => item.id === profile.id))]
         .find(profile => SUBAGENT_PROFILE_NAMES.has(String(profile?.name || '').trim().toLowerCase()));
     } catch (error) {
       return { error: `The profiles could not be read: ${error?.message || String(error)}` };

@@ -227,7 +227,8 @@
   HeadlessAdapters
 ) {
   'use strict';
-  const { readLaunchFragment } = Utils;
+  const { readLaunchFragment, resolveDep } = Utils;
+  const getProjectContext = () => resolveDep('ChatProjectContext', './project-context.js');
   const { createHeadlessTurnView, createHeadlessConversationStore } = HeadlessAdapters;
 
   /**
@@ -351,6 +352,9 @@
         return { error: 'WebLLM / WebGPU is not supported in the headless Node.js runner.' };
       }
       currentAbortController = new AbortController();
+      // Como en la interfaz: normas y estado del proyecto con projectMode y la carpeta de las rutas relativas.
+      if (activeConfig.projectMode === true) await getProjectContext().refresh();
+      const { projectContext, projectDirectory } = getProjectContext().turnContext(activeConfig);
 
       const view = createHeadlessTurnView({
         getAuthorizationResponder: () => ToolCards.getAuthorizationResponder?.() || null
@@ -360,6 +364,8 @@
         apiKey: activeProfile?.settings?.apiKey || '',
         chatHistory: State.get('messages'),
         appConfig: activeConfig,
+        projectContext,
+        projectDirectory,
         activateProfile: async (profileId, profile) => {
           if (profile?.settings?.apiType === 'webllm') throw new Error('WebLLM / WebGPU profiles are not supported in the headless Node.js runner.');
           await activateSessionProfile(profileId);

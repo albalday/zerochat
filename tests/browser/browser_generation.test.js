@@ -108,6 +108,39 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
     });
   });
 
+  test('Browser UI - cada paso con herramientas queda guardado antes de que termine el turno', async () => {
+    await withTestApp(async page => {
+      await page.evaluate(() => {
+        window.ChatConfig.updateRuntime({ enabledTools: { ...window.ChatConfig.getActive().enabledTools, execute_javascript: true } });
+        let step = 0;
+        window.ChatAPI.streamChatCompletion = () => {
+          step += 1;
+          if (step === 1) {
+            return Promise.resolve({ accumulatedText: '', stats: null,
+              toolCalls: [{ id: 'call_js', type: 'function', function: { name: 'execute_javascript', arguments: JSON.stringify({ code: 'return 6 * 7;' }) } }] });
+          }
+          // El segundo paso no termina hasta que la prueba lo suelta: lo guardado es solo el primero.
+          return new Promise(resolve => { window.__finishTurn = () => resolve({ accumulatedText: 'Son 42.', toolCalls: [], stats: null }); });
+        };
+      });
+      await page.fill('#user-input', 'Calcula');
+      await page.click('#btn-send');
+      await page.waitForFunction(() => typeof window.__finishTurn === 'function');
+      const saved = await page.waitForFunction(async () => {
+        const id = window.ChatState.get('sessions').activeId;
+        const history = (await window.ChatStorage.getConversation(id))?.history || [];
+        return history.some(message => message.role === 'tool' && message.name === 'execute_javascript') && history.map(message => message.role);
+      });
+      assert.deepEqual(await saved.jsonValue(), ['system', 'user', 'assistant', 'tool']);
+      assert.equal(await page.evaluate(() => window.ChatState.get('streaming').isGenerating), true);
+
+      await page.evaluate(() => window.__finishTurn());
+      await page.waitForFunction(() => !window.ChatState.get('streaming').isGenerating);
+      const final = await page.evaluate(async () => (await window.ChatStorage.getConversation(window.ChatState.get('sessions').activeId)).history);
+      assert.equal(final.at(-1).content, 'Son 42.');
+    });
+  });
+
   test('Browser UI - borrar todos los datos pide confirmación, detiene la generación, limpia y recarga; si falla avisa sin recargar', async () => {
     await withTestApp(async page => {
       await useProvider(page, async () => ({ accumulatedText: 'ok', toolCalls: null, stats: null }));

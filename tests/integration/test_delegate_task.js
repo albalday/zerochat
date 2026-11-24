@@ -217,4 +217,15 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
   services.profiles = { list: () => { throw new Error('corrupt storage'); } };
   assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /profiles could not be read: corrupt storage/);
   assert.equal(requests.length, 2);
+
+  // En una ejecución en el servidor, el perfil Subagente de sesión (del servidor) va antes que uno guardado con el mismo nombre.
+  const loadedIds = [];
+  services.profiles = {
+    listSessionProfiles: () => [{ id: 'server:Subagente', name: 'Subagente', settings: {} }],
+    list: () => [{ id: 'profile:Subagente', name: 'Subagente', settings: {} }],
+    loadUnlocked: async id => { loadedIds.push(id); return { settings: { apiUrl: 'http://srv/v1', apiType: 'openai', model: 'srv-model' } }; }
+  };
+  assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
+  assert.deepEqual(loadedIds, ['server:Subagente']);
+  assert.equal(requests[2].model, 'srv-model');
 });

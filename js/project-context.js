@@ -428,7 +428,19 @@ ${stateBody}
       }
     }
 
-    return { refresh, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory, canDeleteProject, deleteProject };
+    /**
+     * Lo que un turno recibe del proyecto, igual en la interfaz y en el runner de Node: `projectContext`, la
+     * instantánea de normas y estado si el modo proyecto está activo (o null), y `projectDirectory`, la carpeta del
+     * servidor contra la que se resuelven las rutas relativas de las herramientas locales, con o sin modo proyecto.
+     */
+    function turnContext(config) {
+      return {
+        projectContext: config?.projectMode === true ? getState().get('project') : null,
+        projectDirectory: getCwd()
+      };
+    }
+
+    return { refresh, turnContext, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory, canDeleteProject, deleteProject };
   }
 
   const defaultContext = createProjectContext();
@@ -446,6 +458,7 @@ ${stateBody}
     buildAgentBootstrapPrompt,
     buildCompactPrompt,
     refresh: defaultContext.refresh,
+    turnContext: defaultContext.turnContext,
     canInitialize: defaultContext.canInitialize,
     initialize: defaultContext.initialize,
     canCompact: defaultContext.canCompact,
