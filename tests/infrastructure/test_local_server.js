@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const pkg = require('../../package.json');
 const { McpClient } = require('../../js/mcp.js');
-const { tokenDataDir, waitForServer, freePort } = require('../helpers/backend-env.js');
+const { tokenDataDir, startServer } = require('../helpers/backend-env.js');
 
 // Un solo proceso para todos los comportamientos que comparten la misma CLI y el mismo entorno.
 describe('Servidor local zerochat.py', () => {
@@ -53,16 +53,17 @@ describe('Servidor local zerochat.py', () => {
     const servicePlaywright = path.join(dataDir, 'services', 'playwright', 'node_modules', 'playwright');
     fs.mkdirSync(path.dirname(servicePlaywright), { recursive: true });
     fs.symlinkSync(path.join(repoRoot, 'node_modules', 'playwright'), servicePlaywright, 'junction');
-    const port = await freePort();
-    baseUrl = `http://127.0.0.1:${port}`;
-    serverProc = spawn('python3', [path.resolve(repoRoot, 'zerochat.py'), '--port', String(port), '--no-browser', '--no-venv'], {
-      cwd: repoRoot,
-      // Sin la configuración de Git del usuario: el visor de diffs solo ve la del repositorio de prueba.
-      env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
-    serverProc.stdout.on('data', chunk => { serverOutput += chunk; });
-    await waitForServer(baseUrl, testToken, serverProc);
+    ({ baseUrl, serverProc } = await startServer(port => {
+      const proc = spawn('python3', [path.resolve(repoRoot, 'zerochat.py'), '--port', String(port), '--no-browser', '--no-venv'], {
+        cwd: repoRoot,
+        // Sin la configuración de Git del usuario: el visor de diffs solo ve la del repositorio de prueba.
+        env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+      serverOutput = '';
+      proc.stdout.on('data', chunk => { serverOutput += chunk; });
+      return proc;
+    }, testToken));
     initResult = (await rpc('initialize')).result;
   });
 
@@ -386,19 +387,20 @@ describe('Servidor local zerochat.py', () => {
 test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos comprometidos y --keep-server desactiva el watchdog', async () => {
   const repoRoot = path.resolve(__dirname, '../..');
   const serverPath = path.resolve(repoRoot, 'zerochat.py');
-  const port = await freePort();
-  const baseUrl = `http://127.0.0.1:${port}`;
   const testToken = 'super-secret-token-xyz-987';
-
-  const serverProc = spawn('python3', [
-    serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
-  ], { env: { ...process.env, ZEROCHAT_DATA_DIR: tokenDataDir(testToken) }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const dataDir = tokenDataDir(testToken);
 
   let serverOutput = '';
-  serverProc.stdout.on('data', chunk => { serverOutput += chunk.toString(); });
+  const { baseUrl, serverProc } = await startServer(port => {
+    const proc = spawn('python3', [
+      serverPath, '--port', String(port), '--no-browser', '--keep-server', '--no-venv'
+    ], { env: { ...process.env, ZEROCHAT_DATA_DIR: dataDir }, stdio: ['ignore', 'pipe', 'pipe'] });
+    serverOutput = '';
+    proc.stdout.on('data', chunk => { serverOutput += chunk.toString(); });
+    return proc;
+  }, testToken);
 
   try {
-    await waitForServer(baseUrl, testToken, serverProc);
 
     // 1. Petición POST sin token (401 Unauthorized) y GET fuera de la interfaz (404)
     await fetch(baseUrl, { method: 'POST', body: '{}' });

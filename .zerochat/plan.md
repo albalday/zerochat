@@ -33,4 +33,5 @@ Done when: las tareas acordadas de M87 están implementadas con todos los nivele
 - [x] M87-T7 Historial: conmutador Chats/Agentes en lugar de mezclar ambos, Tareas pendientes solo con needs_input y cabeceras de agente sin estirarse en vertical (2026-11-24)
 - [x] M87-T8 Historial de agentes plano: cada conversación con el nombre de su agente y fecha, sin secciones plegables; conmutador Chats/Agentes en su propia línea (2026-11-24)
 - [x] M87-T9 Historial: borrar la conversación de agente abierta no vuelve a Chats; aviso de solo lectura sobre el compositor en conversaciones de agente (2026-11-24)
+- [x] M87-T10 CI: las pruebas que arrancan zerochat.py reintentan con otro puerto si otro proceso de la suite ocupa el de freePort() (2026-11-24)
 

@@ -52,16 +52,17 @@ async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) 
       else if (announced) reject(new Error(`escucha en ${announced[1]}`));
     };
     const onErr = chunk => { output += chunk.toString(); };
+    // 'close' llega tras vaciar stdout y stderr: el error de arranque ya está en la salida.
     const onExit = code => reject(new Error(`terminó con código ${code}`));
     const timer = setTimeout(() => reject(new Error(`no arrancó en ${maxWaitMs} ms`)), maxWaitMs);
     serverProc.stdout.on('data', onData);
     serverProc.stderr.on('data', onErr);
-    serverProc.once('exit', onExit);
+    serverProc.once('close', onExit);
     cleanup = () => {
       clearTimeout(timer);
       serverProc.stdout.off('data', onData);
       serverProc.stderr.off('data', onErr);
-      serverProc.off('exit', onExit);
+      serverProc.off('close', onExit);
     };
   });
   try {
@@ -79,4 +80,27 @@ async function waitForServer(baseUrl, testToken, serverProc, maxWaitMs = 15000) 
   assert.ok(probe.ok, `El latido de arranque respondió ${probe.status}`);
 }
 
-module.exports = { createTokenDataDir, tokenDataDir, waitForServer, freePort };
+// Intentos de arranque de startServer: cada uno con otro puerto de freePort().
+const START_ATTEMPTS = 3;
+
+/**
+ * Arranca zerochat.py con `spawnServer(port)` en un puerto de freePort() y espera su cabecera; devuelve
+ * { baseUrl, serverProc }. freePort() libera el puerto antes de que zerochat.py lo ocupe: si entretanto otro
+ * proceso de la suite lo toma, el servidor termina con "Address already in use" y se repite con otro puerto.
+ */
+async function startServer(spawnServer, testToken) {
+  for (let attempt = 1; ; attempt++) {
+    const port = await freePort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+    const serverProc = spawnServer(port);
+    try {
+      await waitForServer(baseUrl, testToken, serverProc);
+      return { baseUrl, serverProc };
+    } catch (error) {
+      serverProc.kill('SIGTERM');
+      if (attempt >= START_ATTEMPTS || !/Address already in use/.test(error.message)) throw error;
+    }
+  }
+}
+
+module.exports = { createTokenDataDir, tokenDataDir, startServer, freePort };
