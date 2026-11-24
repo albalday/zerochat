@@ -145,7 +145,7 @@ def parse_run_request(raw: bytes) -> dict:
     return request
 
 
-def _run_process_alive(data: dict) -> bool:
+def run_process_alive(data: dict) -> bool:
     """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
     pid = data.get("pid")
     saved_start = data.get("pid_start")
@@ -248,7 +248,7 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             continue
 
         status = data.get("status")
-        if status == "running" and _run_process_alive(data):
+        if status == "running" and run_process_alive(data):
             watch_run_exit(data["pid"], data.get("pid_start"))
         elif status == "running":
             now = int(time.time() * 1000)
@@ -320,7 +320,7 @@ def check_no_active_run(conv_id: str, own_run_id: str | None = None):
     """Una conversación solo tiene una ejecución en marcha. `own_run_id` es la del proceso que pregunta: el hijo que
     lanza zerochat/run/start ya está anotado con su run_id antes de arrancar y no se cuenta como otra."""
     existing = get_run_state(conv_id)
-    if existing and existing.get("status") == "running" and existing.get("run_id") != own_run_id and _run_process_alive(existing):
+    if existing and existing.get("status") == "running" and existing.get("run_id") != own_run_id and run_process_alive(existing):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
@@ -394,7 +394,7 @@ def cancel_server_run(conversation_id: str) -> dict:
     clean_conv_id = _validate_conversation_id(conversation_id)
     data = get_run_state(clean_conv_id)
     if data:
-        if data.get("status") == "running" and _run_process_alive(data):
+        if data.get("status") == "running" and run_process_alive(data):
             _kill_process_tree(data.get("pid"), grace_seconds=0.05)
         remove_run_state(clean_conv_id)
     return {"cancelled": True}

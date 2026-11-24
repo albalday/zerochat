@@ -81,6 +81,9 @@ LONG_POLL_MAX_WAIT_MS = 30000
 
 
 _LIVE_CHANGE_HOOKS: list[typing.Callable[[], None]] = []
+# Secuencia de avisos, para que quien espera un cambio no pierda uno que llegue mientras relee (wait_live_change).
+_LIVE_CHANGE_COND = threading.Condition()
+_LIVE_CHANGE_SEQ = 0
 
 
 def on_live_change(hook: typing.Callable[[], None]):
@@ -91,8 +94,30 @@ def on_live_change(hook: typing.Callable[[], None]):
 
 def notify_live_change() -> None:
     """Avisa a los registrados de que el estado vivo (comandos, servicios, motores, ejecuciones o conversaciones) cambió."""
+    global _LIVE_CHANGE_SEQ
+    with _LIVE_CHANGE_COND:
+        _LIVE_CHANGE_SEQ += 1
+        _LIVE_CHANGE_COND.notify_all()
     for hook in list(_LIVE_CHANGE_HOOKS):
         hook()
+
+
+def live_change_seq() -> int:
+    """Número del último aviso: se toma antes de leer el estado y se pasa a wait_live_change."""
+    with _LIVE_CHANGE_COND:
+        return _LIVE_CHANGE_SEQ
+
+
+def wait_live_change(seq: int, timeout: float) -> int:
+    """Espera como mucho timeout segundos a un aviso posterior a seq, sin sondeo; devuelve el número del último."""
+    deadline = time.monotonic() + max(0.0, timeout)
+    with _LIVE_CHANGE_COND:
+        while _LIVE_CHANGE_SEQ == seq:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            _LIVE_CHANGE_COND.wait(remaining)
+        return _LIVE_CHANGE_SEQ
 
 # --- core.logging ---
 """Registro en consola con la hora local; la consola interactiva, si existe, recibe las líneas."""
@@ -5280,7 +5305,7 @@ def parse_run_request(raw: bytes) -> dict:
     return request
 
 
-def _run_process_alive(data: dict) -> bool:
+def run_process_alive(data: dict) -> bool:
     """Comprueba si el proceso de una ejecución sigue activo y corresponde al arranque original."""
     pid = data.get("pid")
     saved_start = data.get("pid_start")
@@ -5383,7 +5408,7 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
             continue
 
         status = data.get("status")
-        if status == "running" and _run_process_alive(data):
+        if status == "running" and run_process_alive(data):
             watch_run_exit(data["pid"], data.get("pid_start"))
         elif status == "running":
             now = int(time.time() * 1000)
@@ -5455,7 +5480,7 @@ def check_no_active_run(conv_id: str, own_run_id: str | None = None):
     """Una conversación solo tiene una ejecución en marcha. `own_run_id` es la del proceso que pregunta: el hijo que
     lanza zerochat/run/start ya está anotado con su run_id antes de arrancar y no se cuenta como otra."""
     existing = get_run_state(conv_id)
-    if existing and existing.get("status") == "running" and existing.get("run_id") != own_run_id and _run_process_alive(existing):
+    if existing and existing.get("status") == "running" and existing.get("run_id") != own_run_id and run_process_alive(existing):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
@@ -5529,7 +5554,7 @@ def cancel_server_run(conversation_id: str) -> dict:
     clean_conv_id = _validate_conversation_id(conversation_id)
     data = get_run_state(clean_conv_id)
     if data:
-        if data.get("status") == "running" and _run_process_alive(data):
+        if data.get("status") == "running" and run_process_alive(data):
             _kill_process_tree(data.get("pid"), grace_seconds=0.05)
         remove_run_state(clean_conv_id)
     return {"cancelled": True}
@@ -6139,7 +6164,8 @@ def _atomic_write_text(target: Path, text: str):
 """check_agents: estado de los agentes que vigila un agente master, solo en la ejecución --run-file con watchAgents.
 
 Lee conversaciones y ejecuciones de SQLite filtrando estrictamente por el proyecto de la ejecución y por los patrones de
-watchAgents: nunca chats humanos (sin agent) ni conversaciones de otros proyectos.
+watchAgents: nunca chats humanos (sin agent) ni conversaciones de otros proyectos. Con wait_seconds espera, sin que el
+modelo tenga que sondear, a que cambie el estado de alguno de los agentes consultados.
 """
 
 
@@ -6150,6 +6176,11 @@ AGENTS_TOOL = "check_agents"
 AGENT_RESULT_SUMMARY_CHARS = 500
 # Texto de los mensajes del último turno que devuelve el detalle, entre todos.
 AGENT_TURN_MAX_CHARS = 20000
+# Tope de wait_seconds: por debajo de los 300 s que el fetch de Node espera la respuesta (headersTimeout del runner).
+AGENT_MAX_WAIT = 240
+# Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
+# ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
+AGENT_WAIT_RECHECK_SECONDS = 5.0
 
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
@@ -6168,19 +6199,20 @@ def _watched_conversations(ctx: SecurityContext, patterns: tuple[str, ...], own_
             if conv["id"] != own_id and (conv.get("project") or "") == project and agent_matches(conv.get("agent"), patterns)]
 
 
-def _agent_state(conv: dict) -> dict:
-    """Estado de la última ejecución de una conversación de agente, con la respuesta final resumida."""
-    run = get_run_state(conv["id"]) or {}
+def _agent_state(conv: dict, run: dict) -> dict:
+    """Estado de la última ejecución de una conversación de agente, con la respuesta final resumida. Una en marcha
+    cuyo proceso ya no existe terminó sin poder guardar su final: se da como error."""
     result, clipped = _clip(run.get("result_text") or "", AGENT_RESULT_SUMMARY_CHARS)
+    died = run.get("status") == "running" and not run_process_alive(run)
     return {
         "agent": conv["agent"],
         "conversation_id": conv["id"],
-        "status": run.get("status"),
+        "status": "error" if died else run.get("status"),
         "updated_at": run.get("updated_at") or conv.get("updatedAt"),
         "finished_at": run.get("finished_at"),
         "step_text": run.get("step_text") or "",
         "pending": run.get("pending"),
-        "error": run.get("error"),
+        "error": "The agent's run process ended unexpectedly." if died else run.get("error"),
         "warnings": run.get("warnings") or [],
         "result_text": result,
         **({"result_truncated": True} if clipped else {}),
@@ -6205,29 +6237,76 @@ def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
     return messages, truncated
 
 
-def check_agents(agent: str | None = None, conversation_id: str | None = None, ctx: SecurityContext | None = None) -> str:
+def _selected(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str, agent: str | None,
+              conversation_id: str | None) -> list[tuple[dict, dict]] | None:
+    """Las conversaciones consultadas con su ejecución: la más reciente de cada agente vigilado, la de agent o la de
+    conversation_id; None si agent o conversation_id no es de un agente vigilado."""
+    convs = _watched_conversations(ctx, patterns, own_id)
+    if conversation_id is not None:
+        picked = [conv for conv in convs if conv["id"] == conversation_id][:1]
+    elif agent is not None:
+        picked = [conv for conv in convs if conv["agent"] == agent][:1]
+    else:
+        latest: dict[str, dict] = {}
+        for conv in convs:
+            latest.setdefault(conv["agent"], conv)
+        return [(conv, get_run_state(conv["id"]) or {}) for conv in latest.values()]
+    return [(conv, get_run_state(conv["id"]) or {}) for conv in picked] or None
+
+
+def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None, str]:
+    """Relee con read() hasta que cambie alguna conversación consultada o su estado (una nueva, otra que termina o
+    se pausa), o pase wait. Devuelve lo último leído y el motivo."""
+    def signature(selected):
+        return None if selected is None else [(conv["id"], _agent_state(conv, run)["status"]) for conv, run in selected]
+
+    deadline = time.monotonic() + wait
+    seq = live_change_seq()
+    selected = read()
+    initial = signature(selected)
+    while True:
+        for _conv, run in selected or ():
+            if run.get("status") == "running" and run.get("pid"):
+                watch_run_exit(run["pid"], run.get("pid_start"))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return selected, "wait_elapsed"
+        seq = wait_live_change(seq, min(remaining, AGENT_WAIT_RECHECK_SECONDS))
+        selected = read()
+        if signature(selected) != initial:
+            return selected, "agent_changed"
+
+
+def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
+                 ctx: SecurityContext | None = None) -> str:
     """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente); con agent o conversation_id,
-    además los mensajes de su último turno."""
+    además los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie."""
     session = current_run_session()
     patterns = session.watch_agents if session is not None else ()
     if not patterns or ctx is None:
         return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
-    convs = _watched_conversations(ctx, patterns, session.conversation_id or session.new_conversation_id or "")
-    if conversation_id is None and agent is None:
-        latest: dict[str, dict] = {}
-        for conv in convs:
-            latest.setdefault(conv["agent"], conv)
-        return json.dumps({"success": True, "agents": [_agent_state(conv) for conv in latest.values()]}, ensure_ascii=False)
-    if conversation_id is not None:
-        conv = next((item for item in convs if item["id"] == conversation_id), None)
+    own_id = session.conversation_id or session.new_conversation_id or ""
+
+    def read():
+        return _selected(ctx, patterns, own_id, agent, conversation_id)
+
+    wait = max(0, min(int(wait_seconds or 0), AGENT_MAX_WAIT))
+    extra = {}
+    if wait:
+        started = time.monotonic()
+        selected, reason = _wait_for_change(read, wait)
+        extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
     else:
-        conv = next((item for item in convs if item["agent"] == agent), None)
-    if conv is None:
+        selected = read()
+    if selected is None:
         return _tool_error("That agent or conversation is not a watched agent of this project.")
+    if conversation_id is None and agent is None:
+        return json.dumps({"success": True, "agents": [_agent_state(conv, run) for conv, run in selected], **extra}, ensure_ascii=False)
+    conv, run = selected[0]
     full = get_conversation(conv["id"]) or {}
     messages, truncated = _last_turn(full.get("history") or [])
-    return json.dumps({"success": True, **_agent_state(conv), "last_turn": messages,
-                       **({"last_turn_truncated": True} if truncated else {})}, ensure_ascii=False)
+    return json.dumps({"success": True, **_agent_state(conv, run), "last_turn": messages,
+                       **({"last_turn_truncated": True} if truncated else {}), **extra}, ensure_ascii=False)
 
 # --- tools.browser_action ---
 """Herramienta browser_action: una sesión persistente de Playwright con los motores propios o el navegador del sistema."""
@@ -10171,13 +10250,17 @@ CHECK_AGENTS_DEFINITION = {
     "description": (
         "Status of the agents of this project that this run supervises (watchAgents). Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
-        "error, warnings and a summary of its final answer. With agent or conversation_id, also the messages of its last turn."
+        "error, warnings and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
+        "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
+        "changes status (finishes, pauses or a new run starts) or when the time is up (returned_because says which); "
+        "call it again with wait_seconds while they are still running."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
-            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"}
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
+            "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0}
         }
     }
 }

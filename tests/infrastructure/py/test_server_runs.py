@@ -500,6 +500,53 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             detail = check(conversation_id="largo")
             self.assertEqual((sum(len(m["content"]) for m in detail["last_turn"]), detail.get("last_turn_truncated", False)), (turn_limit, truncated))
 
+    def test_check_agents_espera_sin_sondeo_a_que_cambie_algun_agente_vigilado(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()))
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        for conv_id, updated_at in (("diario", 1000), ("semanal", 2000), ("master", 3000)):
+            agent = "informes.master" if conv_id == "master" else f"informes.{conv_id}"
+            zerochat.save_conversation({"id": conv_id, "title": conv_id, "updatedAt": updated_at, "project": ctx.key, "agent": agent},
+                                       [{"id": f"{conv_id}_u", "role": "user", "content": "Empieza"}])
+        worker = start_worker(self)
+        upsert_run({"run_id": "r1", "conversation_id": "diario", "status": "running", "pid": worker.pid,
+                    "pid_start": zerochat._process_start_token(worker.pid)})
+        upsert_run({"run_id": "r2", "conversation_id": "semanal", "status": "completed"})
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        self.assertIsNone(zerochat.validate_local_tool_arguments("check_agents", {"wait_seconds": 30}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"wait_seconds": "30"}))
+
+        # Sin cambios, vuelve al agotar el plazo con el mismo estado; sin wait_seconds no espera ni lo indica.
+        self.assertNotIn("returned_because", check())
+        started = time.monotonic()
+        result = check(wait_seconds=1)
+        self.assertGreaterEqual(time.monotonic() - started, 1)
+        self.assertEqual((result["returned_because"], [item["status"] for item in result["agents"]]), ("wait_elapsed", ["completed", "running"]))
+
+        # Un agente que termina en otro proceso despierta la espera por su PID, sin releer SQLite cada tanto.
+        with mock.patch.object(zerochat, "AGENT_WAIT_RECHECK_SECONDS", 60):
+            threading.Timer(0.3, worker.terminate).start()
+            started = time.monotonic()
+            result = check(wait_seconds=30)
+        self.assertLess(time.monotonic() - started, 10)
+        self.assertEqual(result["returned_because"], "agent_changed")
+        # Murió sin guardar su final: se da como error, no como en marcha para siempre.
+        diario = next(item for item in result["agents"] if item["agent"] == "informes.diario")
+        self.assertEqual((diario["status"], diario["error"]), ("error", "The agent's run process ended unexpectedly."))
+
+        # Un cambio guardado en SQLite (una ejecución nueva de un agente) también la despierta, y en el detalle trae su último turno.
+        threading.Timer(0.3, upsert_run, [{"run_id": "r3", "conversation_id": "semanal", "status": "running", "pid": os.getpid(),
+                                           "pid_start": zerochat._process_start_token(os.getpid())}]).start()
+        result = check(agent="informes.semanal", wait_seconds=30)
+        self.assertEqual((result["returned_because"], result["status"], result["last_turn"][0]["content"]), ("agent_changed", "running", "Empieza"))
+
+        # El plazo tiene tope (por debajo del que el runner de Node espera una respuesta) y uno negativo no espera.
+        self.assertLess(zerochat.AGENT_MAX_WAIT, 300)
+        started = time.monotonic()
+        self.assertEqual(check(wait_seconds=-5).get("returned_because"), None)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertFalse(check(agent="ventas.diario", wait_seconds=1)["success"])
+
     def test_los_permisos_denegados_quedan_en_los_avisos_de_la_ejecucion_con_tope(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
@@ -892,7 +939,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertTrue(notified.wait(5))
         # Lo recogió el hilo (returncode), no la prueba: no queda zombi y ya no figura en marcha.
         self.assertIsNotNone(worker.returncode)
-        self.assertFalse(zerochat._run_process_alive({"pid": worker.pid, "pid_start": start}))
+        self.assertFalse(zerochat.run_process_alive({"pid": worker.pid, "pid_start": start}))
 
     def test_el_latido_en_espera_despierta_al_terminar_una_ejecucion_y_solo_relee_con_su_conversacion_a_la_vista(self):
         ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)

@@ -11,17 +11,33 @@ Agent run-file template (agents/template.json — omit conversation_id for a fre
 }
 ```
 
-Agent launcher template (agents/template.sh):
+Agent launcher template (agents/template.sh — set ZEROCHAT_NOTIFY to be alerted when a run pauses, hits its limit or fails):
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+AGENT="<set>.<role>"
+# Optional alert command, called as: $ZEROCHAT_NOTIFY <agent> <needs_input|limit|error> <exit code> <conversation_id>
+# (e.g. ZEROCHAT_NOTIFY="notify-send ZeroChat" in the crontab, or a script that sends mail or a chat message).
+NOTIFY="${ZEROCHAT_NOTIFY:-}"
+err="$(mktemp)"
+trap 'rm -f "$err"' EXIT
 set +e
-# stderr carries "[run] conversation_id=<id> new=true|false" even with --log off: keep it to follow the run.
-zerochat --run-file "agents/<role>.json"
+zerochat --run-file "agents/<role>.json" 2>"$err"
 rc=$?
 set -e
-# 0: completed, 5: needs_input (answer in ZeroChat's Pending tasks view; resumes with stored launch), 6: limit reached,
-# 7: this conversation is already running (overlapping cron), nothing was launched
+cat "$err" >&2
+# stderr carries "[run] conversation_id=<id> new=true|false" even with --log off.
+conv="$(sed -n 's/^\[run\] conversation_id=\([^ ]*\).*/\1/p' "$err" | head -n 1)"
+case "$rc" in
+  0) status="" ;;            # completed
+  5) status="needs_input" ;; # answer it in ZeroChat's Pending tasks view; it resumes with its stored launch
+  6) status="limit" ;;       # maxSteps or timeout reached; continue the conversation to finish
+  7) status="" ;;            # this conversation is already running (overlapping cron): nothing was launched
+  *) status="error" ;;
+esac
+if [ -n "$status" ] && [ -n "$NOTIFY" ]; then
+  $NOTIFY "$AGENT" "$status" "$rc" "$conv" || echo "[notify] the alert command failed" >&2
+fi
 exit "$rc"
 ```
