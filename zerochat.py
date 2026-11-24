@@ -1164,7 +1164,7 @@ def parse_nonneg_int(value, label: str, default: int = 0) -> int:
 
 
 
-SOURCE_BACKEND_VERSION = "10.44.0"
+SOURCE_BACKEND_VERSION = "10.45.0"
 
 
 def _read_source_version(filename: str) -> str | None:
