@@ -47,9 +47,13 @@ LAUNCH_AGENT_TOOL = "launch_agent"
 MASTER_TOOLS = (AGENTS_TOOL, LAUNCH_AGENT_TOOL)
 # Tope del prompt que launch_agent pone en lugar del del run-file.
 MAX_LAUNCH_PROMPT_LENGTH = 32768
-# Resumen de la respuesta final de cada agente en el listado.
-AGENT_RESULT_SUMMARY_CHARS = 500
-# Texto de los mensajes del último turno que devuelve el detalle, entre todos.
+# Respuesta final de cada agente en el listado: entera hasta AGENT_LIST_RESULT_MAX_CHARS, y entre todas como mucho
+# AGENT_LIST_TOTAL_CHARS; la que no cabe se omite con su longitud (result_chars) para leerla en el detalle.
+AGENT_LIST_RESULT_MAX_CHARS = 4000
+AGENT_LIST_TOTAL_CHARS = 24000
+# Bloque de la respuesta final que devuelve el detalle por página (offset y next_offset).
+AGENT_RESULT_PAGE_CHARS = 20000
+# Texto de los mensajes del último turno que devuelve el detalle con include_turn, entre todos.
 AGENT_TURN_MAX_CHARS = 20000
 # Tope de wait_seconds: solo existe en modo ejecución, donde el runner de Node no espera más una respuesta.
 AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
@@ -98,9 +102,8 @@ def _watched_conversations(ctx: SecurityContext, patterns: tuple[str, ...], own_
 
 
 def _agent_state(conv: dict, run: dict) -> dict:
-    """Estado de la última ejecución de una conversación de agente, con la respuesta final resumida. Una en marcha
-    cuyo proceso ya no existe terminó sin poder guardar su final: se da como error."""
-    result, clipped = _clip(run.get("result_text") or "", AGENT_RESULT_SUMMARY_CHARS)
+    """Estado de la última ejecución de una conversación de agente, sin su respuesta final (la añaden el listado y el
+    detalle). Una en marcha cuyo proceso ya no existe terminó sin poder guardar su final: se da como error."""
     died = run.get("status") == "running" and not run_process_alive(run)
     return {
         "agent": conv["agent"],
@@ -113,9 +116,33 @@ def _agent_state(conv: dict, run: dict) -> dict:
         "error": "The agent's run process ended unexpectedly." if died else run.get("error"),
         "warnings": run.get("warnings") or [],
         "usage": run.get("usage"),
-        "result_text": result,
-        **({"result_truncated": True} if clipped else {}),
     }
+
+
+def _listing(selected: list[tuple[dict, dict]]) -> dict:
+    """El listado con la respuesta final entera de cada agente mientras quepa (por agente y entre todos); la que no,
+    sin texto y con result_chars."""
+    budget, agents, omitted = AGENT_LIST_TOTAL_CHARS, [], False
+    for conv, run in selected:
+        result = run.get("result_text") or ""
+        entry = _agent_state(conv, run)
+        if len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
+            entry["result_text"] = result
+            budget -= len(result)
+        else:
+            entry["result_chars"] = len(result)
+            omitted = True
+        agents.append(entry)
+    note = ("Final answers that did not fit are omitted (see result_chars): read them with check_agents(conversation_id=...)."
+            if omitted else None)
+    return {"agents": agents, **({"note": note} if note else {})}
+
+
+def _result_page(result: str, offset: int) -> dict:
+    """Un bloque de AGENT_RESULT_PAGE_CHARS de la respuesta final desde offset; next_offset es None en el último."""
+    end = offset + AGENT_RESULT_PAGE_CHARS
+    return {"result_text": result[offset:end], "result_chars": len(result), "offset": offset,
+            "next_offset": end if end < len(result) else None}
 
 
 def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
@@ -197,9 +224,11 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
 
 
 def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
-                 prune_keep: int | None = None, project: str | None = None, ctx: SecurityContext | None = None) -> str:
-    """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente); con agent o conversation_id,
-    además los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
+                 prune_keep: int | None = None, project: str | None = None, offset: int = 0, include_turn: bool = False,
+                 ctx: SecurityContext | None = None) -> str:
+    """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente) con su respuesta final si cabe;
+    con agent o conversation_id, su respuesta final por bloques desde offset y, con include_turn, los mensajes de su
+    último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
     Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes vigilados (o de agent). Con
     project, los agentes de esa carpeta en lugar de los del proyecto de la ejecución."""
     session = current_run_session()
@@ -211,15 +240,15 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
         ctx = _target_project(ctx, project, "RW" if prune_keep is not None else "R")
     except ValueError as exc:
         return _tool_error(str(exc))
+    detail = agent is not None or conversation_id is not None
+    if (offset or include_turn) and (prune_keep is not None or not detail):
+        return _tool_error("offset and include_turn go with agent or conversation_id.")
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return _tool_error("offset must be a non-negative integer.")
     if prune_keep is not None:
         if conversation_id is not None or wait_seconds:
             return _tool_error("prune_keep goes alone or with agent, without conversation_id or wait_seconds.")
-        if isinstance(prune_keep, bool) or not isinstance(prune_keep, int) or not 0 <= prune_keep <= AGENT_PRUNE_KEEP_MAX:
-            return _tool_error(f"prune_keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
-        convs = _watched_conversations(ctx, patterns, own_id)
-        if agent is not None and not any(conv["agent"] == agent for conv in convs):
-            return _tool_error("That agent is not a watched agent of this project.")
-        return _prune(convs, agent, prune_keep)
+        return _checked_prune(_watched_conversations(ctx, patterns, own_id), agent, prune_keep)
 
     def read():
         return _selected(ctx, patterns, own_id, agent, conversation_id)
@@ -234,14 +263,30 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
         selected = read()
     if selected is None:
         return _tool_error("That agent or conversation is not a watched agent of this project.")
-    if conversation_id is None and agent is None:
-        return json.dumps({"success": True, "agents": [_agent_state(conv, run) for conv, run in selected], **extra}, ensure_ascii=False)
-    conv, run = selected[0]
-    full = get_conversation(conv["id"]) or {}
-    messages, truncated = _last_turn(full.get("history") or [])
-    return json.dumps({"success": True, **_agent_state(conv, run), "last_turn": messages,
-                       **({"last_turn_truncated": True} if truncated else {}), **extra}, ensure_ascii=False)
+    if not detail:
+        return json.dumps({"success": True, **_listing(selected), **extra}, ensure_ascii=False)
+    return _detail(*selected[0], offset, include_turn, extra)
 
+
+def _checked_prune(convs: list[dict], agent: str | None, keep) -> str:
+    if isinstance(keep, bool) or not isinstance(keep, int) or not 0 <= keep <= AGENT_PRUNE_KEEP_MAX:
+        return _tool_error(f"prune_keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
+    if agent is not None and not any(conv["agent"] == agent for conv in convs):
+        return _tool_error("That agent is not a watched agent of this project.")
+    return _prune(convs, agent, keep)
+
+
+def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict) -> str:
+    """El detalle de una conversación: su estado, un bloque de su respuesta final y, con include_turn, su último turno."""
+    result = run.get("result_text") or ""
+    if offset > len(result):
+        return _tool_error(f"offset {offset} is past the end of the final answer ({len(result)} characters).")
+    turn = {}
+    if include_turn:
+        messages, truncated = _last_turn((get_conversation(conv["id"]) or {}).get("history") or [])
+        turn = {"last_turn": messages, **({"last_turn_truncated": True} if truncated else {})}
+    return json.dumps({"success": True, **_agent_state(conv, run), **_result_page(result, offset), **turn, **extra},
+                      ensure_ascii=False)
 
 def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
                  ctx: SecurityContext | None = None) -> str:

@@ -6,8 +6,11 @@ from core.environment import DETECTED_OS
 from core.limits import MAX_COMMAND_LENGTH, MAX_HTTP_BODY_BYTES, MAX_PATH_LENGTH
 from storage.db import MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH
 from tools.agents import (
+    AGENT_LIST_RESULT_MAX_CHARS,
+    AGENT_LIST_TOTAL_CHARS,
     AGENT_MAX_WAIT,
     AGENT_PRUNE_KEEP_MAX,
+    AGENT_RESULT_PAGE_CHARS,
     AGENTS_TOOL,
     LAUNCH_AGENT_TOOL,
     MAX_LAUNCH_PROMPT_LENGTH,
@@ -226,7 +229,9 @@ CHECK_AGENTS_DEFINITION = {
     "description": (
         "Status of the agents that this run supervises (watchAgents), in this project or, with project, in another one. Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
-        "error, warnings, token usage of the run and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
+        f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
+        f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). With agent or conversation_id, the final answer in blocks of "
+        f"{AGENT_RESULT_PAGE_CHARS} characters (pass next_offset as offset for the next one) and, with include_turn=true, the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
         "changes status (finishes, pauses or a new run starts) or when the time is up (returned_because says which); "
         "call it again with wait_seconds while they are still running. To clean up old conversations of the watched agents "
@@ -240,7 +245,9 @@ CHECK_AGENTS_DEFINITION = {
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
             "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"}
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"},
+            "offset": {"type": "integer", "description": "With agent or conversation_id: character offset of the final answer to read from (the next_offset of the previous call)", "default": 0},
+            "include_turn": {"type": "boolean", "description": "With agent or conversation_id: also return the messages of its last turn, including tool results", "default": False}
         }
     }
 }

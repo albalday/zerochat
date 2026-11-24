@@ -470,7 +470,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             meta = {"id": conv_id, "title": conv_id, "updatedAt": updated_at, "project": project, **({"agent": agent} if agent else {})}
             zerochat.save_conversation(meta, history or [{"id": f"{conv_id}_u", "role": "user", "content": "Empieza"}])
 
-        summary_limit = zerochat.AGENT_RESULT_SUMMARY_CHARS
         conv("diario_viejo", "informes.diario", updated_at=1000)
         conv("diario_nuevo", "informes.diario", updated_at=3000, history=[
             {"id": "u1", "role": "user", "content": "Primero"}, {"id": "a1", "role": "assistant", "content": "Hecho"},
@@ -483,8 +482,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         conv("otro_proyecto", "informes.otro", project="/otro/proyecto")
         conv("master", "informes.master", updated_at=4000)
         upsert_run({"run_id": "r1", "conversation_id": "diario_nuevo", "status": "needs_input", "pending": {"kind": "ask_user", "text": "¿Mes?"},
-                    "result_text": "x" * summary_limit})
-        upsert_run({"run_id": "r2", "conversation_id": "semanal", "status": "completed", "result_text": "y" * (summary_limit + 1),
+                    "result_text": "x" * 10})
+        upsert_run({"run_id": "r2", "conversation_id": "semanal", "status": "completed", "result_text": "y" * 20,
                     "warnings": ["run_command: denegado"], "usage": {"model_calls": 3, "prompt_tokens": 900, "completion_tokens": 30,
                                                                       "cached_tokens": 0, "reasoning_tokens": 0, "estimated": True}})
 
@@ -497,12 +496,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         listed = check()["agents"]
         self.assertEqual([(item["agent"], item["conversation_id"], item["status"]) for item in listed],
                          [("informes.diario", "diario_nuevo", "needs_input"), ("informes.semanal", "semanal", "completed")])
-        self.assertEqual((listed[0]["pending"], listed[0]["result_text"], "result_truncated" in listed[0]), ({"kind": "ask_user", "text": "¿Mes?"}, "x" * summary_limit, False))
-        self.assertEqual((len(listed[1]["result_text"]), listed[1]["result_truncated"], listed[1]["warnings"]), (summary_limit, True, ["run_command: denegado"]))
+        self.assertEqual((listed[0]["pending"], listed[0]["result_text"]), ({"kind": "ask_user", "text": "¿Mes?"}, "x" * 10))
+        self.assertEqual((listed[1]["result_text"], listed[1]["warnings"]), ("y" * 20, ["run_command: denegado"]))
         self.assertEqual((listed[0]["usage"], listed[1]["usage"]["prompt_tokens"]), (None, 900))
 
-        # Detalle: el último turno, por agente (su conversación más reciente) o por conversación vigilada.
-        detail = check(agent="informes.diario")
+        # Detalle: por agente (su conversación más reciente) o por conversación vigilada; el último turno, solo con include_turn.
+        self.assertNotIn("last_turn", check(agent="informes.diario"))
+        detail = check(agent="informes.diario", include_turn=True)
         self.assertEqual(detail["conversation_id"], "diario_nuevo")
         self.assertEqual(detail["last_turn"], [{"role": "user", "content": "Ahora"}, {"role": "assistant", "content": "", "tool_calls": ["ask_user"]},
                                                {"role": "tool", "content": "{}", "name": "ask_user"}])
@@ -516,8 +516,59 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         for extra, truncated in ((0, False), (1, True)):
             conv("largo", "informes.largo", updated_at=5000, history=[
                 {"id": "u", "role": "user", "content": "Haz"}, {"id": "a", "role": "assistant", "content": "z" * (turn_limit - 3 + extra)}])
-            detail = check(conversation_id="largo")
+            detail = check(conversation_id="largo", include_turn=True)
             self.assertEqual((sum(len(m["content"]) for m in detail["last_turn"]), detail.get("last_turn_truncated", False)), (turn_limit, truncated))
+
+    def test_check_agents_da_la_respuesta_final_entera_si_cabe_y_por_bloques_en_el_detalle(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()))
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        per_agent, total, page = zerochat.AGENT_LIST_RESULT_MAX_CHARS, zerochat.AGENT_LIST_TOTAL_CHARS, zerochat.AGENT_RESULT_PAGE_CHARS
+
+        def agents(lengths):
+            # Uno por longitud, del más reciente (primero en el listado) al más antiguo.
+            for index, length in enumerate(lengths):
+                conv_id = f"a{index}"
+                zerochat.save_conversation({"id": conv_id, "title": conv_id, "updatedAt": 100000 - index, "project": ctx.key,
+                                            "agent": f"informes.n{index}"}, [{"id": "u", "role": "user", "content": "Empieza"}])
+                upsert_run({"run_id": f"r{index}", "conversation_id": conv_id, "status": "completed", "result_text": "r" * length})
+
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        # Por agente, entera hasta N; con N+1 se omite con result_chars y una nota para leerla en el detalle.
+        agents([per_agent, per_agent + 1, 0])
+        listed = check()
+        self.assertEqual([(len(item.get("result_text", "")), item.get("result_chars")) for item in listed["agents"]],
+                         [(per_agent, None), (0, per_agent + 1), (0, None)])
+        self.assertNotIn("result_text", listed["agents"][1])
+        self.assertIn("check_agents(conversation_id=", listed["note"])
+
+        # Entre todas, el tope exacto cabe y la siguiente que no cabe se omite aunque sea corta.
+        for conv_id in [item["id"] for item in zerochat.list_conversations()]:
+            zerochat.delete_conversation(conv_id)
+        agents([per_agent] * (total // per_agent) + [1, 0])
+        listed = check()["agents"]
+        self.assertEqual(sum(len(item.get("result_text", "")) for item in listed), total)
+        self.assertEqual((listed[-2].get("result_chars"), listed[-1]["result_text"]), (1, ""))
+        zerochat.save_conversation({"id": "solo", "title": "solo", "updatedAt": 1, "project": ctx.key, "agent": "informes.solo"}, [])
+        self.assertNotIn("note", json.loads(zerochat.check_agents(agent="informes.solo", ctx=ctx)))
+
+        # Detalle por bloques: N cabe en uno; N+1, en dos, siguiendo next_offset.
+        for length, pages in ((page, [(page, None)]), (page + 1, [(page, page), (1, None)])):
+            upsert_run({"run_id": "r_solo", "conversation_id": "solo", "status": "completed", "result_text": "".join(chr(97 + i % 26) for i in range(length))})
+            offset, got, text = 0, [], ""
+            while offset is not None:
+                detail = check(conversation_id="solo", offset=offset)
+                self.assertEqual((detail["result_chars"], detail["offset"]), (length, offset))
+                got.append((len(detail["result_text"]), detail["next_offset"]))
+                text += detail["result_text"]
+                offset = detail["next_offset"]
+            self.assertEqual(got, pages)
+            self.assertEqual(text, "".join(chr(97 + i % 26) for i in range(length)))
+        self.assertEqual(check(conversation_id="solo", offset=page + 1)["result_text"], "")
+        for invalid in ({"conversation_id": "solo", "offset": page + 2}, {"conversation_id": "solo", "offset": -1},
+                        {"conversation_id": "solo", "offset": True}, {"offset": 10}, {"include_turn": True},
+                        {"agent": "informes.solo", "prune_keep": 1, "include_turn": True}):
+            self.assertFalse(check(**invalid)["success"], invalid)
 
     def test_check_agents_espera_sin_sondeo_a_que_cambie_algun_agente_vigilado(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
@@ -556,7 +607,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         # Un cambio guardado en SQLite (una ejecución nueva de un agente) también la despierta, y en el detalle trae su último turno.
         threading.Timer(0.3, upsert_run, [{"run_id": "r3", "conversation_id": "semanal", "status": "running", "pid": os.getpid(),
                                            "pid_start": zerochat._process_start_token(os.getpid())}]).start()
-        result = check(agent="informes.semanal", wait_seconds=30)
+        result = check(agent="informes.semanal", wait_seconds=30, include_turn=True)
         self.assertEqual((result["returned_because"], result["status"], result["last_turn"][0]["content"]), ("agent_changed", "running", "Empieza"))
 
         # El plazo tiene tope (por debajo del que el runner de Node espera una respuesta) y uno negativo no espera.
