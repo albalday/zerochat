@@ -1288,6 +1288,21 @@ def upsert_run_state(payload: dict) -> None:
     notify_live_change()
 
 
+def delete_orphan_run_states() -> list[str]:
+    """Borra las filas de runs que ya no están en marcha y cuya conversación no existe (una ejecución que falló antes
+    de guardarla); devuelve sus conversation_id. Las que siguen en marcha se conservan: su agente aún no la ha guardado."""
+    with open_storage() as conn:
+        with _immediate_transaction(conn):
+            ids = [row["conversation_id"] for row in conn.execute(
+                "SELECT conversation_id FROM runs WHERE status != 'running' "
+                "AND conversation_id NOT IN (SELECT id FROM conversations);")]
+            if ids:
+                conn.executemany("DELETE FROM runs WHERE conversation_id = ?;", [(conv_id,) for conv_id in ids])
+    if ids:
+        notify_live_change()
+    return ids
+
+
 def get_run_state(conversation_id: str) -> dict | None:
     """Recupera de SQLite el estado en vivo de la ejecución de una conversación."""
     clean_id = _validate_conversation_id(conversation_id)

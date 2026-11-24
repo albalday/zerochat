@@ -29,6 +29,7 @@ from storage.db import (
     validate_agent_id,
     validate_agent_watch_pattern,
     validate_project_prompt,
+    delete_orphan_run_states,
     delete_run_state,
     get_conversation,
     get_conversation_updated_at,
@@ -220,6 +221,19 @@ def write_run_state(session: RunSession) -> None:
     upsert_run_state(payload)
 
 
+def discard_unstarted_run(session: RunSession | None) -> None:
+    """Una ejecución que sale antes de lanzar su runner (proyecto sin entorno guardado, sin Node, sin puerto...) no deja
+    fila en runs: borra la suya (la de su run_id; la de otra ejecución de la conversación no se toca)."""
+    if session is None or session.runner_started or not session.state_conversation_id:
+        return
+    try:
+        row = get_run_state(session.state_conversation_id)
+    except (ValueError, sqlite3.Error, OSError):
+        return
+    if row and row.get("run_id") == session.run_id:
+        remove_run_state(session.state_conversation_id)
+
+
 def remove_run_state(conversation_id: str | None) -> None:
     """Elimina de SQLite el estado de la ejecución de la conversación al cancelarla."""
     if not conversation_id:
@@ -275,6 +289,13 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
         started_at = data.get("started_at", 0)
         entries.append((started_at, light, data))
 
+    # Filas sin conversación de ejecuciones que ya no siguen (fallaron antes de guardarla): no son de nadie.
+    try:
+        orphans = set(delete_orphan_run_states())
+    except (sqlite3.Error, OSError) as err:
+        log_event(f"[zerochat] No se pudieron limpiar las ejecuciones sin conversación: {err}")
+        orphans = set()
+    entries = [entry for entry in entries if entry[1]["conversation_id"] not in orphans]
     entries.sort(key=lambda item: item[0])
     # Las completadas solo interesan a quien sigue su conversación: el latido no las arrastra todas.
     runs = [item[1] for item in entries if item[1]["status"] != "completed"]
@@ -526,6 +547,8 @@ class RunSession:
         # Tokens acumulados que informa el runner (zerochat/run/usage); None hasta su primera llamada al modelo.
         self.usage: dict | None = None
         self.runner_token: str | None = None
+        # Si llegó a lanzarse el runner de Node: antes de eso, salir no deja fila (discard_unstarted_run).
+        self.runner_started = False
         write_run_state(self)
 
     def set_wake_event(self, event: threading.Event | None) -> None:

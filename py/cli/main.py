@@ -45,6 +45,7 @@ from run_mode.state import (
     announce_run_conversation,
     check_no_active_run,
     current_run_session,
+    discard_unstarted_run,
     parse_run_request,
     run_error,
     run_outcome,
@@ -450,6 +451,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
         mute_console()
         sys.exit(RUN_EXIT_SETUP)
     runner_proc, runner_log = runner
+    session.runner_started = True
     threading.Thread(target=run_supervisor, args=(server, session, runner_proc, runner_log), daemon=True).start()
 
 
@@ -551,6 +553,16 @@ def main():
     reset_notices()
     session = run_session_from_args(parser, args)
     set_run_session(session)
+    try:
+        _start(parser, args, session)
+    except SystemExit:
+        # Salir antes de lanzar el runner (entorno sin guardar, sin Node, puerto ocupado...) no deja fila en runs.
+        discard_unstarted_run(session)
+        raise
+
+
+def _start(parser: ZeroChatArgumentParser, args, session: RunSession | None):
+    """Prepara y arranca el servidor y, en modo ejecución, el runner de Node; vuelve al detenerse el servidor."""
     _prepare_run_environment(parser, args, session)
     result_out = redirect_log(args)
 

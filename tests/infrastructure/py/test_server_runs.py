@@ -821,6 +821,49 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "en marcha"):
             zerochat.launch_run_file(request, ctx.workspace_dir)
 
+    def test_una_ejecucion_que_falla_antes_de_lanzar_el_runner_no_deja_fila_en_runs(self):
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        run_file = folder / "agente.json"
+        run_file.write_text(json.dumps({"agent": "informes.diario", "conversation_id": "session_sin_entorno", "prompt": "Hola", "profile": "remoto"}))
+        # Una conversación nueva en la carpeta general, que no tiene entorno guardado: sale con código 3 sin dejar fila.
+        with mock.patch.object(sys, "argv", ["zerochat", "--run-file", str(run_file)]), mock.patch("sys.stderr", io.StringIO()) as stderr, \
+                mock.patch.dict(os.environ, {"ZEROCHAT_RUN_ID": ""}), self.assertRaises(SystemExit) as cm:
+            zerochat.main()
+        self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_SETUP)
+        self.assertIn("no tiene entorno guardado", stderr.getvalue())
+        self.assertIsNone(zerochat.get_run_state("session_sin_entorno"))
+
+        # Solo borra la suya: la fila de otra ejecución de la conversación se conserva, y una con runner lanzado también.
+        session = zerochat.RunSession("Hola", new_conversation_id="session_otra", track_run=True)
+        upsert_run({"run_id": "de_otra", "conversation_id": "session_otra", "status": "completed"})
+        zerochat.discard_unstarted_run(session)
+        self.assertEqual(zerochat.get_run_state("session_otra")["run_id"], "de_otra")
+        started = zerochat.RunSession("Hola", new_conversation_id="session_lanzada", track_run=True)
+        started.runner_started = True
+        zerochat.discard_unstarted_run(started)
+        self.assertEqual(zerochat.get_run_state("session_lanzada")["run_id"], started.run_id)
+        zerochat.discard_unstarted_run(None)
+
+    def test_list_server_runs_limpia_las_filas_terminadas_sin_conversacion_y_conserva_las_en_marcha(self):
+        zerochat.save_conversation({"id": "con_conv", "title": "c", "updatedAt": 1}, [{"id": "u", "role": "user", "content": "Hola"}])
+        alive = {"pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
+        worker = start_worker(self)
+        dead = {"pid": worker.pid, "pid_start": zerochat._process_start_token(worker.pid)}
+        worker.kill()
+        worker.wait()
+        upsert_run({"run_id": "r1", "conversation_id": "terminada_sin_conv", "status": "completed"})
+        upsert_run({"run_id": "r2", "conversation_id": "error_sin_conv", "status": "error", "error": "x"})
+        upsert_run({"run_id": "r3", "conversation_id": "muerta_sin_conv", "status": "running", **dead})
+        upsert_run({"run_id": "r4", "conversation_id": "en_marcha_sin_conv", "status": "running", **alive})
+        upsert_run({"run_id": "r5", "conversation_id": "con_conv", "status": "error", "error": "fallo"})
+
+        runs, _ = zerochat.list_server_runs()
+        # La que murió sin guardar su conversación pasa a error y se limpia en la misma pasada; la que sigue en marcha
+        # aún no la ha guardado y se conserva, como una terminada que sí tiene conversación.
+        self.assertEqual(sorted((run["conversation_id"], run["status"]) for run in runs), [("con_conv", "error"), ("en_marcha_sin_conv", "running")])
+        self.assertEqual(sorted(row["conversation_id"] for row in zerochat.list_run_states()), ["con_conv", "en_marcha_sin_conv"])
+
     def test_los_permisos_denegados_quedan_en_los_avisos_de_la_ejecucion_con_tope(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)

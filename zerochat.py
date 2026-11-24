@@ -3699,6 +3699,21 @@ def upsert_run_state(payload: dict) -> None:
     notify_live_change()
 
 
+def delete_orphan_run_states() -> list[str]:
+    """Borra las filas de runs que ya no están en marcha y cuya conversación no existe (una ejecución que falló antes
+    de guardarla); devuelve sus conversation_id. Las que siguen en marcha se conservan: su agente aún no la ha guardado."""
+    with open_storage() as conn:
+        with _immediate_transaction(conn):
+            ids = [row["conversation_id"] for row in conn.execute(
+                "SELECT conversation_id FROM runs WHERE status != 'running' "
+                "AND conversation_id NOT IN (SELECT id FROM conversations);")]
+            if ids:
+                conn.executemany("DELETE FROM runs WHERE conversation_id = ?;", [(conv_id,) for conv_id in ids])
+    if ids:
+        notify_live_change()
+    return ids
+
+
 def get_run_state(conversation_id: str) -> dict | None:
     """Recupera de SQLite el estado en vivo de la ejecución de una conversación."""
     clean_id = _validate_conversation_id(conversation_id)
@@ -5395,6 +5410,19 @@ def write_run_state(session: RunSession) -> None:
     upsert_run_state(payload)
 
 
+def discard_unstarted_run(session: RunSession | None) -> None:
+    """Una ejecución que sale antes de lanzar su runner (proyecto sin entorno guardado, sin Node, sin puerto...) no deja
+    fila en runs: borra la suya (la de su run_id; la de otra ejecución de la conversación no se toca)."""
+    if session is None or session.runner_started or not session.state_conversation_id:
+        return
+    try:
+        row = get_run_state(session.state_conversation_id)
+    except (ValueError, sqlite3.Error, OSError):
+        return
+    if row and row.get("run_id") == session.run_id:
+        remove_run_state(session.state_conversation_id)
+
+
 def remove_run_state(conversation_id: str | None) -> None:
     """Elimina de SQLite el estado de la ejecución de la conversación al cancelarla."""
     if not conversation_id:
@@ -5450,6 +5478,13 @@ def list_server_runs(focus_conversation_id: str | None = None) -> tuple[list[dic
         started_at = data.get("started_at", 0)
         entries.append((started_at, light, data))
 
+    # Filas sin conversación de ejecuciones que ya no siguen (fallaron antes de guardarla): no son de nadie.
+    try:
+        orphans = set(delete_orphan_run_states())
+    except (sqlite3.Error, OSError) as err:
+        log_event(f"[zerochat] No se pudieron limpiar las ejecuciones sin conversación: {err}")
+        orphans = set()
+    entries = [entry for entry in entries if entry[1]["conversation_id"] not in orphans]
     entries.sort(key=lambda item: item[0])
     # Las completadas solo interesan a quien sigue su conversación: el latido no las arrastra todas.
     runs = [item[1] for item in entries if item[1]["status"] != "completed"]
@@ -5701,6 +5736,8 @@ class RunSession:
         # Tokens acumulados que informa el runner (zerochat/run/usage); None hasta su primera llamada al modelo.
         self.usage: dict | None = None
         self.runner_token: str | None = None
+        # Si llegó a lanzarse el runner de Node: antes de eso, salir no deja fila (discard_unstarted_run).
+        self.runner_started = False
         write_run_state(self)
 
     def set_wake_event(self, event: threading.Event | None) -> None:
@@ -12216,6 +12253,7 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
         mute_console()
         sys.exit(RUN_EXIT_SETUP)
     runner_proc, runner_log = runner
+    session.runner_started = True
     threading.Thread(target=run_supervisor, args=(server, session, runner_proc, runner_log), daemon=True).start()
 
 
@@ -12317,6 +12355,16 @@ def main():
     reset_notices()
     session = run_session_from_args(parser, args)
     set_run_session(session)
+    try:
+        _start(parser, args, session)
+    except SystemExit:
+        # Salir antes de lanzar el runner (entorno sin guardar, sin Node, puerto ocupado...) no deja fila en runs.
+        discard_unstarted_run(session)
+        raise
+
+
+def _start(parser: ZeroChatArgumentParser, args, session: RunSession | None):
+    """Prepara y arranca el servidor y, en modo ejecución, el runner de Node; vuelve al detenerse el servidor."""
     _prepare_run_environment(parser, args, session)
     result_out = redirect_log(args)
 
