@@ -1,5 +1,6 @@
 """Carga zerochat.py una sola vez por proceso para todas las pruebas de unittest."""
 
+import faulthandler
 import importlib.util
 import os
 import sys
@@ -8,6 +9,12 @@ from pathlib import Path
 from unittest import mock
 
 ZEROCHAT_PY = Path(__file__).resolve().parents[3] / "zerochat.py"
+
+# Con ZEROCHAT_TEST_HANG_SECONDS (la CI), una suite que se cuelga vuelca la pila de cada hilo y termina con error en
+# vez de agotar el plazo del job, que GitHub cancela sin conservar su log.
+_HANG_SECONDS = int(os.environ.get("ZEROCHAT_TEST_HANG_SECONDS") or 0)
+if _HANG_SECONDS > 0:
+    faulthandler.dump_traceback_later(_HANG_SECONDS, exit=True)
 
 
 def load_zerochat(name: str):

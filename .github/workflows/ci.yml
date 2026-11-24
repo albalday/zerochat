@@ -75,7 +75,10 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - run: python -m unittest discover -s tests/infrastructure/py -t tests/infrastructure/py
+      # -v deja en el log qué prueba corre; si se cuelga, faulthandler vuelca las pilas (tests/infrastructure/py/backend.py).
+      - run: python -m unittest discover -v -s tests/infrastructure/py -t tests/infrastructure/py
+        env:
+          ZEROCHAT_TEST_HANG_SECONDS: "480"
 
   browser:
     runs-on: ubuntu-latest
