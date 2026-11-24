@@ -6206,7 +6206,8 @@ def _atomic_write_text(target: Path, text: str):
 
 Lee conversaciones y ejecuciones de SQLite filtrando estrictamente por el proyecto de la ejecución y por los patrones de
 watchAgents: nunca chats humanos (sin agent) ni conversaciones de otros proyectos. Con wait_seconds espera, sin que el
-modelo tenga que sondear, a que cambie el estado de alguno de los agentes consultados.
+modelo tenga que sondear, a que cambie el estado de alguno de los agentes consultados. Con prune_keep borra, solo
+cuando el master lo pide, las conversaciones antiguas de sus agentes vigilados (nunca hay limpieza automática).
 """
 
 
@@ -6222,6 +6223,10 @@ AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
 # Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
 # ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
 AGENT_WAIT_RECHECK_SECONDS = 5.0
+# Tope de prune_keep: cuántas conversaciones recientes de cada agente puede pedir conservar el master.
+AGENT_PRUNE_KEEP_MAX = 1000
+# Estados que la limpieza nunca borra: una ejecución en marcha o una pausa que espera a una persona.
+AGENT_PRUNE_PROTECTED = ("running", "needs_input")
 
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
@@ -6319,15 +6324,45 @@ def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None,
             return selected, "agent_changed"
 
 
+def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
+    """Borra las conversaciones de cada agente vigilado (o solo de agent) salvo las keep más recientes, con su fila
+    de runs; las que están en marcha o esperan a una persona se conservan y se indican."""
+    deleted, skipped, seen = [], [], {}
+    for conv in convs:  # De la más reciente a la más antigua.
+        if agent is not None and conv["agent"] != agent:
+            continue
+        seen[conv["agent"]] = seen.get(conv["agent"], 0) + 1
+        if seen[conv["agent"]] <= keep:
+            continue
+        status = _agent_state(conv, get_run_state(conv["id"]) or {})["status"]
+        if status in AGENT_PRUNE_PROTECTED:
+            skipped.append({"agent": conv["agent"], "conversation_id": conv["id"], "status": status})
+            continue
+        if delete_conversation(conv["id"]):
+            delete_run_state(conv["id"])
+            deleted.append({"agent": conv["agent"], "conversation_id": conv["id"]})
+    return json.dumps({"success": True, "deleted": deleted, "skipped": skipped}, ensure_ascii=False)
+
+
 def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
-                 ctx: SecurityContext | None = None) -> str:
+                 prune_keep: int | None = None, ctx: SecurityContext | None = None) -> str:
     """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente); con agent o conversation_id,
-    además los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie."""
+    además los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
+    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes vigilados (o de agent)."""
     session = current_run_session()
     patterns = session.watch_agents if session is not None else ()
     if not patterns or ctx is None:
         return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
     own_id = session.conversation_id or session.new_conversation_id or ""
+    if prune_keep is not None:
+        if conversation_id is not None or wait_seconds:
+            return _tool_error("prune_keep goes alone or with agent, without conversation_id or wait_seconds.")
+        if isinstance(prune_keep, bool) or not isinstance(prune_keep, int) or not 0 <= prune_keep <= AGENT_PRUNE_KEEP_MAX:
+            return _tool_error(f"prune_keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
+        convs = _watched_conversations(ctx, patterns, own_id)
+        if agent is not None and not any(conv["agent"] == agent for conv in convs):
+            return _tool_error("That agent is not a watched agent of this project.")
+        return _prune(convs, agent, prune_keep)
 
     def read():
         return _selected(ctx, patterns, own_id, agent, conversation_id)
@@ -10296,14 +10331,17 @@ CHECK_AGENTS_DEFINITION = {
         "error, warnings, token usage of the run and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
         "changes status (finishes, pauses or a new run starts) or when the time is up (returned_because says which); "
-        "call it again with wait_seconds while they are still running."
+        "call it again with wait_seconds while they are still running. To clean up old conversations of the watched agents "
+        "(for example, one per scheduled run), give prune_keep=N, optionally with agent: it deletes all but the N most recent "
+        "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
-            "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0}
+            "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
+            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"}
         }
     }
 }

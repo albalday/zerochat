@@ -5,7 +5,7 @@ from __future__ import annotations
 from core.environment import DETECTED_OS
 from core.limits import MAX_COMMAND_LENGTH, MAX_HTTP_BODY_BYTES, MAX_PATH_LENGTH
 from storage.db import MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH
-from tools.agents import AGENT_MAX_WAIT, AGENTS_TOOL, check_agents
+from tools.agents import AGENT_MAX_WAIT, AGENT_PRUNE_KEEP_MAX, AGENTS_TOOL, check_agents
 from tools.browser_action import BROWSER_ACTIONS, browser_action
 from tools.browser_secret import BROWSER_SECRET_MODES, browser_fill_secret
 from tools.filesystem import edit_file, get_diagnostics, list_directory, read_file, search_files, write_file
@@ -221,14 +221,17 @@ CHECK_AGENTS_DEFINITION = {
         "error, warnings, token usage of the run and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
         "changes status (finishes, pauses or a new run starts) or when the time is up (returned_because says which); "
-        "call it again with wait_seconds while they are still running."
+        "call it again with wait_seconds while they are still running. To clean up old conversations of the watched agents "
+        "(for example, one per scheduled run), give prune_keep=N, optionally with agent: it deletes all but the N most recent "
+        "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
-            "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0}
+            "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
+            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"}
         }
     }
 }

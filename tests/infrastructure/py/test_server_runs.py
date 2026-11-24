@@ -566,6 +566,50 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 1)
         self.assertFalse(check(agent="ventas.diario", wait_seconds=1)["success"])
 
+    def test_check_agents_borra_solo_a_peticion_las_conversaciones_antiguas_de_los_agentes_vigilados(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()))
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+
+        def conv(conv_id, agent=None, updated_at=1000, project=ctx.key, status=None):
+            meta = {"id": conv_id, "title": conv_id, "updatedAt": updated_at, "project": project, **({"agent": agent} if agent else {})}
+            zerochat.save_conversation(meta, [{"id": f"{conv_id}_u", "role": "user", "content": "Empieza"}])
+            if status:
+                alive = {"pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())} if status == "running" else {}
+                upsert_run({"run_id": f"r_{conv_id}", "conversation_id": conv_id, "status": status, **alive})
+
+        conv("d1", "informes.diario", 1000, status="completed")
+        conv("d2", "informes.diario", 2000, status="needs_input")
+        conv("d3", "informes.diario", 3000, status="running")
+        conv("d4", "informes.diario", 4000, status="error")
+        conv("d5", "informes.diario", 5000, status="completed")
+        conv("s1", "informes.semanal", 1000)
+        conv("s2", "informes.semanal", 2000)
+        conv("ventas", "ventas.diario", 1000)
+        conv("humana", None, 1000)
+        conv("otro", "informes.diario", 1000, project="/otro/proyecto")
+        conv("master", "informes.master", 9000)
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        existing = lambda: {item["id"] for item in zerochat.list_conversations()}
+
+        for invalid in ({"prune_keep": -1}, {"prune_keep": zerochat.AGENT_PRUNE_KEEP_MAX + 1}, {"prune_keep": True}, {"prune_keep": 1, "wait_seconds": 5},
+                        {"prune_keep": 1, "conversation_id": "d1"}, {"prune_keep": 1, "agent": "ventas.diario"}):
+            self.assertFalse(check(**invalid)["success"], invalid)
+        self.assertEqual(len(existing()), 11, "Nada se borra sin prune_keep válido")
+
+        # Con agent: conserva sus N más recientes y nunca borra una en marcha ni una que espera a una persona.
+        result = check(agent="informes.diario", prune_keep=1)
+        self.assertEqual([item["conversation_id"] for item in result["deleted"]], ["d4", "d1"])
+        self.assertEqual([(item["conversation_id"], item["status"]) for item in result["skipped"]], [("d3", "running"), ("d2", "needs_input")])
+        self.assertEqual(existing(), {"d2", "d3", "d5", "s1", "s2", "ventas", "humana", "otro", "master"})
+        self.assertIsNone(zerochat.get_run_state("d4"), "Con la conversación se va su fila de runs")
+        self.assertEqual(zerochat.get_run_state("d3")["status"], "running")
+
+        # Sin agent, cada agente vigilado; 0 no conserva ninguna. Humanas, otros proyectos, no vigilados y el master quedan.
+        result = check(prune_keep=0)
+        self.assertEqual(sorted(item["conversation_id"] for item in result["deleted"]), ["d5", "s1", "s2"])
+        self.assertEqual(existing(), {"d2", "d3", "ventas", "humana", "otro", "master"})
+
     def test_los_permisos_denegados_quedan_en_los_avisos_de_la_ejecucion_con_tope(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
