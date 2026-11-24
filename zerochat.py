@@ -74,6 +74,10 @@ MAX_COMMAND_LENGTH = 16384
 MAX_RPC_METHOD_LENGTH = 128
 MAX_TOOL_NAME_LENGTH = 128
 LONG_POLL_MAX_WAIT_MS = 30000
+# Lo más que una herramienta retiene su respuesta (run_command, check_command, check_agents), en la interfaz y en el
+# runner: el fetch de Node corta a los 300 s sin recibir cabeceras (headersTimeout de undici) y los navegadores tienen
+# plazos parecidos, así que un tope único por debajo vale para los dos.
+TOOL_WAIT_MAX_SECONDS = 240
 
 # --- core.live_events ---
 """Avisos de cambio del estado vivo que sigue el latido: cada dominio avisa y server/state despierta a quien espera."""
@@ -5756,16 +5760,6 @@ def current_run_session() -> RunSession | None:
     return RUN_SESSION
 
 
-# Lo que una herramienta puede retener su respuesta en modo ejecución: el fetch de Node del runner corta a los 300 s
-# sin recibir cabeceras (headersTimeout de undici, UND_ERR_HEADERS_TIMEOUT), así que las esperas largas se acotan antes.
-RUNNER_TOOL_WAIT_MAX = 240
-
-
-def tool_wait_max(maximum: int) -> int:
-    """Tope de una espera dentro de una herramienta: maximum, o RUNNER_TOOL_WAIT_MAX si es menor en modo ejecución."""
-    return min(maximum, RUNNER_TOOL_WAIT_MAX) if RUN_SESSION is not None else maximum
-
-
 def run_project_environment(env: dict) -> dict:
     """El entorno del proyecto que recibe la interfaz: en una ejecución con systemDataPrompt propio, ese en lugar del
     guardado, sin escribirlo en SQLite."""
@@ -7298,8 +7292,9 @@ def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading
 
 
 COMMAND_DEFAULT_TIMEOUT = 30
-COMMAND_MAX_TIMEOUT = 600
-COMMAND_MAX_WAIT = 600
+# Lo que run_command espera antes de pasar el comando a segundo plano y check_command espera su final, como mucho.
+COMMAND_MAX_TIMEOUT = TOOL_WAIT_MAX_SECONDS
+COMMAND_MAX_WAIT = TOOL_WAIT_MAX_SECONDS
 # Lo que espera un comando en segundo plano antes de responder: deja ver un fallo inmediato.
 BACKGROUND_STARTUP_WAIT = 2.5
 MAX_RUNNING_JOBS = 8
@@ -7748,7 +7743,7 @@ class JobManager:
             if same is not None:
                 raise ValueError(
                     f"This command is already running as job_id {same.id} (for {int(same.elapsed())} s). Do not run it again: "
-                    f"follow it with check_command(job_id={same.id}, wait_seconds={tool_wait_max(COMMAND_MAX_WAIT)}), or stop it first with "
+                    f"follow it with check_command(job_id={same.id}, wait_seconds={COMMAND_MAX_WAIT}), or stop it first with "
                     f"check_command(job_id={same.id}, stop=true) if you really need a new run."
                 )
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
@@ -7976,19 +7971,18 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
         return _tool_error(str(exc), os=DETECTED_OS)
     if background:
         if not job.done.wait(BACKGROUND_STARTUP_WAIT):
-            follow = tool_wait_max(COMMAND_MAX_WAIT)
             return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds={follow}, pattern='error|Traceback'), "
-                f"which returns when it finishes, prints an error or after {follow} s, and stop it with check_command(job_id={job.id}, stop=true)."
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds={COMMAND_MAX_WAIT}, pattern='error|Traceback'), "
+                f"which returns when it finishes, prints an error or after {COMMAND_MAX_WAIT} s, and stop it with check_command(job_id={job.id}, stop=true)."
             ))
         return _job_result(job)
-    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, tool_wait_max(COMMAND_MAX_TIMEOUT))
+    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
     if not job.done.wait(timeout):
         # No se mata: lo hecho no se pierde y relanzarlo no lo duplica.
         job.background = True
         return _job_result(job, note=(
             f"Still running after {timeout} s, so it was moved to the background instead of being killed. "
-            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds={tool_wait_max(COMMAND_MAX_WAIT)}) "
+            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds={COMMAND_MAX_WAIT}) "
             f"and stop it with check_command(job_id={job.id}, stop=true)."
         ))
     return _job_result(job)
@@ -8012,7 +8006,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     if stop:
         JOBS.stop(job, "model")
         return _job_result(job, output_field="new_output")
-    wait = _clamp_seconds(wait_seconds, 0, 0, tool_wait_max(COMMAND_MAX_WAIT))
+    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
     cancel = WAITS.open(job_key, job)
@@ -9215,8 +9209,8 @@ AGENT_LIST_TOTAL_CHARS = 24000
 AGENT_RESULT_PAGE_CHARS = 20000
 # Texto de los mensajes del último turno que devuelve el detalle con include_turn, entre todos.
 AGENT_TURN_MAX_CHARS = 20000
-# Tope de wait_seconds: solo existe en modo ejecución, donde el runner de Node no espera más una respuesta.
-AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
+# Tope de wait_seconds: el único de las esperas de herramientas (TOOL_WAIT_MAX_SECONDS).
+AGENT_MAX_WAIT = TOOL_WAIT_MAX_SECONDS
 # Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
 # ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
 AGENT_WAIT_RECHECK_SECONDS = 5.0
@@ -10428,9 +10422,9 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Check a command started by run_command: returns its status and the output produced since the last check. "
             "Use wait_seconds to wait for it to finish (a maximum: it returns as soon as the command ends), add pattern to "
             "return as soon as a new output line matches it, "
-            "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
-            "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
-            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running."
+            f"or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds={COMMAND_MAX_WAIT}, pattern='error|Traceback') "
+            f"returns when the command finishes, prints an error, or after {COMMAND_MAX_WAIT} s. To follow a long command until it finishes "
+            f"(also when the user asks to be told when it ends), call it again with wait_seconds={COMMAND_MAX_WAIT} each time it returns still running."
         ),
         "inputSchema": {
             "type": "object",

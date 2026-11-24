@@ -17,10 +17,10 @@ import uuid
 from pathlib import Path
 
 from core.environment import get_no_project_dir
+from core.limits import TOOL_WAIT_MAX_SECONDS
 from core.live_events import live_change_seq, wait_live_change
 from run_mode.state import (
     RUN_FILE_MAX_BYTES,
-    RUNNER_TOOL_WAIT_MAX,
     check_no_active_run,
     current_run_session,
     launch_run_file,
@@ -55,8 +55,8 @@ AGENT_LIST_TOTAL_CHARS = 24000
 AGENT_RESULT_PAGE_CHARS = 20000
 # Texto de los mensajes del último turno que devuelve el detalle con include_turn, entre todos.
 AGENT_TURN_MAX_CHARS = 20000
-# Tope de wait_seconds: solo existe en modo ejecución, donde el runner de Node no espera más una respuesta.
-AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
+# Tope de wait_seconds: el único de las esperas de herramientas (TOOL_WAIT_MAX_SECONDS).
+AGENT_MAX_WAIT = TOOL_WAIT_MAX_SECONDS
 # Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
 # ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
 AGENT_WAIT_RECHECK_SECONDS = 5.0

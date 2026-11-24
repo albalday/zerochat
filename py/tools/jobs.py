@@ -16,16 +16,17 @@ import time
 from pathlib import Path
 
 from core.environment import DETECTED_OS
+from core.limits import TOOL_WAIT_MAX_SECONDS
 from core.live_events import notify_live_change
 from core.process import _kill_process_tree, _pid_alive, _process_start_token
-from run_mode.state import tool_wait_max
 from security.context import SecurityContext
 from tools.common import _atomic_write_text, _tool_error, text_terms
 from tools.job_waits import WAITS, _wait_job
 
 COMMAND_DEFAULT_TIMEOUT = 30
-COMMAND_MAX_TIMEOUT = 600
-COMMAND_MAX_WAIT = 600
+# Lo que run_command espera antes de pasar el comando a segundo plano y check_command espera su final, como mucho.
+COMMAND_MAX_TIMEOUT = TOOL_WAIT_MAX_SECONDS
+COMMAND_MAX_WAIT = TOOL_WAIT_MAX_SECONDS
 # Lo que espera un comando en segundo plano antes de responder: deja ver un fallo inmediato.
 BACKGROUND_STARTUP_WAIT = 2.5
 MAX_RUNNING_JOBS = 8
@@ -474,7 +475,7 @@ class JobManager:
             if same is not None:
                 raise ValueError(
                     f"This command is already running as job_id {same.id} (for {int(same.elapsed())} s). Do not run it again: "
-                    f"follow it with check_command(job_id={same.id}, wait_seconds={tool_wait_max(COMMAND_MAX_WAIT)}), or stop it first with "
+                    f"follow it with check_command(job_id={same.id}, wait_seconds={COMMAND_MAX_WAIT}), or stop it first with "
                     f"check_command(job_id={same.id}, stop=true) if you really need a new run."
                 )
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
@@ -702,19 +703,18 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
         return _tool_error(str(exc), os=DETECTED_OS)
     if background:
         if not job.done.wait(BACKGROUND_STARTUP_WAIT):
-            follow = tool_wait_max(COMMAND_MAX_WAIT)
             return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds={follow}, pattern='error|Traceback'), "
-                f"which returns when it finishes, prints an error or after {follow} s, and stop it with check_command(job_id={job.id}, stop=true)."
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds={COMMAND_MAX_WAIT}, pattern='error|Traceback'), "
+                f"which returns when it finishes, prints an error or after {COMMAND_MAX_WAIT} s, and stop it with check_command(job_id={job.id}, stop=true)."
             ))
         return _job_result(job)
-    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, tool_wait_max(COMMAND_MAX_TIMEOUT))
+    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
     if not job.done.wait(timeout):
         # No se mata: lo hecho no se pierde y relanzarlo no lo duplica.
         job.background = True
         return _job_result(job, note=(
             f"Still running after {timeout} s, so it was moved to the background instead of being killed. "
-            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds={tool_wait_max(COMMAND_MAX_WAIT)}) "
+            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds={COMMAND_MAX_WAIT}) "
             f"and stop it with check_command(job_id={job.id}, stop=true)."
         ))
     return _job_result(job)
@@ -738,7 +738,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     if stop:
         JOBS.stop(job, "model")
         return _job_result(job, output_field="new_output")
-    wait = _clamp_seconds(wait_seconds, 0, 0, tool_wait_max(COMMAND_MAX_WAIT))
+    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
     cancel = WAITS.open(job_key, job)

@@ -72,8 +72,20 @@
       <p>Project audits apply this lesson: each <code>AGENTS.md</code> rule is matched with the test that protects it, and rules without a test are flagged as pending.</p>
     </section>
 
+    <section class="card" id="milestones-lesson">
+      <h2>4. The positive experience: milestones, tasks and two agent tiers</h2>
+      <p>Just as rules without tests were the main weakness early on, introducing <a href="project-mode.html">project management based on milestones, tasks and a decision log</a> (<code>AGENTS.md</code> and <code>.zerochat/</code>) has been the change that worked best in day-to-day development.</p>
+      <p>Breaking work into small, scoped tasks with an explicit goal, affected files, contracts and required tests makes it possible to separate two distinct roles at very different costs:</p>
+      <ul>
+        <li><strong>Design and architecture with a higher-capability agent:</strong> working with the user, it inspects the actual codebase, weighs trade-offs, sets system invariants and writes well-scoped tasks into the plan.</li>
+        <li><strong>Implementation with a lower-cost agent:</strong> once tasks are specified and the test suite guards the contracts, a lighter or less expensive model can implement them one by one following <code>AGENTS.md</code>, running the required tests on every change and closing each task as it finishes.</li>
+      </ul>
+      <h3>End-of-milestone review: audit and documentation</h3>
+      <p>To keep this split from eroding system coherence, the workflow includes a final review after a milestone or batch of tasks: the design agent working with the user audits the generated code (quality, simplification, security, duplication and tests), proposes new concrete tasks to fix any bugs or asymmetries found, and identifies which technical docs and help pages need updating so they stay aligned with the current behaviour.</p>
+    </section>
+
     <section class="card">
-      <h2>4. Status and use</h2>
+      <h2>5. Status and use</h2>
       <p>ZeroChat is still a personal project. It is published under the MIT licence: anyone may use it, modify it or reuse its parts if they find them useful, without support or warranty.</p>
       <p>The current goal of the <strong>10.x</strong> series is to use it as the <strong>single frontend for local models</strong>, served through an OpenAI-compatible API or Ollama; the model changes with the task. Improvements target that use; this help describes what is implemented and does not announce a roadmap.</p>
     </section>

@@ -409,12 +409,12 @@
     syncLiveServerRun();
   }
 
-  /** Envía el compositor; el modo ejecución pasa onProgress. Devuelve { text } o { error }. */
+  /** Envía el compositor. Devuelve { text } o { error }. */
   function handleSendMessage(sendOptions = {}) {
     const agent = activeAgentSession();
     // Lo que se envía en una conversación de agente reanuda su ejecución en el servidor, con su perfil, nunca aquí.
     if (agent && (!ServerRun.isAvailable() || (isAgentComposerLocked() && !sendOptions.resume))) return Promise.resolve(null);
-    const runOnServer = !sendOptions.onProgress && (Boolean(agent) || isServerRunEnabled());
+    const runOnServer = Boolean(agent) || isServerRunEnabled();
     return GenerationController.handleSendMessage({
       elements,
       appendUserMessage: (text, originalPrompt, attachedImages) => UIConversation.appendUserMessage(

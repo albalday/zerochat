@@ -153,9 +153,9 @@ LOCAL_TOOLS_DEFINITIONS = [
             "Check a command started by run_command: returns its status and the output produced since the last check. "
             "Use wait_seconds to wait for it to finish (a maximum: it returns as soon as the command ends), add pattern to "
             "return as soon as a new output line matches it, "
-            "or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds=600, pattern='error|Traceback') "
-            "returns when the command finishes, prints an error, or after 600 s. To follow a long command until it finishes "
-            "(also when the user asks to be told when it ends), call it again with wait_seconds=600 each time it returns still running."
+            f"or stop=true to terminate it. Example: check_command(job_id=4, wait_seconds={COMMAND_MAX_WAIT}, pattern='error|Traceback') "
+            f"returns when the command finishes, prints an error, or after {COMMAND_MAX_WAIT} s. To follow a long command until it finishes "
+            f"(also when the user asks to be told when it ends), call it again with wait_seconds={COMMAND_MAX_WAIT} each time it returns still running."
         ),
         "inputSchema": {
             "type": "object",

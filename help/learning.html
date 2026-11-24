@@ -72,8 +72,20 @@
       <p>Las auditorías del proyecto aplican esta lección: cada norma de <code>AGENTS.md</code> se contrasta con la prueba que la protege, y las que no tienen prueba se señalan como pendientes.</p>
     </section>
 
+    <section class="card" id="leccion-hitos">
+      <h2>4. La experiencia positiva: hitos, tareas y dos niveles de agente</h2>
+      <p>Igual que las normas sin pruebas fueron el punto débil al principio, incorporar una <a href="project-mode.html">gestión de proyecto basada en hitos, tareas y registro de decisiones</a> (<code>AGENTS.md</code> y <code>.zerochat/</code>) ha sido el cambio que mejor ha funcionado en el desarrollo diario.</p>
+      <p>Tener el trabajo partido en tareas pequeñas, con objetivo explícito, archivos afectados, contratos y pruebas exigidas, permite separar dos papeles distintos con costes muy diferentes:</p>
+      <ul>
+        <li><strong>Diseño y arquitectura con un agente de mayor capacidad:</strong> junto con la persona, analiza el código real, contrasta alternativas, fija los invariantes del sistema y redacta en el plan las tareas acotadas que conviene abordar.</li>
+        <li><strong>Ejecución con un agente de menor coste:</strong> una vez descritas las tareas y con la suite de pruebas protegiendo los contratos, un modelo más ligero o económico puede implementarlas una a una siguiendo <code>AGENTS.md</code>, validando cada cambio con las pruebas y marcando cada tarea al cerrarla.</li>
+      </ul>
+      <h3>Cierre por hito: auditoría y documentación</h3>
+      <p>Para que esta división no degrade la coherencia del sistema, el flujo incluye de forma habitual una revisión final al cerrar un hito o un bloque de tareas: el agente de diseño con el que trabaja el usuario audita el código generado (calidad, simplificación, seguridad, duplicaciones y pruebas), propone nuevas tareas concretas para corregir los errores o asimetrías detectados y señala qué documentación técnica y páginas de ayuda deben actualizarse para reflejar el comportamiento vigente.</p>
+    </section>
+
     <section class="card">
-      <h2>4. Estado y uso</h2>
+      <h2>5. Estado y uso</h2>
       <p>ZeroChat sigue siendo un proyecto personal. Se publica con licencia MIT: cualquiera puede usarlo, modificarlo o reutilizar sus partes si le sirven, sin soporte ni garantía.</p>
       <p>El objetivo actual de la serie <strong>10.x</strong> es usarlo como <strong>frontend único de modelos locales</strong>, servidos con una API compatible con OpenAI u Ollama; el modelo cambia según la tarea. Las mejoras se orientan a ese uso; esta ayuda describe lo implementado y no anuncia una hoja de ruta.</p>
     </section>

@@ -5,7 +5,7 @@
  *
  * handleSendMessage recibe de app.js los elementos del DOM y los callbacks que dependen de su
  * cableado: appendUserMessage, createAssistantMessagePlaceholder, updateConnectionTokensBadge,
- * openDebugInterceptorModal y saveCurrentSession; el modo ejecución añade onProgress. Devuelve
+ * openDebugInterceptorModal y saveCurrentSession (el modo ejecución usa su propio bucle, js/run-node.js). Devuelve
  * { text } con la respuesta final o { error } si no la hubo.
  */
 (function (root, factory) {
@@ -256,7 +256,6 @@
         },
         onGenerationStatus: update => {
           if (isCurrentSession()) status.setStatus(elements.generationStatus, update);
-          options.onProgress?.({ kind: update.phase === 'tool' ? 'tool' : 'status', text: update.text || update.phase || '' });
         },
         onStepHistory: history => {
           if (!isCurrentSession()) return;
@@ -264,9 +263,6 @@
           stepSave = stepSave.then(() => options.saveCurrentSession())
             .catch(error => console.warn('[GenerationController] Could not save the step:', error));
         },
-        onProgress: options.onProgress,
-        onUsage: options.onUsage,
-        maxSteps: options.maxSteps ?? null,
         onLog: (type, text) => {
           if (isCurrentSession()) Debug.addLog(type, text);
         },
@@ -324,7 +320,6 @@
       actions.hidden = false;
       UIConversation.bindMessageCopy(btnCopy, () => loopResult.accumulatedMarkdown || loopResult.finalAssistantText || '');
       if (loopResult.loopDetected) return { error: 'The agent loop was stopped after repeated tool calls.' };
-      if (loopResult.stepLimit) return { limit: 'steps' };
       return { text: loopResult.finalAssistantText };
     } catch (err) {
       console.error('[GenerationController] Agent inference failed:', err);
