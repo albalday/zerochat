@@ -5,7 +5,15 @@ from __future__ import annotations
 from core.environment import DETECTED_OS
 from core.limits import MAX_COMMAND_LENGTH, MAX_HTTP_BODY_BYTES, MAX_PATH_LENGTH
 from storage.db import MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH
-from tools.agents import AGENT_MAX_WAIT, AGENT_PRUNE_KEEP_MAX, AGENTS_TOOL, check_agents
+from tools.agents import (
+    AGENT_MAX_WAIT,
+    AGENT_PRUNE_KEEP_MAX,
+    AGENTS_TOOL,
+    LAUNCH_AGENT_TOOL,
+    MAX_LAUNCH_PROMPT_LENGTH,
+    check_agents,
+    launch_agent,
+)
 from tools.browser_action import BROWSER_ACTIONS, browser_action
 from tools.browser_secret import BROWSER_SECRET_MODES, browser_fill_secret
 from tools.filesystem import edit_file, get_diagnostics, list_directory, read_file, search_files, write_file
@@ -216,7 +224,7 @@ LOCAL_TOOLS_DEFINITIONS = [
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
-        "Status of the agents of this project that this run supervises (watchAgents). Without arguments, one entry per "
+        "Status of the agents that this run supervises (watchAgents), in this project or, with project, in another one. Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
         "error, warnings, token usage of the run and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
@@ -231,10 +239,31 @@ CHECK_AGENTS_DEFINITION = {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
-            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"}
+            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"}
         }
     }
 }
+LAUNCH_AGENT_DEFINITION = {
+    "name": LAUNCH_AGENT_TOOL,
+    "description": (
+        "Start a watched agent from its run-file JSON (for example agents/report.json) as a separate run that keeps going "
+        "after this run ends, and return its conversation_id and run_id. The run-file's agent must match watchAgents; it "
+        "runs with the saved environment and permissions of its project. Give prompt to replace the run-file's prompt, "
+        "and project to launch an agent of another project. Then follow it with check_agents, which can wait for it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file JSON inside the project"},
+            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run, instead of the run-file's prompt"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give R"}
+        },
+        "required": ["run_file"]
+    }
+}
+# Las de un master, que solo se publican en una ejecución --run-file con watchAgents.
+MASTER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION)
 
 LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
@@ -248,6 +277,7 @@ LOCAL_TOOL_HANDLERS = {
     "browser_action": browser_action,
     "browser_fill_secret": browser_fill_secret,
     AGENTS_TOOL: check_agents,
+    LAUNCH_AGENT_TOOL: launch_agent,
 }
 
 
@@ -272,7 +302,7 @@ def _argument_error(name: str, value, prop: dict | None) -> str | None:
 
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
-    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, CHECK_AGENTS_DEFINITION) if item["name"] == tool_name), None)
+    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, *MASTER_TOOL_DEFINITIONS) if item["name"] == tool_name), None)
     if definition is None:
         return None
 

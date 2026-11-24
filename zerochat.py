@@ -5561,6 +5561,42 @@ def start_server_run(params: dict) -> dict:
     return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
 
 
+def launch_run_file(request: dict, cwd: Path) -> dict:
+    """
+    Lanza `zerochat --run-file -` con la petición ya validada (con su conversation_id) en la carpeta cwd, separado de
+    este proceso: no es un comando de run_command, así que sigue aunque esta ejecución termine. Su fila de runs queda
+    en marcha con el run_id que recibe en ZEROCHAT_RUN_ID antes de que arranque. ValueError si no se puede lanzar.
+    """
+    conv_id = request["conversation_id"]
+    check_no_active_run(conv_id)
+    if not find_node_executable():
+        raise ValueError(f"Se necesita {NODE_REQUIRED_MESSAGE} para lanzar agentes.")
+    run_id = secrets.token_urlsafe(24)
+    env = {key: value for key, value in os.environ.items() if key != "ZEROCHAT_RUN_SECURITY"}
+    env["ZEROCHAT_RUN_ID"] = run_id
+    proc = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--run-file", "-"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid"),
+        env=env,
+        cwd=str(cwd),
+    )
+    now = int(time.time() * 1000)
+    payload = {"run_id": run_id, "conversation_id": conv_id, "pid": proc.pid, "pid_start": _process_start_token(proc.pid),
+               "started_at": now, "updated_at": now, "status": "running", "step_text": "", "pending": None, "error": None}
+    upsert_run_state(payload)
+    watch_run_exit(proc.pid, payload["pid_start"], proc)
+    try:
+        if proc.stdin is not None:
+            proc.stdin.write(json.dumps(request, ensure_ascii=False).encode("utf-8"))
+            proc.stdin.close()
+    except OSError:
+        pass  # Si el proceso ya terminó, su final queda en su fila (watch_run_exit) como el de cualquier ejecución.
+    return {"run_id": run_id, "pid": proc.pid}
+
+
 def cancel_server_run(conversation_id: str) -> dict:
     """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina su estado."""
     if not isinstance(conversation_id, str) or not conversation_id.strip():
@@ -6200,190 +6236,6 @@ def _atomic_write_text(target: Path, text: str):
     with open(temp_path, "w", encoding="utf-8") as f:
         f.write(text)
     temp_path.replace(target)
-
-# --- tools.agents ---
-"""check_agents: estado de los agentes que vigila un agente master, solo en la ejecución --run-file con watchAgents.
-
-Lee conversaciones y ejecuciones de SQLite filtrando estrictamente por el proyecto de la ejecución y por los patrones de
-watchAgents: nunca chats humanos (sin agent) ni conversaciones de otros proyectos. Con wait_seconds espera, sin que el
-modelo tenga que sondear, a que cambie el estado de alguno de los agentes consultados. Con prune_keep borra, solo
-cuando el master lo pide, las conversaciones antiguas de sus agentes vigilados (nunca hay limpieza automática).
-"""
-
-
-
-
-AGENTS_TOOL = "check_agents"
-# Resumen de la respuesta final de cada agente en el listado.
-AGENT_RESULT_SUMMARY_CHARS = 500
-# Texto de los mensajes del último turno que devuelve el detalle, entre todos.
-AGENT_TURN_MAX_CHARS = 20000
-# Tope de wait_seconds: solo existe en modo ejecución, donde el runner de Node no espera más una respuesta.
-AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
-# Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
-# ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
-AGENT_WAIT_RECHECK_SECONDS = 5.0
-# Tope de prune_keep: cuántas conversaciones recientes de cada agente puede pedir conservar el master.
-AGENT_PRUNE_KEEP_MAX = 1000
-# Estados que la limpieza nunca borra: una ejecución en marcha o una pausa que espera a una persona.
-AGENT_PRUNE_PROTECTED = ("running", "needs_input")
-
-
-def _clip(text: str, limit: int) -> tuple[str, bool]:
-    return (text, False) if len(text) <= limit else (text[:limit], True)
-
-
-def _conversation_project(ctx: SecurityContext) -> str:
-    """El proyecto de las conversaciones de esta ejecución: su carpeta, o vacío en la carpeta general."""
-    return "" if ctx.key == normalize_directory_path(str(get_no_project_dir())) else ctx.key
-
-
-def _watched_conversations(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str) -> list[dict]:
-    """Conversaciones de agentes vigilados del proyecto, de la más reciente a la más antigua, sin la del propio master."""
-    project = _conversation_project(ctx)
-    return [conv for conv in list_conversations()
-            if conv["id"] != own_id and (conv.get("project") or "") == project and agent_matches(conv.get("agent"), patterns)]
-
-
-def _agent_state(conv: dict, run: dict) -> dict:
-    """Estado de la última ejecución de una conversación de agente, con la respuesta final resumida. Una en marcha
-    cuyo proceso ya no existe terminó sin poder guardar su final: se da como error."""
-    result, clipped = _clip(run.get("result_text") or "", AGENT_RESULT_SUMMARY_CHARS)
-    died = run.get("status") == "running" and not run_process_alive(run)
-    return {
-        "agent": conv["agent"],
-        "conversation_id": conv["id"],
-        "status": "error" if died else run.get("status"),
-        "updated_at": run.get("updated_at") or conv.get("updatedAt"),
-        "finished_at": run.get("finished_at"),
-        "step_text": run.get("step_text") or "",
-        "pending": run.get("pending"),
-        "error": "The agent's run process ended unexpectedly." if died else run.get("error"),
-        "warnings": run.get("warnings") or [],
-        "usage": run.get("usage"),
-        "result_text": result,
-        **({"result_truncated": True} if clipped else {}),
-    }
-
-
-def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
-    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó."""
-    start = max((index for index, message in enumerate(history) if message.get("role") == "user"), default=0)
-    budget, truncated, messages = AGENT_TURN_MAX_CHARS, False, []
-    for message in history[start:]:
-        content, clipped = _clip("" if message.get("content") is None else str(message["content"]), budget)
-        budget -= len(content)
-        truncated = truncated or clipped
-        entry = {"role": message.get("role"), "content": content}
-        if message.get("name"):
-            entry["name"] = message["name"]
-        calls = [call.get("function", {}).get("name") for call in message.get("tool_calls") or [] if isinstance(call, dict)]
-        if calls:
-            entry["tool_calls"] = calls
-        messages.append(entry)
-    return messages, truncated
-
-
-def _selected(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str, agent: str | None,
-              conversation_id: str | None) -> list[tuple[dict, dict]] | None:
-    """Las conversaciones consultadas con su ejecución: la más reciente de cada agente vigilado, la de agent o la de
-    conversation_id; None si agent o conversation_id no es de un agente vigilado."""
-    convs = _watched_conversations(ctx, patterns, own_id)
-    if conversation_id is not None:
-        picked = [conv for conv in convs if conv["id"] == conversation_id][:1]
-    elif agent is not None:
-        picked = [conv for conv in convs if conv["agent"] == agent][:1]
-    else:
-        latest: dict[str, dict] = {}
-        for conv in convs:
-            latest.setdefault(conv["agent"], conv)
-        return [(conv, get_run_state(conv["id"]) or {}) for conv in latest.values()]
-    return [(conv, get_run_state(conv["id"]) or {}) for conv in picked] or None
-
-
-def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None, str]:
-    """Relee con read() hasta que cambie alguna conversación consultada o su estado (una nueva, otra que termina o
-    se pausa), o pase wait. Devuelve lo último leído y el motivo."""
-    def signature(selected):
-        return None if selected is None else [(conv["id"], _agent_state(conv, run)["status"]) for conv, run in selected]
-
-    deadline = time.monotonic() + wait
-    seq = live_change_seq()
-    selected = read()
-    initial = signature(selected)
-    while True:
-        for _conv, run in selected or ():
-            if run.get("status") == "running" and run.get("pid"):
-                watch_run_exit(run["pid"], run.get("pid_start"))
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return selected, "wait_elapsed"
-        seq = wait_live_change(seq, min(remaining, AGENT_WAIT_RECHECK_SECONDS))
-        selected = read()
-        if signature(selected) != initial:
-            return selected, "agent_changed"
-
-
-def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
-    """Borra las conversaciones de cada agente vigilado (o solo de agent) salvo las keep más recientes, con su fila
-    de runs; las que están en marcha o esperan a una persona se conservan y se indican."""
-    deleted, skipped, seen = [], [], {}
-    for conv in convs:  # De la más reciente a la más antigua.
-        if agent is not None and conv["agent"] != agent:
-            continue
-        seen[conv["agent"]] = seen.get(conv["agent"], 0) + 1
-        if seen[conv["agent"]] <= keep:
-            continue
-        status = _agent_state(conv, get_run_state(conv["id"]) or {})["status"]
-        if status in AGENT_PRUNE_PROTECTED:
-            skipped.append({"agent": conv["agent"], "conversation_id": conv["id"], "status": status})
-            continue
-        if delete_conversation(conv["id"]):
-            delete_run_state(conv["id"])
-            deleted.append({"agent": conv["agent"], "conversation_id": conv["id"]})
-    return json.dumps({"success": True, "deleted": deleted, "skipped": skipped}, ensure_ascii=False)
-
-
-def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
-                 prune_keep: int | None = None, ctx: SecurityContext | None = None) -> str:
-    """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente); con agent o conversation_id,
-    además los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
-    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes vigilados (o de agent)."""
-    session = current_run_session()
-    patterns = session.watch_agents if session is not None else ()
-    if not patterns or ctx is None:
-        return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
-    own_id = session.conversation_id or session.new_conversation_id or ""
-    if prune_keep is not None:
-        if conversation_id is not None or wait_seconds:
-            return _tool_error("prune_keep goes alone or with agent, without conversation_id or wait_seconds.")
-        if isinstance(prune_keep, bool) or not isinstance(prune_keep, int) or not 0 <= prune_keep <= AGENT_PRUNE_KEEP_MAX:
-            return _tool_error(f"prune_keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
-        convs = _watched_conversations(ctx, patterns, own_id)
-        if agent is not None and not any(conv["agent"] == agent for conv in convs):
-            return _tool_error("That agent is not a watched agent of this project.")
-        return _prune(convs, agent, prune_keep)
-
-    def read():
-        return _selected(ctx, patterns, own_id, agent, conversation_id)
-
-    wait = max(0, min(int(wait_seconds or 0), AGENT_MAX_WAIT))
-    extra = {}
-    if wait:
-        started = time.monotonic()
-        selected, reason = _wait_for_change(read, wait)
-        extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
-    else:
-        selected = read()
-    if selected is None:
-        return _tool_error("That agent or conversation is not a watched agent of this project.")
-    if conversation_id is None and agent is None:
-        return json.dumps({"success": True, "agents": [_agent_state(conv, run) for conv, run in selected], **extra}, ensure_ascii=False)
-    conv, run = selected[0]
-    full = get_conversation(conv["id"]) or {}
-    messages, truncated = _last_turn(full.get("history") or [])
-    return json.dumps({"success": True, **_agent_state(conv, run), "last_turn": messages,
-                       **({"last_turn_truncated": True} if truncated else {}), **extra}, ensure_ascii=False)
 
 # --- tools.browser_action ---
 """Herramienta browser_action: una sesión persistente de Playwright con los motores propios o el navegador del sistema."""
@@ -8572,6 +8424,12 @@ class AccessController:
 
         return {"allowed": False, "rule": None, "path": normalized_dest}
 
+    def allows_path(self, access: str, path: str, context: SecurityContext) -> bool:
+        """Si las reglas de directorio del proyecto (o su allowAll) dan `access` sobre `path`, sin preguntar: para las
+        herramientas que actúan sobre otra carpeta en una ejecución desatendida (check_agents y launch_agent)."""
+        view = self._effective_state(context)
+        return bool(view["allowAll"]) or self.evaluate_directory_rule(access, path, view["directoryRules"], context)["allowed"]
+
     def clear_session(self):
         """Olvida lo autorizado en la sesión y los retos pendientes de todos los proyectos."""
         with self._lock:
@@ -9327,6 +9185,279 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
     except OSError as error:
         run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
         return None
+
+# --- tools.agents ---
+"""check_agents y launch_agent: los agentes que vigila y lanza un agente master, solo en la ejecución --run-file con
+watchAgents.
+
+Leen conversaciones y ejecuciones de SQLite filtrando estrictamente por un proyecto (el de la ejecución o, con project,
+otro sobre el que sus reglas de directorio den lectura) y por los patrones de watchAgents: nunca chats humanos (sin
+agent). launch_agent lanza un run-file de ese proyecto separado del master, con el entorno guardado y los permisos del
+proyecto en que se ejecuta. Con wait_seconds espera, sin que el
+modelo tenga que sondear, a que cambie el estado de alguno de los agentes consultados. Con prune_keep borra, solo
+cuando el master lo pide, las conversaciones antiguas de sus agentes vigilados (nunca hay limpieza automática).
+"""
+
+
+
+
+AGENTS_TOOL = "check_agents"
+LAUNCH_AGENT_TOOL = "launch_agent"
+# Las herramientas del master: se publican y autorizan juntas, solo en una ejecución --run-file con watchAgents.
+MASTER_TOOLS = (AGENTS_TOOL, LAUNCH_AGENT_TOOL)
+# Tope del prompt que launch_agent pone en lugar del del run-file.
+MAX_LAUNCH_PROMPT_LENGTH = 32768
+# Resumen de la respuesta final de cada agente en el listado.
+AGENT_RESULT_SUMMARY_CHARS = 500
+# Texto de los mensajes del último turno que devuelve el detalle, entre todos.
+AGENT_TURN_MAX_CHARS = 20000
+# Tope de wait_seconds: solo existe en modo ejecución, donde el runner de Node no espera más una respuesta.
+AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
+# Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
+# ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
+AGENT_WAIT_RECHECK_SECONDS = 5.0
+# Tope de prune_keep: cuántas conversaciones recientes de cada agente puede pedir conservar el master.
+AGENT_PRUNE_KEEP_MAX = 1000
+# Estados que la limpieza nunca borra: una ejecución en marcha o una pausa que espera a una persona.
+AGENT_PRUNE_PROTECTED = ("running", "needs_input")
+
+
+def _clip(text: str, limit: int) -> tuple[str, bool]:
+    return (text, False) if len(text) <= limit else (text[:limit], True)
+
+
+def _conversation_project(ctx: SecurityContext) -> str:
+    """El proyecto de las conversaciones de esta ejecución: su carpeta, o vacío en la carpeta general."""
+    return "" if ctx.key == normalize_directory_path(str(get_no_project_dir())) else ctx.key
+
+
+def _target_project(ctx: SecurityContext, project: str | None, access: str) -> SecurityContext:
+    """El proyecto sobre el que actúa el master: el suyo o, con project, otra carpeta sobre la que sus reglas de
+    directorio den `access` (R para consultar y lanzar, RW para borrar). ValueError con el motivo si no vale."""
+    if project is None:
+        return ctx
+    if not isinstance(project, str) or not project.strip():
+        raise ValueError("project must be the folder of a project.")
+    try:
+        folder = ctx.absolute(project.strip())
+    except ValueError as exc:
+        raise ValueError(f"project is not a valid folder: {exc}") from exc
+    if not folder.is_dir():
+        raise ValueError(f"The project folder does not exist: {folder}")
+    target = SecurityContext(workspace_dir=folder)
+    if target.key != ctx.key and not ACCESS_CONTROLLER.allows_path(access, str(folder), ctx):
+        raise ValueError(f"This project's directory rules do not give {access} access to {folder}.")
+    return target
+
+
+def _watched_conversations(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str) -> list[dict]:
+    """Conversaciones de agentes vigilados del proyecto, de la más reciente a la más antigua, sin la del propio master."""
+    project = _conversation_project(ctx)
+    return [conv for conv in list_conversations()
+            if conv["id"] != own_id and (conv.get("project") or "") == project and agent_matches(conv.get("agent"), patterns)]
+
+
+def _agent_state(conv: dict, run: dict) -> dict:
+    """Estado de la última ejecución de una conversación de agente, con la respuesta final resumida. Una en marcha
+    cuyo proceso ya no existe terminó sin poder guardar su final: se da como error."""
+    result, clipped = _clip(run.get("result_text") or "", AGENT_RESULT_SUMMARY_CHARS)
+    died = run.get("status") == "running" and not run_process_alive(run)
+    return {
+        "agent": conv["agent"],
+        "conversation_id": conv["id"],
+        "status": "error" if died else run.get("status"),
+        "updated_at": run.get("updated_at") or conv.get("updatedAt"),
+        "finished_at": run.get("finished_at"),
+        "step_text": run.get("step_text") or "",
+        "pending": run.get("pending"),
+        "error": "The agent's run process ended unexpectedly." if died else run.get("error"),
+        "warnings": run.get("warnings") or [],
+        "usage": run.get("usage"),
+        "result_text": result,
+        **({"result_truncated": True} if clipped else {}),
+    }
+
+
+def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
+    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó."""
+    start = max((index for index, message in enumerate(history) if message.get("role") == "user"), default=0)
+    budget, truncated, messages = AGENT_TURN_MAX_CHARS, False, []
+    for message in history[start:]:
+        content, clipped = _clip("" if message.get("content") is None else str(message["content"]), budget)
+        budget -= len(content)
+        truncated = truncated or clipped
+        entry = {"role": message.get("role"), "content": content}
+        if message.get("name"):
+            entry["name"] = message["name"]
+        calls = [call.get("function", {}).get("name") for call in message.get("tool_calls") or [] if isinstance(call, dict)]
+        if calls:
+            entry["tool_calls"] = calls
+        messages.append(entry)
+    return messages, truncated
+
+
+def _selected(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str, agent: str | None,
+              conversation_id: str | None) -> list[tuple[dict, dict]] | None:
+    """Las conversaciones consultadas con su ejecución: la más reciente de cada agente vigilado, la de agent o la de
+    conversation_id; None si agent o conversation_id no es de un agente vigilado."""
+    convs = _watched_conversations(ctx, patterns, own_id)
+    if conversation_id is not None:
+        picked = [conv for conv in convs if conv["id"] == conversation_id][:1]
+    elif agent is not None:
+        picked = [conv for conv in convs if conv["agent"] == agent][:1]
+    else:
+        latest: dict[str, dict] = {}
+        for conv in convs:
+            latest.setdefault(conv["agent"], conv)
+        return [(conv, get_run_state(conv["id"]) or {}) for conv in latest.values()]
+    return [(conv, get_run_state(conv["id"]) or {}) for conv in picked] or None
+
+
+def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None, str]:
+    """Relee con read() hasta que cambie alguna conversación consultada o su estado (una nueva, otra que termina o
+    se pausa), o pase wait. Devuelve lo último leído y el motivo."""
+    def signature(selected):
+        return None if selected is None else [(conv["id"], _agent_state(conv, run)["status"]) for conv, run in selected]
+
+    deadline = time.monotonic() + wait
+    seq = live_change_seq()
+    selected = read()
+    initial = signature(selected)
+    while True:
+        for _conv, run in selected or ():
+            if run.get("status") == "running" and run.get("pid"):
+                watch_run_exit(run["pid"], run.get("pid_start"))
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return selected, "wait_elapsed"
+        seq = wait_live_change(seq, min(remaining, AGENT_WAIT_RECHECK_SECONDS))
+        selected = read()
+        if signature(selected) != initial:
+            return selected, "agent_changed"
+
+
+def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
+    """Borra las conversaciones de cada agente vigilado (o solo de agent) salvo las keep más recientes, con su fila
+    de runs; las que están en marcha o esperan a una persona se conservan y se indican."""
+    deleted, skipped, seen = [], [], {}
+    for conv in convs:  # De la más reciente a la más antigua.
+        if agent is not None and conv["agent"] != agent:
+            continue
+        seen[conv["agent"]] = seen.get(conv["agent"], 0) + 1
+        if seen[conv["agent"]] <= keep:
+            continue
+        status = _agent_state(conv, get_run_state(conv["id"]) or {})["status"]
+        if status in AGENT_PRUNE_PROTECTED:
+            skipped.append({"agent": conv["agent"], "conversation_id": conv["id"], "status": status})
+            continue
+        if delete_conversation(conv["id"]):
+            delete_run_state(conv["id"])
+            deleted.append({"agent": conv["agent"], "conversation_id": conv["id"]})
+    return json.dumps({"success": True, "deleted": deleted, "skipped": skipped}, ensure_ascii=False)
+
+
+def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
+                 prune_keep: int | None = None, project: str | None = None, ctx: SecurityContext | None = None) -> str:
+    """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente); con agent o conversation_id,
+    además los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
+    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes vigilados (o de agent). Con
+    project, los agentes de esa carpeta en lugar de los del proyecto de la ejecución."""
+    session = current_run_session()
+    patterns = session.watch_agents if session is not None else ()
+    if not patterns or ctx is None:
+        return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
+    own_id = session.conversation_id or session.new_conversation_id or ""
+    try:
+        ctx = _target_project(ctx, project, "RW" if prune_keep is not None else "R")
+    except ValueError as exc:
+        return _tool_error(str(exc))
+    if prune_keep is not None:
+        if conversation_id is not None or wait_seconds:
+            return _tool_error("prune_keep goes alone or with agent, without conversation_id or wait_seconds.")
+        if isinstance(prune_keep, bool) or not isinstance(prune_keep, int) or not 0 <= prune_keep <= AGENT_PRUNE_KEEP_MAX:
+            return _tool_error(f"prune_keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
+        convs = _watched_conversations(ctx, patterns, own_id)
+        if agent is not None and not any(conv["agent"] == agent for conv in convs):
+            return _tool_error("That agent is not a watched agent of this project.")
+        return _prune(convs, agent, prune_keep)
+
+    def read():
+        return _selected(ctx, patterns, own_id, agent, conversation_id)
+
+    wait = max(0, min(int(wait_seconds or 0), AGENT_MAX_WAIT))
+    extra = {}
+    if wait:
+        started = time.monotonic()
+        selected, reason = _wait_for_change(read, wait)
+        extra = {"returned_because": reason, "waited_s": round(time.monotonic() - started, 1)}
+    else:
+        selected = read()
+    if selected is None:
+        return _tool_error("That agent or conversation is not a watched agent of this project.")
+    if conversation_id is None and agent is None:
+        return json.dumps({"success": True, "agents": [_agent_state(conv, run) for conv, run in selected], **extra}, ensure_ascii=False)
+    conv, run = selected[0]
+    full = get_conversation(conv["id"]) or {}
+    messages, truncated = _last_turn(full.get("history") or [])
+    return json.dumps({"success": True, **_agent_state(conv, run), "last_turn": messages,
+                       **({"last_turn_truncated": True} if truncated else {}), **extra}, ensure_ascii=False)
+
+
+def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
+                 ctx: SecurityContext | None = None) -> str:
+    """Lanza el run-file `run_file` (ruta dentro del proyecto) de un agente vigilado, separado de este master, y
+    devuelve su conversation_id y run_id. Con prompt sustituye el del fichero; con project, el run-file y la ejecución
+    son de esa carpeta, con su entorno guardado y sus permisos."""
+    session = current_run_session()
+    patterns = session.watch_agents if session is not None else ()
+    if not patterns or ctx is None:
+        return _tool_error("launch_agent is only available in a --run-file run with watchAgents.")
+    if not isinstance(run_file, str) or not run_file.strip():
+        return _tool_error("run_file is required: the path of the agent's run-file JSON in the project, such as agents/report.json.")
+    try:
+        target = _target_project(ctx, project, "R")
+        path = target.absolute(run_file.strip())
+        if not path.is_relative_to(target.workspace_dir.resolve()):
+            raise ValueError(f"run_file must be inside the project folder {target.workspace_dir}.")
+        if not ACCESS_CONTROLLER.allows_path("R", str(path), ctx):
+            raise ValueError(f"This project's directory rules do not give R access to {path}.")
+        with open(path, "rb") as handle:
+            request = parse_run_request(handle.read(RUN_FILE_MAX_BYTES + 1))
+        return _launch(request, prompt, target, patterns, own_id=session.conversation_id or session.new_conversation_id or "")
+    except OSError as exc:
+        return _tool_error(f"Could not read the run-file: {exc}")
+    except ValueError as exc:
+        return _tool_error(str(exc))
+
+
+def _launch(request: dict, prompt: str | None, target: SecurityContext, patterns: tuple[str, ...], own_id: str) -> str:
+    agent = request.get("agent")
+    if not agent or not agent_matches(agent, patterns):
+        raise ValueError("The run-file must set an agent that matches this run's watchAgents.")
+    if prompt is not None:
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt must be a non-empty text.")
+        request["prompt"] = prompt.strip()
+    if "prompt" not in request and "conversation_id" not in request:
+        raise ValueError("The run-file needs a prompt (or give one in prompt).")
+    if not get_project_environment(target.key)["saved"]:
+        raise ValueError(f"The project {target.workspace_dir} has no saved environment: save its tools and permissions in the UI first.")
+    conv_id = request.get("conversation_id")
+    conv = get_conversation(conv_id) if conv_id else None
+    if conv_id == own_id:
+        raise ValueError("A master cannot launch its own conversation.")
+    if conv is not None and ((conv.get("project") or "") != _conversation_project(target) or conv.get("agent") != agent):
+        raise ValueError(f"The conversation {conv_id} belongs to another project or agent.")
+    request["conversation_id"] = conv_id or f"session_{uuid.uuid4()}"
+    try:
+        check_no_active_run(request["conversation_id"])
+    except ValueError:
+        raise ValueError(f"The conversation {request['conversation_id']} is already running: nothing was launched.") from None
+    launched = launch_run_file(request, Path(target.workspace_dir))
+    return json.dumps({"success": True, "agent": agent, "conversation_id": request["conversation_id"], "new": conv is None,
+                       "run_id": launched["run_id"], "project": target.key,
+                       "note": "It runs on its own: follow it with check_agents (with the same project), which can wait for it."},
+                      ensure_ascii=False)
 
 # --- tools.filesystem ---
 """Herramientas de archivos del servidor local: listar, leer, escribir, editar, buscar y diagnosticar dentro de las rutas que autoriza el proyecto."""
@@ -10326,7 +10457,7 @@ LOCAL_TOOLS_DEFINITIONS = [
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
-        "Status of the agents of this project that this run supervises (watchAgents). Without arguments, one entry per "
+        "Status of the agents that this run supervises (watchAgents), in this project or, with project, in another one. Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
         "error, warnings, token usage of the run and a summary of its final answer. With agent or conversation_id, also the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it returns as soon as one of them "
@@ -10341,10 +10472,31 @@ CHECK_AGENTS_DEFINITION = {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
-            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"}
+            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"}
         }
     }
 }
+LAUNCH_AGENT_DEFINITION = {
+    "name": LAUNCH_AGENT_TOOL,
+    "description": (
+        "Start a watched agent from its run-file JSON (for example agents/report.json) as a separate run that keeps going "
+        "after this run ends, and return its conversation_id and run_id. The run-file's agent must match watchAgents; it "
+        "runs with the saved environment and permissions of its project. Give prompt to replace the run-file's prompt, "
+        "and project to launch an agent of another project. Then follow it with check_agents, which can wait for it."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file JSON inside the project"},
+            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run, instead of the run-file's prompt"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give R"}
+        },
+        "required": ["run_file"]
+    }
+}
+# Las de un master, que solo se publican en una ejecución --run-file con watchAgents.
+MASTER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION)
 
 LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
@@ -10358,6 +10510,7 @@ LOCAL_TOOL_HANDLERS = {
     "browser_action": browser_action,
     "browser_fill_secret": browser_fill_secret,
     AGENTS_TOOL: check_agents,
+    LAUNCH_AGENT_TOOL: launch_agent,
 }
 
 
@@ -10382,7 +10535,7 @@ def _argument_error(name: str, value, prop: dict | None) -> str | None:
 
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
-    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, CHECK_AGENTS_DEFINITION) if item["name"] == tool_name), None)
+    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, *MASTER_TOOL_DEFINITIONS) if item["name"] == tool_name), None)
     if definition is None:
         return None
 
@@ -10946,9 +11099,9 @@ decide quién atiende cada uno.
 
 
 def _local_tools() -> list[dict]:
-    """Las herramientas locales; check_agents, solo en la ejecución --run-file que vigila agentes (watchAgents)."""
+    """Las herramientas locales; check_agents y launch_agent, solo en la ejecución --run-file que vigila agentes (watchAgents)."""
     session = current_run_session()
-    extra = (CHECK_AGENTS_DEFINITION,) if session is not None and session.watch_agents else ()
+    extra = MASTER_TOOL_DEFINITIONS if session is not None and session.watch_agents else ()
     return [dict(definition) for definition in (*LOCAL_TOOLS_DEFINITIONS, *extra)]
 
 
@@ -11869,7 +12022,7 @@ def reset_session_authorizations():
                 name: {"policy": POLICY_ALLOW}
                 for name in LOCAL_TOOL_HANDLERS
                 if name != COMMAND_TOOL
-                and (name != AGENTS_TOOL or session.watch_agents)
+                and (name not in MASTER_TOOLS or session.watch_agents)
                 and not get_integrated_path_access(name)
                 and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
             }

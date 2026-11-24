@@ -424,6 +424,12 @@ class AccessController:
 
         return {"allowed": False, "rule": None, "path": normalized_dest}
 
+    def allows_path(self, access: str, path: str, context: SecurityContext) -> bool:
+        """Si las reglas de directorio del proyecto (o su allowAll) dan `access` sobre `path`, sin preguntar: para las
+        herramientas que actúan sobre otra carpeta en una ejecución desatendida (check_agents y launch_agent)."""
+        view = self._effective_state(context)
+        return bool(view["allowAll"]) or self.evaluate_directory_rule(access, path, view["directoryRules"], context)["allowed"]
+
     def clear_session(self):
         """Olvida lo autorizado en la sesión y los retos pendientes de todos los proyectos."""
         with self._lock:

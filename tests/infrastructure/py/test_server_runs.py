@@ -610,6 +610,107 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(sorted(item["conversation_id"] for item in result["deleted"]), ["d5", "s1", "s2"])
         self.assertEqual(existing(), {"d2", "d3", "ventas", "humana", "otro", "master"})
 
+    def test_launch_agent_lanza_separado_un_agente_vigilado_de_este_u_otro_proyecto_con_permiso(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
+        other = Path(tempfile.mkdtemp()).resolve()
+        for folder in (ctx.workspace_dir, other):
+            self.addCleanup(shutil.rmtree, folder, True)
+            (folder / "agents").mkdir()
+            (folder / "agents" / "diario.json").write_text(json.dumps({"agent": "informes.diario", "prompt": "Haz el informe"}))
+        (ctx.workspace_dir / "agents" / "ventas.json").write_text(json.dumps({"agent": "ventas.diario", "prompt": "Vende"}))
+        (ctx.workspace_dir / "agents" / "fijo.json").write_text(json.dumps({"agent": "informes.diario", "conversation_id": "fija", "prompt": "Sigue"}))
+        names = lambda: [tool["name"] for tool in zerochat._local_tools()]
+        launch = lambda **args: json.loads(zerochat.launch_agent(**args, ctx=ctx))
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        launched = []
+        fake_launch = lambda request, cwd: launched.append((dict(request), cwd)) or {"run_id": f"run_{len(launched)}", "pid": 1}
+
+        # Solo en una ejecución con watchAgents, que la publica y autoriza junto a check_agents.
+        zerochat.RUN_SESSION = zerochat.RunSession("Hola")
+        self.assertNotIn("launch_agent", names())
+        self.assertFalse(launch(run_file="agents/diario.json")["success"])
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        self.assertIn("launch_agent", names())
+        zerochat.reset_session_authorizations()
+        self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("launch_agent", {}, context=ctx).status, zerochat.POLICY_ALLOW)
+        self.assertIsNone(zerochat.validate_local_tool_arguments("launch_agent", {"run_file": "agents/diario.json", "project": str(other)}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {}))
+
+        with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
+            # Sin entorno guardado no lanza (el hijo saldría con código 3).
+            self.assertIn("no saved environment", launch(run_file="agents/diario.json")["error"])
+            zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
+            for invalid, reason in (({}, "run_file is required"), ({"run_file": "../fuera.json"}, "inside the project"),
+                                    ({"run_file": "agents/ventas.json"}, "watchAgents"), ({"run_file": "agents/nada.json"}, "Could not read"),
+                                    ({"run_file": "agents/diario.json", "prompt": " "}, "non-empty")):
+                self.assertIn(reason, launch(**invalid)["error"], invalid)
+            self.assertEqual(launched, [])
+
+            # Una conversación nueva por lanzamiento, con el prompt pedido, en la carpeta del proyecto.
+            result = launch(run_file="agents/diario.json", prompt="Informe de marzo")
+            self.assertEqual((result["agent"], result["new"], result["run_id"], result["project"]), ("informes.diario", True, "run_1", ctx.key))
+            self.assertTrue(result["conversation_id"].startswith("session_"))
+            self.assertEqual(launched[0], ({"agent": "informes.diario", "prompt": "Informe de marzo", "projectMode": False, "conversation_id": result["conversation_id"]},
+                                           ctx.workspace_dir))
+            # Un conversation_id fijo en marcha no se lanza otra vez.
+            upsert_run({"run_id": "r_fija", "conversation_id": "fija", "status": "running", "pid": os.getpid(),
+                        "pid_start": zerochat._process_start_token(os.getpid())})
+            self.assertIn("already running", launch(run_file="agents/fijo.json")["error"])
+
+            # Otro proyecto: hace falta R sobre su carpeta (RW para borrar) y su propio entorno guardado.
+            self.assertIn("do not give R access", launch(run_file="agents/diario.json", project=str(other))["error"])
+            self.assertIn("do not give R access", check(project=str(other))["error"])
+            default_rule = zerochat.AccessController.get_default_directory_rule(ctx)
+            zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"R:{other}/**"]}, ctx)
+            self.assertIn("no saved environment", launch(run_file="agents/diario.json", project=str(other))["error"])
+            zerochat.save_project_environment(str(other), {"systemDataPrompt": "Otro"})
+            result = launch(run_file="agents/diario.json", project=str(other))
+            self.assertEqual((result["project"], launched[-1][1], launched[-1][0]["prompt"]), (str(other), other, "Haz el informe"))
+
+        # check_agents con project ve los agentes de esa carpeta y no los de la suya; borrar en ella pide RW.
+        zerochat.save_conversation({"id": "suya", "title": "suya", "updatedAt": 1000, "project": str(other), "agent": "informes.diario"},
+                                   [{"id": "u", "role": "user", "content": "Empieza"}])
+        zerochat.save_conversation({"id": "mia", "title": "mia", "updatedAt": 1000, "project": ctx.key, "agent": "informes.diario"},
+                                   [{"id": "u", "role": "user", "content": "Empieza"}])
+        self.assertEqual([item["conversation_id"] for item in check(project=str(other))["agents"]], ["suya"])
+        self.assertEqual([item["conversation_id"] for item in check()["agents"]], ["mia"])
+        self.assertIn("do not give RW access", check(project=str(other), prune_keep=0)["error"])
+        self.assertIn("does not exist", check(project=str(other / "nada"))["error"])
+
+    def test_launch_run_file_arranca_un_proceso_separado_con_su_run_id_y_la_peticion_por_stdin(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        received = ctx.workspace_dir / "recibido.json"
+        real_popen = subprocess.Popen
+        seen = {}
+
+        def fake_popen(cmd, **kwargs):
+            seen.update(cmd=cmd, **kwargs)
+            # Hace de zerochat --run-file -: guarda lo que recibe por stdin, su carpeta y su entorno.
+            script = ("import json, os, sys; json.dump({'request': json.load(sys.stdin), 'cwd': os.getcwd(), "
+                      "'run_id': os.environ.get('ZEROCHAT_RUN_ID'), 'security': os.environ.get('ZEROCHAT_RUN_SECURITY')}, "
+                      f"open({str(received)!r}, 'w'))")
+            return real_popen([sys.executable, "-c", script], **kwargs)
+
+        request = {"agent": "informes.diario", "prompt": "Hola", "conversation_id": "session_lanzada"}
+        with mock.patch.object(zerochat.subprocess, "Popen", side_effect=fake_popen), \
+                mock.patch.object(zerochat, "find_node_executable", return_value="node"), \
+                mock.patch.dict(os.environ, {"ZEROCHAT_RUN_SECURITY": "{}", "ZEROCHAT_RUN_ID": "run_del_master"}):
+            launched = zerochat.launch_run_file(request, ctx.workspace_dir)
+        self.assertEqual(seen["cmd"][-2:], ["--run-file", "-"])
+        self.assertEqual(seen["start_new_session"], os.name != "nt", "Sigue aunque termine el master")
+        row = zerochat.get_run_state("session_lanzada")
+        self.assertEqual((row["status"], row["run_id"], row["pid"]), ("running", launched["run_id"], launched["pid"]))
+        deadline = time.monotonic() + 10
+        while not received.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        got = json.loads(received.read_text())
+        self.assertEqual(got, {"request": request, "cwd": str(ctx.workspace_dir), "run_id": launched["run_id"], "security": None})
+        # Otra vez la misma conversación en marcha: no se lanza.
+        upsert_run({**row, "pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())})
+        with self.assertRaisesRegex(ValueError, "en marcha"):
+            zerochat.launch_run_file(request, ctx.workspace_dir)
+
     def test_los_permisos_denegados_quedan_en_los_avisos_de_la_ejecucion_con_tope(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)

@@ -391,6 +391,42 @@ def start_server_run(params: dict) -> dict:
     return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
 
 
+def launch_run_file(request: dict, cwd: Path) -> dict:
+    """
+    Lanza `zerochat --run-file -` con la petición ya validada (con su conversation_id) en la carpeta cwd, separado de
+    este proceso: no es un comando de run_command, así que sigue aunque esta ejecución termine. Su fila de runs queda
+    en marcha con el run_id que recibe en ZEROCHAT_RUN_ID antes de que arranque. ValueError si no se puede lanzar.
+    """
+    conv_id = request["conversation_id"]
+    check_no_active_run(conv_id)
+    if not find_node_executable():
+        raise ValueError(f"Se necesita {NODE_REQUIRED_MESSAGE} para lanzar agentes.")
+    run_id = secrets.token_urlsafe(24)
+    env = {key: value for key, value in os.environ.items() if key != "ZEROCHAT_RUN_SECURITY"}
+    env["ZEROCHAT_RUN_ID"] = run_id
+    proc = subprocess.Popen(
+        [sys.executable, str(Path(__file__).resolve()), "--run-file", "-"],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid"),
+        env=env,
+        cwd=str(cwd),
+    )
+    now = int(time.time() * 1000)
+    payload = {"run_id": run_id, "conversation_id": conv_id, "pid": proc.pid, "pid_start": _process_start_token(proc.pid),
+               "started_at": now, "updated_at": now, "status": "running", "step_text": "", "pending": None, "error": None}
+    upsert_run_state(payload)
+    watch_run_exit(proc.pid, payload["pid_start"], proc)
+    try:
+        if proc.stdin is not None:
+            proc.stdin.write(json.dumps(request, ensure_ascii=False).encode("utf-8"))
+            proc.stdin.close()
+    except OSError:
+        pass  # Si el proceso ya terminó, su final queda en su fila (watch_run_exit) como el de cualquier ejecución.
+    return {"run_id": run_id, "pid": proc.pid}
+
+
 def cancel_server_run(conversation_id: str) -> dict:
     """Cancela una ejecución en segundo plano: termina el proceso si sigue en marcha y elimina su estado."""
     if not isinstance(conversation_id, str) or not conversation_id.strip():

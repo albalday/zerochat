@@ -1,7 +1,10 @@
-"""check_agents: estado de los agentes que vigila un agente master, solo en la ejecución --run-file con watchAgents.
+"""check_agents y launch_agent: los agentes que vigila y lanza un agente master, solo en la ejecución --run-file con
+watchAgents.
 
-Lee conversaciones y ejecuciones de SQLite filtrando estrictamente por el proyecto de la ejecución y por los patrones de
-watchAgents: nunca chats humanos (sin agent) ni conversaciones de otros proyectos. Con wait_seconds espera, sin que el
+Leen conversaciones y ejecuciones de SQLite filtrando estrictamente por un proyecto (el de la ejecución o, con project,
+otro sobre el que sus reglas de directorio den lectura) y por los patrones de watchAgents: nunca chats humanos (sin
+agent). launch_agent lanza un run-file de ese proyecto separado del master, con el entorno guardado y los permisos del
+proyecto en que se ejecuta. Con wait_seconds espera, sin que el
 modelo tenga que sondear, a que cambie el estado de alguno de los agentes consultados. Con prune_keep borra, solo
 cuando el master lo pide, las conversaciones antiguas de sus agentes vigilados (nunca hay limpieza automática).
 """
@@ -10,15 +13,40 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
+from pathlib import Path
 
 from core.environment import get_no_project_dir
 from core.live_events import live_change_seq, wait_live_change
-from run_mode.state import RUNNER_TOOL_WAIT_MAX, current_run_session, run_process_alive, watch_run_exit
+from run_mode.state import (
+    RUN_FILE_MAX_BYTES,
+    RUNNER_TOOL_WAIT_MAX,
+    check_no_active_run,
+    current_run_session,
+    launch_run_file,
+    parse_run_request,
+    run_process_alive,
+    watch_run_exit,
+)
 from security.context import SecurityContext, normalize_directory_path
-from storage.db import agent_matches, delete_conversation, delete_run_state, get_conversation, get_run_state, list_conversations
+from security.controller import ACCESS_CONTROLLER
+from storage.db import (
+    agent_matches,
+    delete_conversation,
+    delete_run_state,
+    get_conversation,
+    get_project_environment,
+    get_run_state,
+    list_conversations,
+)
 from tools.common import _tool_error
 
 AGENTS_TOOL = "check_agents"
+LAUNCH_AGENT_TOOL = "launch_agent"
+# Las herramientas del master: se publican y autorizan juntas, solo en una ejecución --run-file con watchAgents.
+MASTER_TOOLS = (AGENTS_TOOL, LAUNCH_AGENT_TOOL)
+# Tope del prompt que launch_agent pone en lugar del del run-file.
+MAX_LAUNCH_PROMPT_LENGTH = 32768
 # Resumen de la respuesta final de cada agente en el listado.
 AGENT_RESULT_SUMMARY_CHARS = 500
 # Texto de los mensajes del último turno que devuelve el detalle, entre todos.
@@ -41,6 +69,25 @@ def _clip(text: str, limit: int) -> tuple[str, bool]:
 def _conversation_project(ctx: SecurityContext) -> str:
     """El proyecto de las conversaciones de esta ejecución: su carpeta, o vacío en la carpeta general."""
     return "" if ctx.key == normalize_directory_path(str(get_no_project_dir())) else ctx.key
+
+
+def _target_project(ctx: SecurityContext, project: str | None, access: str) -> SecurityContext:
+    """El proyecto sobre el que actúa el master: el suyo o, con project, otra carpeta sobre la que sus reglas de
+    directorio den `access` (R para consultar y lanzar, RW para borrar). ValueError con el motivo si no vale."""
+    if project is None:
+        return ctx
+    if not isinstance(project, str) or not project.strip():
+        raise ValueError("project must be the folder of a project.")
+    try:
+        folder = ctx.absolute(project.strip())
+    except ValueError as exc:
+        raise ValueError(f"project is not a valid folder: {exc}") from exc
+    if not folder.is_dir():
+        raise ValueError(f"The project folder does not exist: {folder}")
+    target = SecurityContext(workspace_dir=folder)
+    if target.key != ctx.key and not ACCESS_CONTROLLER.allows_path(access, str(folder), ctx):
+        raise ValueError(f"This project's directory rules do not give {access} access to {folder}.")
+    return target
 
 
 def _watched_conversations(ctx: SecurityContext, patterns: tuple[str, ...], own_id: str) -> list[dict]:
@@ -150,15 +197,20 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
 
 
 def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
-                 prune_keep: int | None = None, ctx: SecurityContext | None = None) -> str:
+                 prune_keep: int | None = None, project: str | None = None, ctx: SecurityContext | None = None) -> str:
     """Sin argumentos, el estado de cada agente vigilado (su conversación más reciente); con agent o conversation_id,
     además los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
-    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes vigilados (o de agent)."""
+    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes vigilados (o de agent). Con
+    project, los agentes de esa carpeta en lugar de los del proyecto de la ejecución."""
     session = current_run_session()
     patterns = session.watch_agents if session is not None else ()
     if not patterns or ctx is None:
         return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
     own_id = session.conversation_id or session.new_conversation_id or ""
+    try:
+        ctx = _target_project(ctx, project, "RW" if prune_keep is not None else "R")
+    except ValueError as exc:
+        return _tool_error(str(exc))
     if prune_keep is not None:
         if conversation_id is not None or wait_seconds:
             return _tool_error("prune_keep goes alone or with agent, without conversation_id or wait_seconds.")
@@ -189,3 +241,60 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     messages, truncated = _last_turn(full.get("history") or [])
     return json.dumps({"success": True, **_agent_state(conv, run), "last_turn": messages,
                        **({"last_turn_truncated": True} if truncated else {}), **extra}, ensure_ascii=False)
+
+
+def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
+                 ctx: SecurityContext | None = None) -> str:
+    """Lanza el run-file `run_file` (ruta dentro del proyecto) de un agente vigilado, separado de este master, y
+    devuelve su conversation_id y run_id. Con prompt sustituye el del fichero; con project, el run-file y la ejecución
+    son de esa carpeta, con su entorno guardado y sus permisos."""
+    session = current_run_session()
+    patterns = session.watch_agents if session is not None else ()
+    if not patterns or ctx is None:
+        return _tool_error("launch_agent is only available in a --run-file run with watchAgents.")
+    if not isinstance(run_file, str) or not run_file.strip():
+        return _tool_error("run_file is required: the path of the agent's run-file JSON in the project, such as agents/report.json.")
+    try:
+        target = _target_project(ctx, project, "R")
+        path = target.absolute(run_file.strip())
+        if not path.is_relative_to(target.workspace_dir.resolve()):
+            raise ValueError(f"run_file must be inside the project folder {target.workspace_dir}.")
+        if not ACCESS_CONTROLLER.allows_path("R", str(path), ctx):
+            raise ValueError(f"This project's directory rules do not give R access to {path}.")
+        with open(path, "rb") as handle:
+            request = parse_run_request(handle.read(RUN_FILE_MAX_BYTES + 1))
+        return _launch(request, prompt, target, patterns, own_id=session.conversation_id or session.new_conversation_id or "")
+    except OSError as exc:
+        return _tool_error(f"Could not read the run-file: {exc}")
+    except ValueError as exc:
+        return _tool_error(str(exc))
+
+
+def _launch(request: dict, prompt: str | None, target: SecurityContext, patterns: tuple[str, ...], own_id: str) -> str:
+    agent = request.get("agent")
+    if not agent or not agent_matches(agent, patterns):
+        raise ValueError("The run-file must set an agent that matches this run's watchAgents.")
+    if prompt is not None:
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise ValueError("prompt must be a non-empty text.")
+        request["prompt"] = prompt.strip()
+    if "prompt" not in request and "conversation_id" not in request:
+        raise ValueError("The run-file needs a prompt (or give one in prompt).")
+    if not get_project_environment(target.key)["saved"]:
+        raise ValueError(f"The project {target.workspace_dir} has no saved environment: save its tools and permissions in the UI first.")
+    conv_id = request.get("conversation_id")
+    conv = get_conversation(conv_id) if conv_id else None
+    if conv_id == own_id:
+        raise ValueError("A master cannot launch its own conversation.")
+    if conv is not None and ((conv.get("project") or "") != _conversation_project(target) or conv.get("agent") != agent):
+        raise ValueError(f"The conversation {conv_id} belongs to another project or agent.")
+    request["conversation_id"] = conv_id or f"session_{uuid.uuid4()}"
+    try:
+        check_no_active_run(request["conversation_id"])
+    except ValueError:
+        raise ValueError(f"The conversation {request['conversation_id']} is already running: nothing was launched.") from None
+    launched = launch_run_file(request, Path(target.workspace_dir))
+    return json.dumps({"success": True, "agent": agent, "conversation_id": request["conversation_id"], "new": conv is None,
+                       "run_id": launched["run_id"], "project": target.key,
+                       "note": "It runs on its own: follow it with check_agents (with the same project), which can wait for it."},
+                      ensure_ascii=False)

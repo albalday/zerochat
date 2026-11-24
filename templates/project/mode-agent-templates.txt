@@ -1,4 +1,4 @@
-Agent run-file template (agents/template.json — omit conversation_id for a fresh conversation per run; add "watchAgents": ["<set>.*"] for a master agent that supervises others with check_agents):
+Agent run-file template (agents/template.json — omit conversation_id for a fresh conversation per run; add "watchAgents": ["<set>.*"] for a master agent that launches and supervises others with launch_agent and check_agents):
 ```json
 {
   "conversation_id": "<set>.<role>",

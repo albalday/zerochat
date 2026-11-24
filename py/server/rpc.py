@@ -42,15 +42,15 @@ from tools.filesystem import (
 from tools.jobs import JOBS
 from tools.jobs_rpc import dispatch_jobs
 from tools.project_files import dispatch_files
-from tools.registry import CHECK_AGENTS_DEFINITION, LOCAL_TOOLS_DEFINITIONS
+from tools.registry import LOCAL_TOOLS_DEFINITIONS, MASTER_TOOL_DEFINITIONS
 from tools.sandbox import execute_js_sandbox
 from web.fetch import fetch_web_resource
 
 
 def _local_tools() -> list[dict]:
-    """Las herramientas locales; check_agents, solo en la ejecución --run-file que vigila agentes (watchAgents)."""
+    """Las herramientas locales; check_agents y launch_agent, solo en la ejecución --run-file que vigila agentes (watchAgents)."""
     session = current_run_session()
-    extra = (CHECK_AGENTS_DEFINITION,) if session is not None and session.watch_agents else ()
+    extra = MASTER_TOOL_DEFINITIONS if session is not None and session.watch_agents else ()
     return [dict(definition) for definition in (*LOCAL_TOOLS_DEFINITIONS, *extra)]
 
 
