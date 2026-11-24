@@ -16,7 +16,7 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils) {
   'use strict';
 
-  const { resolveDep, joinPath } = Utils;
+  const { resolveDep, joinPath, projectName } = Utils;
 
   const RULES_FILE = 'AGENTS.md';
   const MEMORY_DIR = '.zerochat';
@@ -161,6 +161,23 @@ Goal: <one line>
 
   function buildAgentBootstrapPrompt(cwd, language) {
     return composeBootstrapPrompt(cwd, 'agent', language);
+  }
+
+  /** Prompt de «Actualizar normas»: task.py, la sección estándar de AGENTS.md y, en proyectos de agentes, sus plantillas y contrato. */
+  async function buildUpdateRulesPrompt(cwd, language) {
+    const [raw, agentModeRaw, agentTemplatesRaw, taskScript] = await Promise.all([
+      loadTemplate('update-rules.txt'),
+      loadTemplate('mode-agent.txt'),
+      loadTemplate('mode-agent-templates.txt'),
+      loadTemplate('task.py')
+    ]);
+    const vars = baseTemplateVars(cwd, language);
+    return renderTemplate(raw, {
+      ...vars,
+      AGENT_MODE_REFERENCE: renderTemplate(agentModeRaw, vars).trim(),
+      MODE_TEMPLATES: renderTemplate(agentTemplatesRaw, vars).trim(),
+      TASK_SCRIPT_TEMPLATE: taskScript
+    }).trim();
   }
 
   async function buildCompactPrompt(cwd) {
@@ -391,6 +408,26 @@ ${stateBody}
       return { ok: true };
     }
 
+    /**
+     * «Actualizar normas» en estado `ready`: tras confirmar, pide al agente que lleve task.py, la sección estándar de
+     * AGENTS.md y, si hay agents/, sus plantillas y el contrato de herramientas a la versión actual, conservando lo propio.
+     */
+    async function updateRules({ askConfirmation, sendPrompt, startConversation, isBusy } = {}) {
+      if (typeof askConfirmation !== 'function' || typeof sendPrompt !== 'function') throw new TypeError('updateRules requires askConfirmation and sendPrompt');
+      const State = getState();
+      const project = State.get('project');
+      const cwd = project.cwd;
+      if (project.status !== 'ready' || !cwd || !canCompact()) return { ok: false, reason: 'unavailable' };
+      if (!await askConfirmation({ cwd, name: projectName(cwd) })) return { ok: false, reason: 'cancelled' };
+      const current = State.get('project');
+      if (current.cwd !== cwd || current.status !== 'ready' || isBusy?.() || !canCompact()) {
+        return { ok: false, reason: 'state-changed' };
+      }
+      if (typeof startConversation === 'function') await startConversation();
+      await sendPrompt(await buildUpdateRulesPrompt(cwd));
+      return { ok: true };
+    }
+
     function canDeleteProject() {
       const cwd = getCwd();
       return Boolean(cwd && !isNoProject(cwd));
@@ -440,7 +477,7 @@ ${stateBody}
       };
     }
 
-    return { refresh, turnContext, canInitialize, initialize, canCompact, compact, canChangeDirectory, changeDirectory, canDeleteProject, deleteProject };
+    return { refresh, turnContext, canInitialize, initialize, canCompact, compact, updateRules, canChangeDirectory, changeDirectory, canDeleteProject, deleteProject };
   }
 
   const defaultContext = createProjectContext();
@@ -457,12 +494,14 @@ ${stateBody}
     buildBootstrapPrompt,
     buildAgentBootstrapPrompt,
     buildCompactPrompt,
+    buildUpdateRulesPrompt,
     refresh: defaultContext.refresh,
     turnContext: defaultContext.turnContext,
     canInitialize: defaultContext.canInitialize,
     initialize: defaultContext.initialize,
     canCompact: defaultContext.canCompact,
     compact: defaultContext.compact,
+    updateRules: defaultContext.updateRules,
     canChangeDirectory: defaultContext.canChangeDirectory,
     changeDirectory: defaultContext.changeDirectory,
     canDeleteProject: defaultContext.canDeleteProject,

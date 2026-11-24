@@ -1,6 +1,6 @@
 /**
  * Coordinador de la interfaz del modo proyecto: seguimiento de carpeta por conversación,
- * acciones del panel de proyecto (inicializar, compactar, recargar, declinar, cambiar carpeta)
+ * acciones del panel de proyecto (inicializar, actualizar normas, compactar, cambiar o borrar carpeta)
  * y renderizado bajo demanda sobre UIReasoning.
  */
 (function (root, factory) {
@@ -124,16 +124,6 @@
       toggle(enabled) {
         Config.updateRuntime({ projectMode: Boolean(enabled) });
       },
-      async reload() {
-        try {
-          await ProjectContext.refresh();
-        } catch (error) {
-          console.warn('[App] Could not refresh project context:', error);
-        }
-        renderProjectPanel(elements);
-        const reloadBtn = elements.projectModePanel?.querySelector('[data-project-action="reload"]');
-        if (reloadBtn) reloadBtn.textContent = t('project_action_reloaded');
-      },
       async changeDirectory() {
         try {
           const result = await ProjectContext.changeDirectory({
@@ -186,6 +176,21 @@
           }
         } catch (error) {
           console.error('[App] Project deletion failed:', error);
+          await Dialogs.alert(error?.message || String(error), { type: 'error' });
+        }
+      },
+      async updateRules() {
+        try {
+          await ProjectContext.updateRules({
+            askConfirmation: ({ name }) => Dialogs.confirm(t('project_update_rules_confirm', { name })),
+            isBusy,
+            startConversation: async () => {
+              if (getChatHistory().some(message => message.role !== 'system')) await createNewSession();
+            },
+            sendPrompt: startPromptTurn
+          });
+        } catch (error) {
+          console.error('[App] Project rules update failed:', error);
           await Dialogs.alert(error?.message || String(error), { type: 'error' });
         }
       },

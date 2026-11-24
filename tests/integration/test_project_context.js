@@ -337,6 +337,43 @@ test('ProjectContext.changeDirectory - pide el directorio al servidor y respeta 
   await assert.rejects(() => busyH.context.changeDirectory({}), TypeError);
 });
 
+test('ProjectContext.updateRules - tras confirmar pide sincronizar task.py, AGENTS.md y agents/ con lo actual, y respeta cancelación o indisponibilidad', async () => {
+  const { state, context } = createHarness();
+  state.setProjectContext({ status: 'ready', cwd: '/repo' });
+  const confirmations = [];
+  const prompts = [];
+  let conversationStarted = false;
+  const result = await context.updateRules({
+    askConfirmation: details => { confirmations.push(details); return true; },
+    startConversation: () => { conversationStarted = true; },
+    sendPrompt: prompt => { prompts.push(prompt); }
+  });
+  assert.deepEqual(result, { ok: true });
+  assert.deepEqual(confirmations, [{ cwd: '/repo', name: 'repo' }]);
+  assert.equal(conversationStarted, true);
+  const prompt = prompts[0];
+  assert.match(prompt, /Update the ZeroChat project rules of the repository at \/repo/);
+  // Lleva lo actual de ZeroChat: el script, la sección de memoria, la referencia del modo agentes y sus plantillas.
+  const taskScript = fs.readFileSync(path.join(__dirname, '../../templates/project/task.py'), 'utf8');
+  assert.ok(prompt.includes(taskScript.trim().split('\n')[0]), 'Incluye el task.py actual');
+  assert.ok(prompt.includes(ProjectContext.MEMORY_SECTION_TEMPLATE.trim().split('\n')[0]), 'Incluye la sección de memoria actual');
+  assert.match(prompt, /agents\/template\.sh/);
+  assert.match(prompt, /launch_agent/);
+  assert.doesNotMatch(prompt, /\{\{[A-Z_]+\}\}/, 'Sin marcadores sin rellenar');
+  assert.match(prompt, /Nothing is written until the user approves/);
+
+  assert.deepEqual(await context.updateRules({ askConfirmation: () => false, sendPrompt: () => { throw new Error('no debe enviar'); } }), { ok: false, reason: 'cancelled' });
+  let busy = false;
+  assert.deepEqual(await context.updateRules({ askConfirmation: () => { busy = true; return true; }, isBusy: () => busy, sendPrompt: () => { throw new Error('no debe enviar'); } }), { ok: false, reason: 'state-changed' });
+  const noWrite = createHarness({ writeTool: false });
+  noWrite.state.setProjectContext({ status: 'ready', cwd: '/repo' });
+  assert.deepEqual(await noWrite.context.updateRules({ askConfirmation: () => true, sendPrompt: () => {} }), { ok: false, reason: 'unavailable' });
+  const notReady = createHarness();
+  notReady.state.setProjectContext({ status: 'missing', cwd: '/repo' });
+  assert.deepEqual(await notReady.context.updateRules({ askConfirmation: () => true, sendPrompt: () => {} }), { ok: false, reason: 'unavailable' });
+  await assert.rejects(() => context.updateRules({}), TypeError);
+});
+
 test('ProjectContext.compact - lanza el prompt tras confirmación y respeta cancelación, cambio de estado o indisponibilidad', async () => {
   const { state, context } = createHarness();
   state.setProjectContext({ status: 'ready', cwd: '/repo' });

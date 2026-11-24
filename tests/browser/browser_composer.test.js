@@ -21,7 +21,11 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     assert.equal(await page.locator('#reasoning-modal').evaluate(el => el.open), true, 'El diálogo modal se abre con showModal');
     assert.equal(await page.locator('#chk-project-mode').isChecked(), true, 'Activo por defecto');
     await page.waitForFunction(() => window.ChatState.get('project').status === 'unavailable');
-    assert.equal(await page.locator('.project-mode-status').getAttribute('data-project-status'), 'unavailable');
+    // Sin servidor local el panel lo dice expresamente y el interruptor no se puede tocar.
+    const offlineText = await page.evaluate(() => window.ChatI18n.t('project_status_offline'));
+    assert.equal(await page.locator('.project-mode-status').getAttribute('data-project-status'), 'offline');
+    assert.equal(await page.locator('.project-mode-status').textContent(), offlineText);
+    assert.equal(await page.locator('#chk-project-mode').isDisabled(), true);
     assert.equal(await page.locator('[data-project-action]').count(), 0);
     assert.equal(await page.locator('#btn-reasoning').getAttribute('data-project-indicator'), null, 'Sin servidor no hay indicador');
 
@@ -47,9 +51,12 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().projectMode), false);
     await page.waitForFunction(() => window.ChatState.get('project').status === 'disabled');
     assert.equal(await page.locator('#btn-reasoning').getAttribute('data-project-indicator'), null, 'Desactivado no hay indicador');
-    // Sin servidor, al recalcular ya no hay carpeta.
+    // Sin servidor, al recalcular ya no hay carpeta: el aviso de conexión sale aunque el modo proyecto esté apagado.
     assert.equal((await welcome()).text, await expectedWelcome('welcome_no_project', 'welcome_project_mode_off'));
-    await page.locator('#project-mode-panel .switch').click();
+    assert.equal(await page.locator('.project-mode-status').textContent(), offlineText);
+    assert.equal(await page.locator('#chk-project-mode').isDisabled(), true);
+    assert.equal(await page.locator('#chk-project-mode').isChecked(), false);
+    await page.evaluate(() => window.ChatConfig.updateRuntime({ projectMode: true }));
     await page.waitForFunction(() => window.ChatState.get('project').status === 'unavailable');
 
     await page.evaluate(() => window.ChatState.setProjectContext({ status: 'missing', cwd: '/home/u/repo' }));
@@ -101,8 +108,14 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.ok((await changeButton.getAttribute('aria-label')).length > 0);
       assert.equal(await changeButton.locator('svg.ui-icon').count(), 1, 'El botón es el icono de carpeta');
       assert.equal((await changeButton.textContent()).trim(), '');
+      // Sin servidor real que conteste zerochat/project/context: refrescar conserva el estado que fija la prueba.
+      await page.evaluate(() => {
+        window.__realRefresh = window.ChatProjectContext.refresh;
+        window.ChatProjectContext.refresh = async () => window.ChatState.get('project');
+      });
       await page.evaluate(() => window.ChatState.setProjectContext({ status: 'ready', cwd: '/home/u/repo', rules: { content: 'r' } }));
-      assert.match(await page.locator('[data-project-action="reload"]').getAttribute('title'), /AGENTS\.md/);
+      assert.equal(await page.locator('[data-project-action="updateRules"], [data-project-action="compact"], [data-project-action="reload"]').count(), 0,
+        'Sin herramientas de escritura no hay acciones de normas; leer se refresca solo');
       await page.evaluate(() => {
         const { Tool, registry } = window.ChatAgentCore;
         ['read_file', 'write_file'].forEach(name => {
@@ -118,6 +131,21 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await page.click('#btn-reasoning');
       assert.equal(await page.locator('[data-project-action="compact"]').count(), 1, 'Ofrece compactar memoria cuando hay herramientas de escritura');
       assert.match(await page.locator('[data-project-action="compact"]').getAttribute('title'), /plan\.md/);
+      assert.deepEqual(await page.locator('#project-mode-panel [data-project-action]').evaluateAll(buttons => buttons.map(b => b.dataset.projectAction)),
+        ['changeDirectory', 'deleteProject', 'updateRules', 'compact']);
+      assert.match(await page.locator('[data-project-action="updateRules"]').getAttribute('title'), /AGENTS\.md/);
+      // Abrir el panel relee las normas y el estado (no hay botón de recarga).
+      await page.evaluate(() => {
+        const context = window.ChatProjectContext;
+        const original = context.refresh;
+        window.__refreshes = 0;
+        context.refresh = (...args) => { window.__refreshes += 1; return original(...args); };
+      });
+      await page.click('#btn-close-reasoning');
+      assert.equal(await page.evaluate(() => window.__refreshes), 0, 'Cerrarlo no relee');
+      await page.click('#btn-reasoning');
+      assert.equal(await page.evaluate(() => window.__refreshes), 1);
+      await page.evaluate(() => { window.ChatProjectContext.refresh = window.__realRefresh; });
 
       // Con el modo proyecto apagado el directorio sigue visible.
       await page.locator('#project-mode-panel .switch').click();

@@ -705,6 +705,8 @@
       event.stopPropagation();
       UIReasoning.toggleReasoningMenu(elements, getRuntimeConfig());
       renderProjectPanel();
+      // Al abrirlo se releen las normas y el estado del proyecto: el panel no tiene botón de recarga.
+      if (!elements.reasoningModal.hidden) UIProject.refreshProjectContext();
     });
     document.addEventListener('click', event => {
       const modal = elements.reasoningModal;

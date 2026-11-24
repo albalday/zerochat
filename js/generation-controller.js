@@ -227,8 +227,13 @@
       }
     }
 
-    // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada.
-    const { projectContext, projectDirectory } = resolveDep('ChatProjectContext', './project-context.js').turnContext(config);
+    // Instantánea del proyecto para todo el turno, como el resto de la configuración capturada: con el modo proyecto,
+    // releída antes del turno (como en el runner), por si las normas o el estado cambiaron fuera de la pestaña.
+    const ProjectContext = resolveDep('ChatProjectContext', './project-context.js');
+    if (config.projectMode === true) {
+      await ProjectContext.refresh().catch(error => console.warn('[GenerationController] Could not refresh project context:', error));
+    }
+    const { projectContext, projectDirectory } = ProjectContext.turnContext(config);
     // Cada paso cerrado queda grabado, como en el runner: si la pestaña se cierra a mitad del turno, se conserva lo hecho.
     let stepSave = Promise.resolve();
 

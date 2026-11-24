@@ -1,0 +1,34 @@
+{{LANGUAGE_INSTRUCTION}}
+
+Update the ZeroChat project rules of the repository at {{CWD}} to the current versions below, keeping everything that is specific to this project. Nothing is written until the user approves the proposal.
+
+Follow these phases in order:
+
+PHASE 1 - READ-ONLY INSPECTION:
+Read without modifying anything: {{RULES_FILE}}, {{TASK_HELPER_FILE}}, and whether an `agents/` directory exists. If it exists, also read `agents/template.json`, `agents/template.sh` and every `agents/*.md` and `agents/*.json`.
+
+PHASE 2 - PROPOSAL (show the exact changes and wait for the user's explicit approval; use the ask_user tool when available):
+1. {{TASK_HELPER_FILE}}: replace it with the current helper script below if it differs. It is generic: it holds nothing specific to the project.
+2. {{RULES_FILE}}: replace only the standard "## {{MEMORY_SECTION_TITLE}}" section with the current one below (add it if it is missing). Keep every other section, rule and wording of the project exactly as it is, and never move plans or logs into {{RULES_FILE}}.
+3. Only if `agents/` exists (an agent project):
+   - `agents/template.json` and `agents/template.sh`: bring them to the current templates below, keeping the project's own values (set and role names, profile, prompts, limits, alert command).
+   - `agents/*.md` and `agents/*.json`: update only what describes the ZeroChat run contract (the --run-file fields such as `reasoning`, `watchAgents`, `projectMode`, `maxSteps` and `timeout`; the `launch_agent` and `check_agents` tools, their waiting with `wait_seconds` and how results are read with `offset`/`next_offset`; exit codes and the stderr line) to match the current agent mode reference below. Keep each agent's role, steps, outputs, file conventions and any other project-specific instruction untouched.
+   If a file needs no change, say so instead of rewriting it. Do not create agents, plans or milestones.
+
+PHASE 3 - APPLY (only after approval):
+Apply the approved changes with absolute paths under {{CWD}}, {{TASK_HELPER_FILE}} last, and finish by listing the files modified.
+
+Memory section ({{RULES_FILE}}):
+```markdown
+{{MEMORY_SECTION_TEMPLATE}}```
+
+Helper script ({{TASK_HELPER_FILE}}):
+```python
+{{TASK_SCRIPT_TEMPLATE}}```
+
+Agent mode reference (only for agent projects with `agents/`; it is the text ZeroChat uses to set them up, not instructions to follow now):
+```text
+{{AGENT_MODE_REFERENCE}}
+```
+
+{{MODE_TEMPLATES}}

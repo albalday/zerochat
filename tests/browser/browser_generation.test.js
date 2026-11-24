@@ -108,6 +108,27 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
     });
   });
 
+  test('Browser UI - con el modo proyecto, las normas y el estado se releen antes de cada turno', async () => {
+    await withTestApp(async page => {
+      await useProvider(page, async () => ({ accumulatedText: 'Hecho', toolCalls: null, stats: null }));
+      await page.evaluate(() => {
+        const context = window.ChatProjectContext;
+        const original = context.refresh;
+        window.__turnRefreshes = 0;
+        context.refresh = (...args) => {
+          // Solo cuenta las que llegan con el turno ya en marcha (no las del final de la respuesta).
+          if (window.ChatState.get('streaming').isGenerating) window.__turnRefreshes += 1;
+          return original(...args);
+        };
+      });
+      for (const [projectMode, expected] of [[true, 1], [false, 0]]) {
+        await page.evaluate(mode => { window.__turnRefreshes = 0; window.ChatConfig.updateRuntime({ projectMode: mode }); }, projectMode);
+        await send(page, 'Hola');
+        assert.equal(await page.evaluate(() => window.__turnRefreshes), expected, `projectMode=${projectMode}`);
+      }
+    });
+  });
+
   test('Browser UI - cada paso con herramientas queda guardado antes de que termine el turno', async () => {
     await withTestApp(async page => {
       await page.evaluate(() => {

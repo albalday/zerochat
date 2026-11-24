@@ -12,7 +12,7 @@
   const LEVEL_LABEL_KEYS = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
   // Acciones cuyo nombre no basta para saber qué hacen.
   const PROJECT_ACTION_TITLES = Object.freeze({
-    reload: 'project_action_reload_title',
+    updateRules: 'project_action_updateRules_title',
     compact: 'project_action_compact_title'
   });
   // Carpeta personal en Linux, macOS, Termux y Windows: se muestra como ~ para acortar la ruta.
@@ -81,14 +81,15 @@
   function getProjectActions(project, { canInitialize = false, canCompact = false } = {}) {
     switch (project.status) {
       case 'missing': return canInitialize ? ['initialize'] : [];
-      case 'ready': return ['reload', ...(canCompact ? ['compact'] : [])];
-      case 'error':
-      case 'no_access': return ['reload'];
+      // Escribir normas o memoria necesita las herramientas de escritura; leerlas se refresca solo (antes de cada turno).
+      case 'ready': return canCompact ? ['updateRules', 'compact'] : [];
       default: return [];
     }
   }
 
   function getProjectStatusText(config, project) {
+    // Sin servidor local no hay carpeta ni herramientas de archivos: se dice aunque el modo proyecto esté apagado.
+    if (!project.cwd) return t('project_status_offline');
     if (project.status === 'no_project') return t('project_status_no_project', { name: projectName(project.cwd) });
     if (config.projectMode !== true) return t('project_status_disabled');
     return t(`project_status_${project.status || 'unavailable'}`, { name: projectName(project.cwd), error: project.error || '' });
@@ -125,7 +126,8 @@
 
   /** Cuerpo de proyecto del modal: tarjetas de directorio actual y normas en sistema. */
   function renderProjectPanel(elements, { config, project, canInitialize, canCompact, canChangeDirectory, canDeleteProject, busy }) {
-    const supported = project.status !== 'no_project';
+    const connected = Boolean(project.cwd);
+    const supported = connected && project.status !== 'no_project';
     const enabled = supported && config.projectMode === true;
     const actions = enabled ? getProjectActions(project, { canInitialize, canCompact }) : [];
     const cwd = String(project.cwd || '');
@@ -160,7 +162,7 @@
         `<button type="button" class="btn-secondary" data-project-action="${action}"${PROJECT_ACTION_TITLES[action] ? ` title="${escapeHtml(t(PROJECT_ACTION_TITLES[action]))}"` : ''}>${escapeHtml(t(`project_action_${action}`))}</button>`).join('')}</div>`;
     }
     const statusText = getProjectStatusText(config, project);
-    const statusAttr = supported ? (enabled ? project.status || '' : 'disabled') : 'no_project';
+    const statusAttr = !connected ? 'offline' : (supported ? (enabled ? project.status || '' : 'disabled') : 'no_project');
     const switchTitle = supported ? t('project_mode_tooltip') : statusText;
     elements.projectModePanel.innerHTML = `
       ${directoryCardHtml}
@@ -171,7 +173,7 @@
             <div class="reasoning-agent-toggle-desc project-mode-status" data-project-status="${escapeHtml(statusAttr)}" aria-live="polite">${escapeHtml(statusText)}</div>
           </div>
           <label class="switch switch-sm" title="${escapeHtml(switchTitle)}">
-            <input type="checkbox" id="chk-project-mode" aria-label="${escapeHtml(switchTitle)}"${enabled ? ' checked' : ''}${supported ? '' : ' disabled'}>
+            <input type="checkbox" id="chk-project-mode" aria-label="${escapeHtml(switchTitle)}"${config.projectMode === true && project.status !== 'no_project' ? ' checked' : ''}${supported ? '' : ' disabled'}>
             <span class="slider"></span>
           </label>
         </div>
@@ -190,7 +192,7 @@
 
   /**
    * Conecta el panel modal: el control deslizante llama a `onSelectLevel` con el nivel elegido y el panel
-   * del proyecto a `handlers` (toggle, initialize, compact, reload, changeDirectory, deleteProject).
+   * del proyecto a `handlers` (toggle, initialize, compact, updateRules, changeDirectory, deleteProject).
    */
   function mount(elements, { onSelectLevel, handlers }) {
     projectHandlers = handlers;
@@ -223,7 +225,7 @@
     elements.projectModePanel.addEventListener('click', event => {
       const action = event.target.closest('[data-project-action]')?.dataset.projectAction;
       if (!action) return;
-      if (['changeDirectory', 'deleteProject', 'initialize', 'compact'].includes(action)) {
+      if (['changeDirectory', 'deleteProject', 'initialize', 'compact', 'updateRules'].includes(action)) {
         closeReasoningMenu(elements);
       }
       projectHandlers[action]?.();
