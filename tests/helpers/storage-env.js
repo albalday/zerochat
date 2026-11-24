@@ -16,3 +16,10 @@ class MemoryStorage {
 for (const name of ['localStorage', 'sessionStorage']) {
   if (!(name in globalThis)) Object.defineProperty(globalThis, name, { value: new MemoryStorage(), configurable: true, writable: true });
 }
+
+/** Vacía los dos historiales (chats y agentes) de `Storage`: la aplicación nunca los borra juntos. */
+async function clearConversations(Storage) {
+  for (const agents of [false, true]) await Storage.deleteConversations({ project: null, agents });
+}
+
+module.exports = { clearConversations };

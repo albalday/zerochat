@@ -9,10 +9,9 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table,
 from run_mode.state import cancel_server_run, run_conversation_meta
 from storage.db import (
     commit_conversation_upload,
-    delete_all_conversations,
     delete_conversation,
+    delete_conversations,
     delete_general_profile,
-    delete_project_conversations,
     get_blob,
     get_general_profile_with_key,
     get_conversation,
@@ -20,7 +19,6 @@ from storage.db import (
     has_blobs,
     list_conversations,
     list_general_profiles,
-    list_run_states,
     put_blob,
     rename_conversation,
     save_conversation,
@@ -95,11 +93,9 @@ def _cancel_runs(conversation_ids):
 
 
 def _rpc_delete_conversations(params: dict) -> RpcOutcome:
-    if params.get("all") is True:
-        _cancel_runs(entry["conversation_id"] for entry in list_run_states())
-        return rpc_result({"deleted": True, "count": delete_all_conversations()})
-    if "project" in params:
-        deleted_ids = delete_project_conversations(params.get("project"))
+    # En bloque, un solo historial (agents: chats o agentes) de un proyecto o de todos.
+    if params.get("all") is True or "project" in params:
+        deleted_ids = delete_conversations(None if params.get("all") is True else params.get("project"), params.get("agents"))
         _cancel_runs(deleted_ids)
         return rpc_result({"deleted": True, "count": len(deleted_ids)})
     conv_id = params.get("id")

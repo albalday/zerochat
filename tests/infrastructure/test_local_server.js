@@ -401,7 +401,6 @@ test('zerochat.py: logging de peticiones y respuestas con HH:MM:SS, sin datos co
   }, testToken);
 
   try {
-
     // 1. Petición POST sin token (401 Unauthorized) y GET fuera de la interfaz (404)
     await fetch(baseUrl, { method: 'POST', body: '{}' });
     await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });

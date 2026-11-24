@@ -5,6 +5,7 @@ const GenerationController = require('../../js/generation-controller.js');
 const ChatAPI = require('../../js/api.js');
 const State = require('../../js/state.js');
 const Storage = require('../../js/storage.js');
+const { clearConversations } = require('../helpers/storage-env.js');
 
 const HISTORY = [
   { id: 'm1', role: 'system', content: 'sys' },
@@ -35,7 +36,7 @@ function appOptions(overrides = {}) {
  * `summarizing` registra cada cambio del indicador de progreso del resumen.
  */
 async function setupBranch(t, history = HISTORY, anchorId = 'm5') {
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   State.replaceConversation({ sessionId: 'parent_sess_1', sessions: [{ id: 'parent_sess_1', title: 'Parent Chat' }], messages: structuredClone(history) });
   const anchor = { msgId: anchorId, baseId: anchorId, explicitIds: [] };
   const summarizing = [];
@@ -171,7 +172,7 @@ test('ConversationService - createConversationBranch respeta estado ocupado, par
 });
 
 test('ConversationService - si el almacenamiento no borra la conversación, sigue en la lista', async t => {
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   const session = { id: 'del_fail', title: 'No se borra' };
   await Storage.saveConversation(session, [{ id: 'del_fail_m', role: 'user', content: 'hola' }]);
   State.replaceConversation({ sessionId: 'del_other', sessions: [session], messages: [] });
@@ -189,7 +190,7 @@ test('ConversationService - saveCurrentSession ignora sesiones/borradores vacío
   assert.deepEqual(State.get('sessions').list, []);
   assert.equal(await Storage.getConversation('parent_sess_1'), null);
 
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   const prevSession = { id: 'sess_prev_1', title: 'Chat previo guardado', createdAt: 1000, updatedAt: 2000, messageCount: 2 };
   await Storage.saveConversation(prevSession, [
     { id: 'm_prev_1', role: 'user', content: 'Pregunta anterior' },
@@ -206,7 +207,7 @@ test('ConversationService - saveCurrentSession ignora sesiones/borradores vacío
   assert.equal(sidebarRendered, 0);
   assert.equal((await Storage.getConversation('sess_prev_1')).history.length, 2);
 
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   const previousMcp = State.get('mcp');
   t.after(() => State.set('mcp', previousMcp));
   await Storage.saveConversation(
@@ -226,7 +227,7 @@ test('ConversationService - saveCurrentSession ignora sesiones/borradores vacío
 });
 
 test('ConversationService - saveCurrentSession persiste profileId, proyecto inicial inmutable y overrides de servidor', async t => {
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   const Config = require('../../js/config-store.js');
   const Profiles = require('../../js/profile-repository.js');
   Profiles.save({ id: 'prof_deepseek', name: 'deepseek', general: true, settings: { apiType: 'openai' } });
@@ -246,7 +247,7 @@ test('ConversationService - saveCurrentSession persiste profileId, proyecto inic
   assert.equal((await Storage.getConversation('sess_profile_test')).project, '/repo/a');
   Config.activateFallbackProfile();
 
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   State.replaceConversation({
     sessionId: 'sess_srv_run_1',
     sessions: [{ id: 'sess_srv_run_1', title: 'Inicial' }],
@@ -260,7 +261,7 @@ test('ConversationService - saveCurrentSession persiste profileId, proyecto inic
 });
 
 test('ConversationService - loadSessionsFromStorage inicializa al arrancar, conserva la sesión activa al reconectar y avisa si falla', async t => {
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   await Storage.saveConversation(
     { id: 'saved_1', title: 'Guardada 1', createdAt: 1000, updatedAt: 2000 },
     [{ id: 'u1', role: 'user', content: 'Hola' }]
@@ -310,13 +311,19 @@ test('ConversationService - loadSessionsFromStorage inicializa al arrancar, cons
   assert.equal(alerts.length, 1);
 });
 
-test('ConversationService - borrar el historial borra solo el conjunto seleccionado e indica cuál en la confirmación', async t => {
+test('ConversationService - borrar el historial borra solo el conjunto y el historial seleccionados e indica cuál en la confirmación', async t => {
   // setupBranch vacía el almacenamiento y da las opciones de app.js.
-  const options = { ...(await setupBranch(t)).options, getProject: () => '/repo/a' };
-  const sessions = [{ id: 'del_a', title: 'A', project: '/repo/a' }, { id: 'del_b', title: 'B', project: '/repo/b' }, { id: 'del_n', title: 'N' }];
+  let agentsHistory = false;
+  const options = { ...(await setupBranch(t)).options, getProject: () => '/repo/a', isAgentsHistory: () => agentsHistory };
+  const sessions = [
+    { id: 'del_a', title: 'A', project: '/repo/a' },
+    { id: 'del_aa', title: 'Agente A', project: '/repo/a', agent: 'informes.diario' },
+    { id: 'del_b', title: 'B', project: '/repo/b' },
+    { id: 'del_n', title: 'N' }
+  ];
   for (const session of sessions) await Storage.saveConversation(session, [{ id: `${session.id}_m`, role: 'user', content: 'hola' }]);
   State.replaceConversation({ sessionId: 'del_b', sessions, messages: [{ id: 'del_b_m', role: 'user', content: 'hola' }] });
-  const { confirms } = useDialogs(t, [false, true, true, true]);
+  const { confirms } = useDialogs(t, [false, true, true, true, true]);
   const storedIds = async () => (await Storage.getConversationsList()).map(session => session.id).sort();
 
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/empty' });
@@ -324,30 +331,68 @@ test('ConversationService - borrar el historial borra solo el conjunto seleccion
   // La vista de tareas pendientes no es un conjunto de proyecto: no borra nada, tampoco el proyecto actual.
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => undefined });
   assert.equal(confirms.length, 0);
-  assert.deepEqual(await storedIds(), ['del_a', 'del_b', 'del_n']);
+  assert.deepEqual(await storedIds(), ['del_a', 'del_aa', 'del_b', 'del_n']);
 
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/a' });
-  assert.deepEqual(await storedIds(), ['del_a', 'del_b', 'del_n'], 'Cancelar no borra nada');
+  assert.deepEqual(await storedIds(), ['del_a', 'del_aa', 'del_b', 'del_n'], 'Cancelar no borra nada');
   assert.match(confirms[0].message, /1 conversaciones del proyecto a\b/);
   assert.equal(confirms[0].opts?.checkbox, undefined);
 
+  // Los chats del proyecto, sin tocar sus conversaciones de agentes.
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '/repo/a' });
-  assert.deepEqual(await storedIds(), ['del_b', 'del_n']);
-  assert.deepEqual(State.get('sessions').list.map(session => session.id), ['del_b', 'del_n']);
+  assert.deepEqual(await storedIds(), ['del_aa', 'del_b', 'del_n']);
+  assert.deepEqual(State.get('sessions').list.map(session => session.id), ['del_aa', 'del_b', 'del_n']);
   assert.equal(State.get('sessions').activeId, 'del_b', 'La conversación abierta de otro proyecto sigue abierta');
 
+  // Las de agentes de todos los proyectos, sin tocar los chats.
+  agentsHistory = true;
+  await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => null });
+  assert.match(confirms[2].message, /1 conversaciones de agentes de todos los proyectos\b/);
+  assert.deepEqual(await storedIds(), ['del_b', 'del_n']);
+  agentsHistory = false;
+
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => '' });
-  assert.match(confirms[2].message, /1 conversaciones del proyecto general\b/);
+  assert.match(confirms[3].message, /1 conversaciones del proyecto general\b/);
   assert.deepEqual(await storedIds(), ['del_b']);
   assert.equal(State.get('sessions').activeId, 'del_b');
 
   await ConversationService.deleteAllSessions({ ...options, getSelectedProject: () => null });
-  assert.match(confirms[3].message, /1 conversaciones de todos los proyectos\b/);
+  assert.match(confirms[4].message, /1 conversaciones de todos los proyectos\b/);
   assert.deepEqual(await storedIds(), []);
 });
 
+test('ConversationService - borrar la conversación abierta abre otra de su historial y proyecto o un chat nuevo, sin cambiar de proyecto', async t => {
+  const options = (await setupBranch(t)).options;
+  const switched = [];
+  options.onSessionSwitched = conversation => { switched.push(conversation.id); };
+  const now = Date.now();
+  const sessions = [
+    { id: 'h_otro', title: 'Chat de otro proyecto', project: '/repo/b', updatedAt: now },
+    { id: 'h_reciente', title: 'Chat reciente', project: '/repo/a', updatedAt: now - 1 },
+    { id: 'ag_1', title: 'Agente 1', project: '/repo/a', agent: 'informes.diario', updatedAt: now - 2 },
+    { id: 'ag_2', title: 'Agente 2', project: '/repo/a', agent: 'informes.diario', updatedAt: now - 3 }
+  ];
+  for (const session of sessions) await Storage.saveConversation(session, [{ id: `${session.id}_m`, role: 'user', content: 'hola' }]);
+  State.replaceConversation({ sessionId: 'ag_1', sessions, messages: [{ id: 'ag_1_m', role: 'user', content: 'hola' }] });
+  useDialogs(t, [true, true, true]);
+
+  // Un agente se sustituye por otro agente del proyecto, aunque haya chats más recientes.
+  await ConversationService.deleteSession('ag_1', options);
+  assert.equal(State.get('sessions').activeId, 'ag_2');
+  // Sin más agentes, un chat nuevo: ni salta a los chats ni cambia de proyecto.
+  await ConversationService.deleteSession('ag_2', options);
+  assert.ok(!sessions.some(session => session.id === State.get('sessions').activeId));
+  assert.deepEqual(switched, ['ag_2']);
+
+  // Un chat sin otro en su proyecto da paso a uno nuevo, nunca al más reciente de otro proyecto.
+  State.replaceConversation({ sessionId: 'h_reciente', sessions: State.get('sessions').list, messages: [] });
+  await ConversationService.deleteSession('h_reciente', options);
+  assert.notEqual(State.get('sessions').activeId, 'h_otro');
+  assert.deepEqual(switched, ['ag_2']);
+});
+
 test('ConversationService - switchToSession notifica onSessionSwitched con los metadatos de la conversación recuperada', async t => {
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   const session = {
     id: 'sess_history_server',
     title: 'Chat en servidor',
@@ -393,7 +438,7 @@ test('ConversationService - switchToSession notifica onSessionSwitched con los m
 });
 
 test('ConversationService - confirmProjectSwitch avisa solo al abrir un chat de otro proyecto estando conectado y respeta cancelar', async t => {
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   const sA = { id: 'sess_a', title: 'Chat A', project: '/repo/a', createdAt: 1000, updatedAt: 1000 };
   const sB = { id: 'sess_b', title: 'Chat B', project: '/repo/b', createdAt: 2000, updatedAt: 2000 };
   const sG = { id: 'sess_g', title: 'Chat General', createdAt: 3000, updatedAt: 3000 };

@@ -918,21 +918,26 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_conversation({"id": "conv_del_1", "title": "Del 1"}, [])
         zerochat.save_conversation({"id": "conv_del_2", "title": "Del 2", "project": "/repo/b"}, [])
         zerochat.save_conversation({"id": "conv_del_3", "title": "Del 3", "project": "/repo/c"}, [])
+        zerochat.save_conversation({"id": "conv_del_4", "title": "Agente", "project": "/repo/c", "agent": "informes.diario"}, [])
 
         zerochat.dispatch_conversations("zerochat/conversations/delete", {"id": "conv_del_1"})
         self.assertIsNone(zerochat.get_run_state("conv_del_1"))
         self.assertIsNotNone(zerochat.get_run_state("conv_del_2"))
 
-        # Por proyecto: solo sus conversaciones y sus ejecuciones.
-        result, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c"})
+        # Por proyecto: solo sus chats y sus ejecuciones; sus conversaciones de agentes siguen.
+        result, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "/repo/c", "agents": False})
         self.assertIsNone(error)
         self.assertEqual(result["count"], 1)
         self.assertIsNotNone(zerochat.get_run_state("conv_del_2"))
-        self.assertEqual([c["id"] for c in zerochat.list_conversations()], ["conv_del_2"])
-        _, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "  "})
+        self.assertEqual(sorted(c["id"] for c in zerochat.list_conversations()), ["conv_del_2", "conv_del_4"])
+        _, error, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"project": "  ", "agents": False})
         self.assertEqual(error["code"], -32602)
 
-        zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True})
+        # Todos los agentes no tocan los chats ni sus ejecuciones; todos los chats, sí.
+        result, _, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True, "agents": True})
+        self.assertEqual(result["count"], 1)
+        self.assertIsNotNone(zerochat.get_run_state("conv_del_2"))
+        zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True, "agents": False})
         self.assertIsNone(zerochat.get_run_state("conv_del_2"))
 
 

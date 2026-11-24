@@ -19,6 +19,7 @@
   const getProfileBackup = () => resolveDep('ChatProfileBackup', './profile-backup.js');
   const getProfileExportBundle = () => resolveDep('ChatProfileExportBundle', './profile-export-bundle.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
+  const getProfileCheck = () => resolveDep('ChatProfileCheck', './profile-check.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
   const getWebLLM = () => resolveDep('ChatWebLLM', './providers-webllm.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
@@ -926,7 +927,10 @@
       }
       const option = event.target.closest('[data-profile-id]');
       if (!option || !getProfiles().get(option.dataset.profileId)) return;
+      // Pulsar el perfil que ya está activo lo vuelve a comprobar: activarlo de nuevo no cambia nada que lo dispare.
+      const alreadyActive = option.dataset.profileId === runtimeConfig().activeProfile?.id;
       activateConnectionProfile(option.dataset.profileId);
+      if (alreadyActive) getProfileCheck().recheck();
       const { allowed } = getBackgroundEligibility(runtimeConfig(), getMCP().manager.isProxyConnected());
       if (serverModeActive && !allowed) {
         setServerMode(false);

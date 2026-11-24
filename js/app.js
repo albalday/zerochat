@@ -291,6 +291,7 @@
       isServerMode: () => isServerRunEnabled(),
       getProject: () => MCP.currentProject(),
       getSelectedProject: () => UISidebar.getSelectedProject(elements.sidebarProjectFilter, MCP.currentProject()),
+      isAgentsHistory: () => UISidebar.isAgentsHistory(),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -465,6 +466,7 @@
   }
 
   async function inspectProfile(profile) {
+    if (profile.id === getRuntimeConfig().activeProfile?.id) ProfileCheck.recheck();
     elements.inspectorProfileName.textContent = profile.name || '';
     elements.inspectorResults.innerHTML = '';
     if (!elements.inspectorDialog.open) elements.inspectorDialog.showModal();
@@ -472,6 +474,9 @@
   }
 
   const isBusy = () => State.isConversationBusy();
+  const recheckFailedProfile = () => {
+    if (State.get('ui').profileCheck.status === 'error') ProfileCheck.recheck();
+  };
   const renderProjectPanel = () => UIProject.renderProjectPanel(elements);
 
   // ==========================================================================
@@ -787,6 +792,10 @@
 
   function subscribeToState() {
     State.subscribe('streaming', syncComposerBusyControls);
+    // Un turno terminado puede indicar que el servidor ya responde: el perfil en error se vuelve a comprobar.
+    State.subscribe(state => state.streaming.isGenerating, (generating, wasGenerating) => {
+      if (wasGenerating && !generating) recheckFailedProfile();
+    });
     State.subscribe(state => state.sessions.activeId, () => {
       syncComposerBusyControls();
       syncLiveServerRun();
@@ -928,9 +937,12 @@
       }
     });
     const startupMcpConnection = backendSession.connectStartup();
-    // Al volver a la pestaña se relee enseguida el estado vivo del servidor local (o se reconecta).
+    // Al volver a la pestaña se relee enseguida el estado vivo del servidor local (o se reconecta) y se vuelve a
+    // comprobar el perfil si había fallado.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') MCP.manager.onPageVisible();
+      if (document.visibilityState !== 'visible') return;
+      MCP.manager.onPageVisible();
+      recheckFailedProfile();
     });
     TabAlert.mount();
     ProfileCheck.start();

@@ -423,4 +423,70 @@ test('Browser UI - abrir una conversación guardada con otro perfil no cambia el
   }
 });
 
+
+test('Browser UI - el perfil activo se vuelve a comprobar al pulsarlo o inspeccionarlo y, si falló, al volver a la pestaña o terminar un turno', async () => {
+  const browser = await createTestBrowser();
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(5000);
+    await seedConnectionProfiles(page);
+    await page.goto(getIndexUrl(), { waitUntil: 'load' });
+    await waitForAppReady(page);
+    // El servidor solo tiene el modelo del perfil local: el remoto queda en error. Se cuentan las comprobaciones repetidas.
+    await page.evaluate(() => {
+      window.ChatAPI.fetchServerModels = async () => ({ success: true, models: [{ id: 'google/gemma-4-26b-a4b-qat' }] });
+      const recheck = window.ChatProfileCheck.recheck;
+      window.__rechecks = 0;
+      window.ChatProfileCheck.recheck = () => { window.__rechecks += 1; return recheck(); };
+    });
+    const rechecks = () => page.evaluate(() => window.__rechecks);
+    const status = () => page.evaluate(() => window.ChatState.get('ui').profileCheck.status);
+    // Cada disparador espera a que termine la comprobación anterior: mientras dura no está en error.
+    const settled = () => page.waitForFunction(() => window.ChatState.get('ui').profileCheck.status !== 'checking');
+    const autoTriggers = async () => {
+      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+      await settled();
+      await page.evaluate(() => {
+        window.ChatState.set('streaming', { isGenerating: true });
+        window.ChatState.set('streaming', { isGenerating: false });
+      });
+      await settled();
+    };
+
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:remote"]');
+    await page.waitForFunction(() => window.ChatState.get('ui').profileCheck.status === 'error');
+    assert.equal(await rechecks(), 0, 'Activar otro perfil ya lo comprueba sin repetir');
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:remote"]');
+    assert.equal(await rechecks(), 1);
+
+    // En error, volver a la pestaña y terminar un turno lo comprueban de nuevo.
+    await settled();
+    await autoTriggers();
+    assert.equal(await rechecks(), 3);
+
+    // Listo, no.
+    await page.click('#active-profile-trigger');
+    await page.click('[data-profile-id="profile:local"]');
+    await page.waitForFunction(() => window.ChatState.get('ui').profileCheck.status === 'ready');
+    await autoTriggers();
+    assert.equal(await rechecks(), 3);
+    assert.equal(await status(), 'ready');
+
+    // Inspeccionar el perfil activo lo comprueba; otro perfil, no.
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item:has([data-profile-id="profile:remote"]) [data-profile-action="inspect"]');
+    await page.waitForFunction(() => document.getElementById('inspector-dialog').open);
+    assert.equal(await rechecks(), 3);
+    await page.evaluate(() => document.getElementById('inspector-dialog').close());
+    await page.click('#active-profile-trigger');
+    await page.click('.header-profile-item:has([data-profile-id="profile:local"]) [data-profile-action="inspect"]');
+    await page.waitForFunction(() => document.getElementById('inspector-dialog').open);
+    assert.equal(await rechecks(), 4);
+  } finally {
+    await browser.close();
+  }
+});
+
 });

@@ -74,3 +74,17 @@ test('ProfileCheck - WebLLM usa su ventana de contexto, Espejo y una clave bloqu
   const locked = await checkWith(t, OPENAI, null);
   assert.deepEqual([checkState(), locked.length], [{ status: 'unchecked', reason: 'locked', message: '' }, 0]);
 });
+
+test('ProfileCheck - recheck vuelve a consultar el perfil activo sin que cambie y publica el nuevo resultado', async t => {
+  let serverUp = false;
+  const calls = await checkWith(t, OPENAI, () => (serverUp
+    ? { success: true, models: [{ id: 'gemma', details: { loaded_context_length: 32768 } }] }
+    : { success: false, error: 'fetch failed' }));
+  assert.equal(checkState().status, 'error');
+  const before = calls.length;
+  serverUp = true;
+  await ProfileCheck.recheck();
+  assert.equal(calls.length, before + 1);
+  assert.deepEqual(checkState(), { status: 'ready', reason: '', message: '' });
+  assert.equal(limit(), 32768);
+});

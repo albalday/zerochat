@@ -430,8 +430,7 @@
   outline: none;
 }
 
-/* Selector de proyecto: conversaciones del proyecto actual, de la carpeta general o de todos */
-/* Historial: conmutador chats/agentes y, debajo, selector de proyecto */
+/* Historial: conmutador chats/agentes y, debajo, selector de proyecto (el actual, general o todos) */
 .sidebar-history-filters {
   display: flex;
   flex-direction: column;
@@ -469,12 +468,12 @@
   outline-offset: -2px;
 }
 
-/* Algún agente espera la respuesta del usuario mientras se ven los chats */
+/* El historial que no se ve tiene alguna conversación esperando la respuesta del usuario */
 .sidebar-history-switch button.has-pending::after {
   content: '';
   position: absolute;
-  top: 0.15rem;
-  right: 0.15rem;
+  top: 0.2rem;
+  right: 0.4rem;
   width: 0.4rem;
   height: 0.4rem;
   border-radius: 50%;

@@ -390,6 +390,7 @@
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     const activeId = getActiveSessionId();
+    const deleted = getSavedSessions().find(session => session.id === sessionId);
     // Sale de la lista solo si se borró del almacenamiento: si falla, sigue visible y se puede reintentar.
     try {
       await getStorage().deleteConversation(sessionId);
@@ -403,11 +404,15 @@
       return;
     }
 
+    // La abierta se sustituye por otra de su mismo historial (chats o agentes) y proyecto, o por un chat nuevo:
+    // borrar no salta de un historial a otro ni cambia el proyecto del servidor sin confirmarlo.
     const remaining = getSavedSessions();
-    if (remaining.length === 0) {
+    const substitute = remaining.find(session => Boolean(session.agent) === Boolean(deleted?.agent)
+      && (session.project || '') === (deleted?.project || ''));
+    if (activeId === sessionId && substitute) {
+      await switchToSession(substitute.id, { ...options, force: true, saveCurrent: false });
+    } else if (activeId === sessionId || remaining.length === 0) {
       await createNewSession({ ...options, saveCurrent: false });
-    } else if (activeId === sessionId) {
-      await switchToSession(remaining[0].id, { ...options, force: true, saveCurrent: false });
     } else {
       options.renderSidebarChats();
     }
@@ -435,35 +440,35 @@
   }
 
   /**
-   * Borra las conversaciones del conjunto seleccionado en el filtro del historial: todas si
-   * `getSelectedProject()` devuelve `null`, las de la carpeta general si devuelve `''`, o las de ese
-   * proyecto. La vista de tareas pendientes (`undefined`) no se borra en bloque.
+   * Borra las conversaciones del historial a la vista (`isAgentsHistory()`: las de agentes o los chats, nunca
+   * los dos) en el conjunto del filtro: todas si `getSelectedProject()` devuelve `null`, las de la carpeta general
+   * si devuelve `''`, o las de ese proyecto. La vista de tareas pendientes (`undefined`) no se borra en bloque.
    */
   async function deleteAllSessions(options) {
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
-    const targetProject = options.getSelectedProject ? options.getSelectedProject() : options.getProject();
+    const targetProject = options.getSelectedProject();
     if (targetProject === undefined) return;
-    const sessions = getSavedSessions();
-    const targetSessions = targetProject === null
-      ? sessions
-      : sessions.filter(session => (session.project || '') === targetProject);
+    const agents = options.isAgentsHistory();
+    const inTarget = session => Boolean(session.agent) === agents
+      && (targetProject === null || (session.project || '') === targetProject);
+    const targetSessions = getSavedSessions().filter(inTarget);
     if (targetSessions.length === 0) return;
+    const count = targetSessions.length;
     const message = targetProject === null
-      ? t('chat_delete_all_confirm', { count: targetSessions.length })
-      : t('chat_delete_project_confirm', { name: targetProject ? projectName(targetProject) : NO_PROJECT_NAME, count: targetSessions.length });
+      ? t(agents ? 'chat_delete_all_agents_confirm' : 'chat_delete_all_confirm', { count })
+      : t(agents ? 'chat_delete_project_agents_confirm' : 'chat_delete_project_confirm', { name: targetProject ? projectName(targetProject) : NO_PROJECT_NAME, count });
     if (!await getDialogs().confirm(message)) return;
     if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     try {
-      if (targetProject === null) await getStorage().deleteAllConversations();
-      else await getStorage().deleteProjectConversations(targetProject);
+      await getStorage().deleteConversations({ project: targetProject, agents });
     } catch (error) {
       console.warn('[ConversationService] Could not delete conversations:', error);
       await getDialogs().alert(t('chat_delete_history_err'), { type: 'error' });
       return;
     }
     const activeId = getActiveSessionId();
-    const list = targetProject === null ? [] : getSavedSessions().filter(session => (session.project || '') !== targetProject);
+    const list = getSavedSessions().filter(session => !inTarget(session));
     const keepActive = list.some(session => session.id === activeId);
     getState().set('sessions', { activeId: keepActive ? activeId : null, list });
     if (keepActive) options.renderSidebarChats();

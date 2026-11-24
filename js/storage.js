@@ -724,9 +724,9 @@
   }
 
   /**
-   * Borra las conversaciones `ids` de IndexedDB (todas si es null) con sus mensajes y los blobs que solo
-   * ellas usaban. Con el backend conectado, primero borra en el servidor las que selecciona `params` de
-   * zerochat/conversations/delete: si lo rechaza, la copia local se conserva.
+   * Borra las conversaciones `ids` de IndexedDB con sus mensajes y los blobs que solo ellas usaban. Con el
+   * backend conectado, primero borra en el servidor las que selecciona `params` de zerochat/conversations/delete:
+   * si lo rechaza, la copia local se conserva.
    */
   async function removeConversations(action, ids, params) {
     if (isBackendConnected()) await requestBackend('zerochat/conversations/delete', params);
@@ -735,12 +735,7 @@
       const conversations = tx.objectStore(STORES.conversations);
       const messages = tx.objectStore(STORES.messages);
       const candidates = new Set();
-      if (ids === null) {
-        blobIdsOf(await requestResult(messages.getAll())).forEach(blobId => candidates.add(blobId));
-        conversations.clear();
-        messages.clear();
-      }
-      for (const id of ids || []) {
+      for (const id of ids) {
         blobIdsOf(await getAllByIndex(messages, 'by_conversation', conversationRange(id))).forEach(blobId => candidates.add(blobId));
         conversations.delete(id);
         await deleteByIndex(messages, 'by_conversation', conversationRange(id));
@@ -754,12 +749,17 @@
     if (sessionId) await removeConversations('delete the conversation', [sessionId], { id: sessionId });
   }
 
-  const deleteAllConversations = () => removeConversations('delete the conversations', null, { all: true });
-
-  async function deleteProjectConversations(project) {
-    const target = typeof project === 'string' ? project.trim() : '';
-    const ids = (await readLocalConversationsList()).filter(item => (item.project || '') === target).map(item => item.id);
-    await removeConversations('delete the project conversations', ids, { project: target });
+  /**
+   * Borra en bloque un historial: las conversaciones de agentes (`agents` true) o los chats (false), de un
+   * proyecto (`project`, vacío para la carpeta general) o de todos (null). Nunca los dos historiales a la vez.
+   */
+  async function deleteConversations({ project, agents }) {
+    if (typeof agents !== 'boolean') throw new TypeError('agents must be a boolean');
+    const target = project === null ? null : (typeof project === 'string' ? project.trim() : '');
+    const ids = (await readLocalConversationsList())
+      .filter(item => Boolean(item.agent) === agents && (target === null || (item.project || '') === target))
+      .map(item => item.id);
+    await removeConversations('delete the conversations', ids, target === null ? { all: true, agents } : { project: target, agents });
   }
 
   async function renameConversation(sessionId, newTitle) {
@@ -931,8 +931,7 @@
     CONVERSATION_SAVE_CHUNK_BYTES,
     MAX_CONVERSATION_UPLOAD_CHUNKS,
     deleteConversation,
-    deleteAllConversations,
-    deleteProjectConversations,
+    deleteConversations,
     CONVERSATION_NOT_DOWNLOADED,
     renameConversation,
     saveBlob,

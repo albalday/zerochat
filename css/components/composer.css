@@ -84,6 +84,7 @@
 }
 
 .agent-supervision-notice .ui-icon {
+  flex-shrink: 0;
   color: var(--primary);
 }
 

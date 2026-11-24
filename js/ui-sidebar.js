@@ -96,7 +96,8 @@
     limit: { icon: 'pause-circle', className: 'limit', titleKey: 'sidebar_run_limit_title' }
   };
 
-  // La conversación de un agente se nombra por su agente (<subconjunto>.<nombre>) y su título queda de descripción.
+  // La conversación de un agente se nombra por su agente (<subconjunto>.<nombre>) y su título queda de descripción:
+  // no se renombra, porque el nombre visible no cambiaría.
   function renderChatItem(session, date, isActive, runStatus = null) {
     const conversationTitle = escapeHtml(session.title || t('chat_untitled'));
     const title = session.agent ? escapeHtml(session.agent) : conversationTitle;
@@ -119,7 +120,7 @@
           <button type="button" class="btn-chat-menu" aria-haspopup="menu" aria-expanded="false" title="${optionsLabel}" aria-label="${optionsLabel}">${Icons.get('more-vertical', { size: 18 })}</button>
           <div class="sidebar-chat-actions" role="menu" hidden>
             ${action('btn-export', 'download', 'sidebar_export_chat_title')}
-            ${action('btn-rename', 'edit', 'sidebar_rename_chat_title')}
+            ${session.agent ? '' : action('btn-rename', 'edit', 'sidebar_rename_chat_title')}
             ${action('btn-delete', 'trash', 'sidebar_delete_chat_title')}
           </div>
         </div>
@@ -163,8 +164,8 @@
    * Conmutador entre el historial de chats y el de agentes (session.agent), que no se mezclan. Solo se ve si hay
    * conversaciones de agentes. Al cambiar la conversación activa, el historial pasa al suyo para que se vea en la
    * lista; una nueva aún sin guardar (también la que sustituye a la activa borrada) no lo cambia hasta que aparece
-   * en la lista. El botón de agentes lleva una marca si alguno espera respuesta
-   * del usuario y no se están viendo. Devuelve si la vista es la de agentes.
+   * en la lista. El botón del historial que no se ve lleva una marca si alguna de sus conversaciones espera la
+   * respuesta del usuario. Devuelve si la vista es la de agentes.
    */
   function renderHistorySwitch(container, sessions, currentSessionId, runStatusMap) {
     const current = sessions.find(session => session.id === currentSessionId);
@@ -176,8 +177,11 @@
     if (agentSessions.length === 0) historyView = 'user';
     container.hidden = agentSessions.length === 0;
     container.querySelectorAll('[data-history]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.history === historyView)));
-    const agentWaiting = agentSessions.some(session => runStatusMap.get(session.id) === 'needs_input');
-    container.querySelector('[data-history="agents"]').classList.toggle('has-pending', agentWaiting && historyView !== 'agents');
+    container.querySelectorAll('[data-history]').forEach(button => {
+      const agents = button.dataset.history === 'agents';
+      const waiting = sessions.some(session => Boolean(session.agent) === agents && runStatusMap.get(session.id) === 'needs_input');
+      button.classList.toggle('has-pending', waiting && button.dataset.history !== historyView);
+    });
     return historyView === 'agents';
   }
 
@@ -249,10 +253,11 @@
     const pendingSessions = sessions.filter(session => runStatusMap.get(session.id) === 'needs_input');
     const viewProject = renderProjectFilter(elements.sidebarProjectFilter, project, pendingSessions.length);
     const pendingView = viewProject === undefined;
-    elements.btnDeleteAllChats.disabled = pendingView;
     const showAll = viewProject === null;
     // Tareas pendientes: las de todos los proyectos, agrupadas por proyecto y siempre desplegadas.
     const visible = pendingView ? groupSessions(pendingSessions, null) : groupSessions(sessions, viewProject);
+    // Borrar en bloque actúa sobre lo que se ve antes de buscar: nada en tareas pendientes ni en una vista vacía.
+    elements.btnDeleteAllChats.disabled = pendingView || visible.length === 0;
     const contentIds = filter && searchState.query === filter ? searchState.ids : null;
     const matching = filter
       ? visible.filter(({ session }) => session.title?.toLowerCase().includes(filter) || session.agent?.includes(filter) || contentIds?.has(session.id))
@@ -296,6 +301,10 @@
   function mount(elements, callbacks) {
     cleanups.forEach(cleanup => cleanup());
     cleanups = [];
+    groupLimits = {};
+    expandedGroups = new Set();
+    historyView = 'user';
+    followedSessionId = null;
     clearTimeout(searchState.timer);
     searchState = { seq: searchState.seq + 1, query: '', ids: null, timer: null };
     const setSearchStatus = text => {
@@ -453,6 +462,7 @@
     closeSidebar,
     renderSidebarChats,
     getSelectedProject,
+    isAgentsHistory: () => historyView === 'agents',
     getChronologicalCategory,
     mount
   };

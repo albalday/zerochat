@@ -3,6 +3,8 @@
  * activo o su conexión (tipo, URL o modelo) consulta con su API key el listado de modelos del servidor y publica si
  * el modelo está listo (ui.profileCheck: estado y motivo) y su límite de contexto (config.modelContextLimit), real si
  * el servidor lo publica y, si no, null para que el gestor de contexto use el calculado. No guarda nada en el perfil.
+ * La interfaz la repite con recheck() al pulsar el perfil activo o inspeccionarlo, y si quedó en error, al volver a
+ * la pestaña o terminar un turno.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -92,8 +94,17 @@
     });
   }
 
+  /**
+   * Vuelve a comprobar el perfil activo aunque no haya cambiado: el servidor pudo arrancar, cargar el modelo o
+   * aceptar la clave después de la última comprobación.
+   */
+  function recheck() {
+    latest = run(getConfig().getActive());
+    return latest;
+  }
+
   /** Espera a la última comprobación lanzada (el runner, antes de su primer turno). */
   const settled = () => latest;
 
-  return { start, settled };
+  return { start, recheck, settled };
 }));

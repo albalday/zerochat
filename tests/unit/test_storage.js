@@ -2,6 +2,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Database = require('../../js/storage-db.js');
 const Storage = require('../../js/storage.js');
+const { clearConversations } = require('../helpers/storage-env.js');
 
 test('Storage - la sesión del backend guarda un token válido y solo el origen http(s) de su URL', () => {
   assert.deepEqual(
@@ -80,7 +81,7 @@ test('Storage IndexedDB - borra conversaciones individuales, todas y el almacena
   const check2 = await Storage.getConversation(s2);
   assert.ok(check2);
 
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   const emptyList = await Storage.getConversationsList();
   assert.equal(emptyList.length, 0);
 
@@ -216,15 +217,15 @@ test('Storage Backend - sincroniza en los dos sentidos con la copia más recient
     }
     if (method === 'zerochat/conversations/delete') {
       if (refuseDelete) throw new Error('Run in progress');
-      if (params.all) backendStore.clear();
-      else if ('project' in params) backendStore.forEach((record, id) => { if ((record.project || '') === (params.project || '')) backendStore.delete(id); });
+      const inScope = record => Boolean(record.agent) === params.agents && (params.all || (record.project || '') === (params.project || ''));
+      if (params.all || 'project' in params) backendStore.forEach((record, id) => { if (inScope(record)) backendStore.delete(id); });
       else backendStore.delete(params.id);
       return { deleted: true };
     }
     throw new Error(`Unexpected method: ${method}`);
   });
 
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   // Guardar conversación local sin conexión
   await Storage.saveConversation(
     { id: 'l_conv', title: 'Local Chat', createdAt: 150, updatedAt: 300 },
@@ -326,20 +327,27 @@ test('Storage Backend - sincroniza en los dos sentidos con la copia más recient
   assert.equal(backendCalls.pop().method, 'zerochat/conversations/delete');
   assert.equal(await Storage.getConversation('dual_conv'), null);
 
-  await Storage.deleteAllConversations();
-  assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { all: true } });
+  // En bloque se borra un solo historial, chats o agentes, de un proyecto o de todos.
+  await clearConversations(Storage);
+  assert.deepEqual(backendCalls.slice(-2), [false, true].map(agents => ({ method: 'zerochat/conversations/delete', params: { all: true, agents } })));
 
   await Storage.saveConversation({ id: 'proj_x', title: 'X', project: '/repo/x' }, []);
+  await Storage.saveConversation({ id: 'proj_xa', title: 'XA', project: '/repo/x', agent: 'informes.diario' }, []);
   await Storage.saveConversation({ id: 'proj_y', title: 'Y', project: '/repo/y' }, []);
   await Storage.saveConversation({ id: 'proj_g', title: 'G' }, []);
-  await Storage.deleteProjectConversations('/repo/x');
-  assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { project: '/repo/x' } });
+  await Storage.deleteConversations({ project: '/repo/x', agents: false });
+  assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { project: '/repo/x', agents: false } });
   assert.equal(await Storage.getConversation('proj_x'), null);
+  assert.ok(await Storage.getConversation('proj_xa'), 'Borrar los chats conserva las conversaciones de agentes');
   assert.ok(await Storage.getConversation('proj_y'));
   assert.ok(await Storage.getConversation('proj_g'));
 
-  await Storage.deleteProjectConversations('');
-  assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { project: '' } });
+  await Storage.deleteConversations({ project: null, agents: true });
+  assert.equal(await Storage.getConversation('proj_xa'), null);
+  assert.ok(await Storage.getConversation('proj_y'), 'Borrar los agentes conserva los chats');
+
+  await Storage.deleteConversations({ project: '', agents: false });
+  assert.deepEqual(backendCalls.pop(), { method: 'zerochat/conversations/delete', params: { project: '', agents: false } });
   assert.equal(await Storage.getConversation('proj_g'), null);
   assert.ok(await Storage.getConversation('proj_y'));
 
@@ -355,7 +363,7 @@ test('Storage Backend - sincroniza en los dos sentidos con la copia más recient
 test('Storage IndexedDB - guardar o borrar conversaciones recoge blobs sin referencia y respeta los compartidos', async () => {
   const image = text => ({ name: `${text}.png`, mimeType: 'image/png', dataUrl: `data:image/png;base64,${Buffer.from(text).toString('base64')}` });
   const blobIds = async id => (await Storage.getConversation(id)).history.flatMap(msg => (msg.images || []).map(img => img.blobId));
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   await Storage.saveConversation({ id: 'blob_a', title: 'A' }, [
     { id: 'm1', role: 'user', content: 'a', images: [image('propia'), image('editada')] },
     { id: 'm2', role: 'user', content: 'comp', images: [image('compartida')] }
@@ -373,7 +381,7 @@ test('Storage IndexedDB - guardar o borrar conversaciones recoge blobs sin refer
   assert.equal(await Storage.getBlob(own), null);
   assert.ok(await Storage.getBlob(shared));
 
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   assert.equal(await Storage.getBlob(shared), null);
   assert.ok(await Storage.getBlob(loose), 'Un blob que ninguna conversación referenciaba no se toca');
 });
@@ -411,7 +419,7 @@ test('Storage IndexedDB - gestión, deduplicación y validación de bordes en bl
 
 test('Storage.searchConversations busca en títulos y mensajes y descarga pendientes si hay servidor', async t => {
   const MCP = require('../../js/mcp.js');
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
   await Storage.saveConversation(
     { id: 's_title', title: 'Informe financiero', createdAt: 100, updatedAt: 100 },
     [{ id: 'm1', role: 'user', content: 'Hola mundo' }]
@@ -458,7 +466,7 @@ test('Storage.searchConversations busca en títulos y mensajes y descarga pendie
   assert.deepEqual(Array.from(await Storage.searchConversations('financiero')), ['s_title']);
 
   connected = false;
-  await Storage.deleteAllConversations();
+  await clearConversations(Storage);
 });
 
 test('Storage.saveRemoteConversation divide conversaciones grandes en tramos bajo el tope y parte mensajes enormes sin romper sustitutos UTF-16', async () => {

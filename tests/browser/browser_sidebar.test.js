@@ -21,11 +21,9 @@ test('Browser UI - en móvil la barra ocupa toda la pantalla, deja el chat inert
 
     const activeSessionId = await page.evaluate(() => {
       ChatState.saveSessionMetadata({ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() });
-      const elements = { sidebarChatsList: document.getElementById('sidebar-chats-list'), sidebarSearchInput: document.getElementById('sidebar-search-input'), sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
-        sidebarHistorySwitch: document.getElementById('sidebar-history-switch'), btnDeleteAllChats: document.getElementById('btn-delete-all-chats') };
-      ChatUISidebar.renderSidebarChats(elements, ChatState.get('sessions').list.filter(session => session.id === 'chat-options'), '', [], '');
       return ChatState.get('sessions').activeId;
     });
+    await renderSidebar(page, [{ id: 'chat-options', title: 'Opciones táctiles', updatedAt: Date.now() }]);
     const trigger = page.locator('.btn-chat-menu');
     assert.equal(await trigger.isVisible(), true);
     assert.equal(await trigger.getAttribute('aria-expanded'), 'false');
@@ -61,6 +59,23 @@ async function seedSessions(page, sessions, activeId) {
   }, sessions);
   await openSavedSession(page, activeId);
 }
+
+/** Pinta la barra directamente con `sessions`, sin el estado de la aplicación. */
+function renderSidebar(page, sessions, { currentSessionId = '', runs = [], project = '' } = {}) {
+  return page.evaluate(({ sessions, currentSessionId, runs, project }) => {
+    const byId = id => document.getElementById(id);
+    window.ChatUISidebar.renderSidebarChats({
+      sidebarChatsList: byId('sidebar-chats-list'),
+      sidebarSearchInput: byId('sidebar-search-input'),
+      sidebarProjectFilter: byId('sidebar-project-filter'),
+      sidebarHistorySwitch: byId('sidebar-history-switch'),
+      btnDeleteAllChats: byId('btn-delete-all-chats')
+    }, sessions, currentSessionId, runs, project);
+  }, { sessions, currentSessionId, runs, project });
+}
+
+/** Repinta la barra desde el estado de la aplicación, como hace ella al escribir en el buscador. */
+const repaintSidebar = page => page.evaluate(() => document.getElementById('sidebar-search-input').dispatchEvent(new Event('input')));
 
 const sidebarTitles = page => page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.map(title => title.textContent));
 const sidebarHeaders = page => page.$$eval('#sidebar-chats-list .sidebar-group-label', labels => labels.map(label => label.textContent));
@@ -102,23 +117,14 @@ test('Browser UI - la barra agrupa las conversaciones por fecha, marca la activa
 
 test('Browser UI - el selector muestra el proyecto actual, general, todos agrupados por proyecto o las tareas pendientes', async () => {
   await withTestApp(async page => {
-    const render = (project, runs = []) => page.evaluate(({ project, runs }) => {
-      const elements = {
-        sidebarChatsList: document.getElementById('sidebar-chats-list'),
-        sidebarSearchInput: document.getElementById('sidebar-search-input'),
-        sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
-        sidebarHistorySwitch: document.getElementById('sidebar-history-switch'),
-        btnDeleteAllChats: document.getElementById('btn-delete-all-chats')
-      };
-      const now = Date.now();
-      const sessions = [
-        { id: 'a1', title: 'A reciente', project: '/repo/app', updatedAt: now },
-        { id: 'n1', title: 'Sin proyecto', updatedAt: now - 1000 },
-        { id: 'b1', title: 'B', project: '/repo/lib/', updatedAt: now - 2000 },
-        { id: 'a2', title: 'A antigua', project: '/repo/app', updatedAt: now - 3000 }
-      ];
-      window.ChatUISidebar.renderSidebarChats(elements, sessions, '', runs, project);
-    }, { project, runs });
+    const now = Date.now();
+    const sessions = [
+      { id: 'a1', title: 'A reciente', project: '/repo/app', updatedAt: now },
+      { id: 'n1', title: 'Sin proyecto', updatedAt: now - 1000 },
+      { id: 'b1', title: 'B', project: '/repo/lib/', updatedAt: now - 2000 },
+      { id: 'a2', title: 'A antigua', project: '/repo/app', updatedAt: now - 3000 }
+    ];
+    const render = (project, runs = []) => renderSidebar(page, sessions, { runs, project });
     const currentLabel = () => page.$eval('#sidebar-project-filter option[value="current"]', option => option.textContent);
     // Sin evento change: la aplicación repintaría con su propio estado, sin servidor.
     const choose = value => page.$eval('#sidebar-project-filter', (select, value) => { select.value = value; }, value);
@@ -150,6 +156,7 @@ test('Browser UI - el selector muestra el proyecto actual, general, todos agrupa
     await choose('current');
     await render('/repo/vacio');
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
+    assert.equal(await page.isDisabled('#btn-delete-all-chats'), true, 'Una vista vacía no se borra en bloque');
 
     // Tareas pendientes: solo las que esperan respuesta del usuario, de todos los proyectos y desplegadas; en marcha,
     // con error o paradas por un límite no lo son. No se borran en bloque y, sin ninguna, la vista vuelve al proyecto actual.
@@ -216,7 +223,7 @@ test('Browser UI - en la vista de todos los proyectos empiezan plegados y vuelve
 
     // Al volver a pintar (otra conversación abierta) se respeta lo desplegado.
     await page.evaluate(() => window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: 'a1' }));
-    await page.evaluate(() => document.getElementById('sidebar-search-input').dispatchEvent(new Event('input')));
+    await repaintSidebar(page);
     assert.deepEqual(await sidebarTitles(page), ['B']);
     await page.focus('.sidebar-group-toggle[data-group-key=""]');
     await page.keyboard.press('Enter');
@@ -245,29 +252,31 @@ test('Browser UI - el historial de agentes va aparte de los chats, cada conversa
         ...window.ChatState.get('mcp'), status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/repo/app' },
         serverRuns: [{ conversationId: 'ag2', runId: 'r1', status: 'needs_input' }, { conversationId: 'ag1', runId: 'r2', status: 'running' }]
       });
-      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
     }, DAY_MS);
+    await repaintSidebar(page);
     const shownIds = () => page.$$eval('#sidebar-chats-list .sidebar-chat-item', items => items.map(item => item.dataset.sessionId));
     const t = key => page.evaluate(key => window.ChatI18n.t(key), key);
     const historySwitch = () => page.$eval('#sidebar-history-switch', group => ({
       hidden: group.hidden,
       pressed: group.querySelector('[aria-pressed="true"]').dataset.history,
-      agentWaiting: group.querySelector('[data-history="agents"]').classList.contains('has-pending')
+      waiting: [...group.querySelectorAll('.has-pending')].map(button => button.dataset.history)
     }));
-    const setActive = id => page.evaluate(id => {
-      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: id });
-      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
-    }, id);
+    const setActive = async id => {
+      await page.evaluate(id => window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: id }), id);
+      await repaintSidebar(page);
+    };
     const dateHeaders = async () => [await t('sidebar_group_today'), await t('sidebar_group_last7days')];
 
     // Chats: solo las humanas por fecha; el botón de agentes avisa de que uno espera respuesta.
-    assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'user', agentWaiting: true });
+    assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'user', waiting: ['agents'] });
     assert.deepEqual(await sidebarHeaders(page), await dateHeaders());
     assert.deepEqual(await shownIds(), ['h1', 'h2']);
 
     // Agentes: por fecha como los chats, sin niveles; cada una se llama como su agente, con el título de descripción.
     await page.click('#sidebar-history-switch [data-history="agents"]');
-    assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'agents', agentWaiting: false });
+    assert.deepEqual(await historySwitch(), { hidden: false, pressed: 'agents', waiting: [] });
+    // Las de agentes no se renombran: se ven con el nombre de su agente.
+    assert.equal(await page.$$eval('#sidebar-chats-list .sidebar-chat-item', items => items.filter(item => item.querySelector('.btn-rename')).length), 0);
     assert.deepEqual(await sidebarHeaders(page), await dateHeaders());
     assert.deepEqual(await page.$$eval('#sidebar-chats-list .sidebar-chat-title', titles => titles.map(title => [title.lastChild.textContent, title.title])),
       [['informes.diario', 'Informe lunes'], ['informes.diario', 'Informe martes'], ['informes.semanal', 'Resumen']]);
@@ -286,6 +295,16 @@ test('Browser UI - el historial de agentes va aparte de los chats, cada conversa
     assert.equal(await page.$eval('#sidebar-project-filter', select => select.value), 'current');
     assert.deepEqual(await shownIds(), ['h1', 'h2']);
 
+    // Viendo los agentes, el botón de chats avisa si un chat espera respuesta.
+    await page.click('#sidebar-history-switch [data-history="agents"]');
+    // Sin quitar las de agentes: una ejecución que desaparece se da por terminada y la app recarga la lista.
+    await page.evaluate(() => {
+      const mcp = window.ChatState.get('mcp');
+      window.ChatState.set('mcp', { ...mcp, serverRuns: [...mcp.serverRuns, { conversationId: 'h2', runId: 'r3', status: 'needs_input' }] });
+    });
+    await repaintSidebar(page);
+    assert.deepEqual((await historySwitch()).waiting, ['user']);
+
     // Abrir una conversación de agente pasa a su historial. Una nueva aún sin guardar, como la que sustituye a la
     // activa al borrarla, no lo cambia; al guardarse como chat, el historial pasa a los chats.
     await setActive('ag3');
@@ -295,28 +314,30 @@ test('Browser UI - el historial de agentes va aparte de los chats, cada conversa
     await page.evaluate(() => {
       const sessions = window.ChatState.get('sessions');
       window.ChatState.set('sessions', { ...sessions, list: [{ id: 'session_nueva', title: 'Nueva', project: '/repo/app', updatedAt: Date.now() }, ...sessions.list] });
-      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
     });
+    await repaintSidebar(page);
     assert.equal((await historySwitch()).pressed, 'user');
 
     // Sin conversaciones de agentes no hay conmutador.
     await page.evaluate(() => {
       const sessions = window.ChatState.get('sessions');
       window.ChatState.set('sessions', { ...sessions, list: sessions.list.filter(session => !session.agent) });
-      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
     });
+    await repaintSidebar(page);
     assert.equal((await historySwitch()).hidden, true);
   });
 });
 
 test('Browser UI - cada grupo pinta 50 conversaciones y "Mostrar más" añade el resto', async () => {
   await withTestApp(async page => {
-    const render = count => page.evaluate(count => {
-      const now = Date.now();
-      const list = Array.from({ length: count }, (_, index) => ({ id: `s${index}`, title: `Chat ${index}`, updatedAt: now - index * 1000 }));
-      window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: null, list });
-      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
-    }, count);
+    const render = async count => {
+      await page.evaluate(count => {
+        const now = Date.now();
+        const list = Array.from({ length: count }, (_, index) => ({ id: `s${index}`, title: `Chat ${index}`, updatedAt: now - index * 1000 }));
+        window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), activeId: null, list });
+      }, count);
+      await repaintSidebar(page);
+    };
     const showMore = () => page.$$eval('.sidebar-show-more', buttons => buttons.map(button => button.textContent));
 
     await render(50);
@@ -540,14 +561,8 @@ test('Browser UI - sincroniza conversaciones locales y remotas al conectar desde
       await window.ChatStorage.saveConversation(session, messages);
       const list = await window.ChatStorage.getConversationsList();
       window.ChatState.replaceConversation({ sessionId: 'chat_local_1', messages, sessions: list });
-      window.ChatUISidebar.renderSidebarChats({
-        sidebarChatsList: document.getElementById('sidebar-chats-list'),
-        sidebarSearchInput: document.getElementById('sidebar-search-input'),
-        sidebarProjectFilter: document.getElementById('sidebar-project-filter'),
-        sidebarHistorySwitch: document.getElementById('sidebar-history-switch'),
-        btnDeleteAllChats: document.getElementById('btn-delete-all-chats')
-      }, list, 'chat_local_1', [], '');
     });
+    await repaintSidebar(page);
 
     await page.waitForSelector('.sidebar-chat-item[data-session-id="chat_local_1"].active');
     assert.equal(await page.locator('.sidebar-chat-item[data-session-id="chat_local_1"] .sidebar-chat-title').textContent(), 'Conversación Local');

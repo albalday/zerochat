@@ -295,8 +295,8 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNone(err)
         self.assertFalse(res_del_inexist["deleted"])
 
-        # 7. Borrar todas las conversaciones
-        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True})
+        # 7. Borrar todos los chats
+        res, err, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", {"all": True, "agents": False})
         self.assertIsNone(err)
         self.assertTrue(res["deleted"])
         self.assertEqual(res["count"], 1)
@@ -353,7 +353,8 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(err["code"], -32602)
 
         # delete: id vacío sin all=True (-32602)
-        for bad_delete in ({}, {"id": ""}, {"id": "   "}, {"id": 123}):
+        # En bloque exige el historial (agents): nunca borra chats y agentes a la vez.
+        for bad_delete in ({}, {"id": ""}, {"id": "   "}, {"id": 123}, {"all": True}, {"project": "/p"}, {"all": True, "agents": "si"}):
             with self.subTest(bad_delete=bad_delete):
                 _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/delete", bad_delete)
                 self.assertIsNotNone(err)
@@ -501,8 +502,7 @@ class StorageEngineTest(unittest.TestCase):
             self.assertEqual(conn.execute("SELECT COUNT(*) FROM messages WHERE conversation_id = 'session_test_123';").fetchone()[0], 0)
 
         # Borrar todo
-        deleted_count = zerochat.delete_all_conversations()
-        self.assertEqual(deleted_count, 1)
+        self.assertEqual(len(zerochat.delete_conversations(None, False)), 1)
         self.assertEqual(len(zerochat.list_conversations()), 0)
 
     def test_validacion_bordes_conversaciones(self):
@@ -617,15 +617,15 @@ class StorageEngineTest(unittest.TestCase):
 
         project_blob = blob(b"del proyecto")
         save("conv_p", [project_blob, shared], project="/proj")
-        self.assertEqual(zerochat.delete_project_conversations("/proj"), ["conv_p"])
+        self.assertEqual(zerochat.delete_conversations("/proj", False), ["conv_p"])
         self.assertIsNone(zerochat.get_blob(project_blob))
         self.assertIsNotNone(zerochat.get_blob(shared))
 
         save("conv_keep", [shared], project="/keep")
-        self.assertEqual(zerochat.delete_project_conversations(""), ["conv_b"])
+        self.assertEqual(zerochat.delete_conversations("", False), ["conv_b"])
         self.assertIsNotNone(zerochat.get_blob(shared))
 
-        self.assertEqual(zerochat.delete_all_conversations(), 1)
+        self.assertEqual(len(zerochat.delete_conversations(None, False)), 1)
         self.assertIsNone(zerochat.get_blob(shared))
         self.assertIsNotNone(zerochat.get_blob(pending))
 

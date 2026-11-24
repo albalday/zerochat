@@ -971,25 +971,25 @@ def delete_conversation(session_id: str) -> bool:
         return bool(_delete_conversations(conn, "id = ?", (clean_id,)))
 
 
-def delete_project_conversations(project: str) -> list[str]:
-    """Elimina las conversaciones de un proyecto (o de la carpeta general si es vacío) con sus mensajes y blobs propios."""
-    if not isinstance(project, str) or (project and not project.strip()) or len(project) > MAX_PATH_LENGTH:
-        raise ValueError("El proyecto de las conversaciones debe ser una ruta")
-    clean_project = project.strip()
+def delete_conversations(project: str | None, agents: bool) -> list[str]:
+    """
+    Borra en bloque un historial con sus mensajes y blobs propios: las conversaciones de agentes (`agents`) o los
+    chats, de un proyecto (vacío para la carpeta general) o de todos (`project` None). Nunca los dos a la vez.
+    """
+    if not isinstance(agents, bool):
+        raise ValueError("agents debe ser un booleano")
+    where = [f"json_extract(extra_json, '$.agent') IS {'NOT ' if agents else ''}NULL"]
+    params: tuple = ()
+    if project is not None:
+        if not isinstance(project, str) or (project and not project.strip()) or len(project) > MAX_PATH_LENGTH:
+            raise ValueError("El proyecto de las conversaciones debe ser una ruta")
+        if project.strip():
+            where.append("json_extract(extra_json, '$.project') = ?")
+            params = (project.strip(),)
+        else:
+            where.append("(json_extract(extra_json, '$.project') IS NULL OR json_extract(extra_json, '$.project') = '')")
     with open_storage() as conn:
-        if not clean_project:
-            return _delete_conversations(
-                conn,
-                "json_extract(extra_json, '$.project') IS NULL OR json_extract(extra_json, '$.project') = ''",
-                (),
-            )
-        return _delete_conversations(conn, "json_extract(extra_json, '$.project') = ?", (clean_project,))
-
-
-def delete_all_conversations() -> int:
-    """Elimina todas las conversaciones con sus mensajes y los blobs que estas usaban."""
-    with open_storage() as conn:
-        return len(_delete_conversations(conn, "1 = 1", ()))
+        return _delete_conversations(conn, " AND ".join(where), params)
 
 
 def _validate_blob_id(blob_id: str) -> str:
