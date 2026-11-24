@@ -714,12 +714,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             default_rule = zerochat.AccessController.get_default_directory_rule(ctx)
             zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"R:{other}/**"]}, ctx)
             self.assertIn("no saved environment", launch(run_file="agents/diario.json", project=str(other))["error"])
-            zerochat.save_project_environment(str(other), {"systemDataPrompt": "Otro"})
+            other_key = zerochat.SecurityContext(workspace_dir=other).key
+            zerochat.save_project_environment(other_key, {"systemDataPrompt": "Otro"})
             result = launch(run_file="agents/diario.json", project=str(other))
-            self.assertEqual((result["project"], launched[-1][1], launched[-1][0]["prompt"]), (str(other), other, "Haz el informe"))
+            self.assertEqual((result.get("project"), launched[-1][1], launched[-1][0]["prompt"]), (other_key, other, "Haz el informe"), result)
 
         # check_agents con project ve los agentes de esa carpeta y no los de la suya; borrar en ella pide RW.
-        zerochat.save_conversation({"id": "suya", "title": "suya", "updatedAt": 1000, "project": str(other), "agent": "informes.diario"},
+        zerochat.save_conversation({"id": "suya", "title": "suya", "updatedAt": 1000, "project": other_key, "agent": "informes.diario"},
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
         zerochat.save_conversation({"id": "mia", "title": "mia", "updatedAt": 1000, "project": ctx.key, "agent": "informes.diario"},
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
@@ -736,6 +737,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         seen = {}
 
         def fake_popen(cmd, **kwargs):
+            if "--run-file" not in cmd:
+                return real_popen(cmd, **kwargs)  # Otros procesos (p. ej. ps en macOS para la huella de arranque).
             seen.update(cmd=cmd, **kwargs)
             # Hace de zerochat --run-file -: guarda lo que recibe por stdin, su carpeta y su entorno.
             script = ("import json, os, sys; json.dump({'request': json.load(sys.stdin), 'cwd': os.getcwd(), "
