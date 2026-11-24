@@ -88,6 +88,55 @@ test('ContextManager - buildOptimizedContext preserva pares atómicos, poda tool
   assert.equal(ragTool.content.length, tableContent.length);
 });
 
+test('ContextManager - preserva salidas intactas entre pasos del turno activo y poda solo turnos cerrados en bordes exactos', () => {
+  // 1. Varios pasos dentro del mismo turno (ej. controlador leyendo 3 agentes en serie de 5000 chars) no se podan a 4000
+  const closedTurnTool = 'H'.repeat(4001);
+  const closedTurnExact = 'E'.repeat(4000);
+  const step1Output = 'A'.repeat(5000);
+  const step2Output = 'B'.repeat(5000);
+  const step3Exact = 'C'.repeat(64000);
+  const step3Over = 'D'.repeat(64001);
+
+  const multiStep = ChatContextManager.buildOptimizedContext([
+    { role: 'system', content: 'Sistema' },
+    { role: 'user', content: 'Turno 1' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c0', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c0', name: 'read_file', content: closedTurnTool },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c0b', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c0b', name: 'read_file', content: closedTurnExact },
+    { role: 'assistant', content: 'Turno 1 cerrado.' },
+    { role: 'user', content: 'Turno 2 (controlador en serie)' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', function: { name: 'check_agents', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c1', name: 'check_agents', content: step1Output },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c2', function: { name: 'check_agents', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c2', name: 'check_agents', content: step2Output },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c3', function: { name: 'check_agents', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'c3', name: 'check_agents', content: step3Exact },
+    { role: 'tool', tool_call_id: 'c4', name: 'check_agents', content: step3Over }
+  ], { totalContextLimit: 150000 });
+
+  const byId = Object.fromEntries(multiStep.messages.filter(m => m.role === 'tool').map(m => [m.tool_call_id, m.content]));
+  // Turno pasado cerrado: borde exacto N=4000 intacto, N+1=4001 truncado
+  assert.match(byId.c0, /Truncado por ChatContextManager/);
+  assert.equal(byId.c0b, closedTurnExact);
+  assert.equal(multiStep.diagnostics.prunedToolsCount, 1);
+  // Turno en curso: pasos previos (c1, c2) intactos y paso activo en borde exacto N=64000 intacto, N+1=64001 truncado
+  assert.equal(byId.c1, step1Output);
+  assert.equal(byId.c2, step2Output);
+  assert.equal(byId.c3, step3Exact);
+  assert.match(byId.c4, /Truncado por ChatContextManager: 1 caracteres omitidos/);
+
+  // 2. Modelo pequeño (WebLLM 4K): el techo activo se acota por inputBudget sin exceder la ventana
+  const smallModel = ChatContextManager.buildOptimizedContext([
+    { role: 'system', content: 'Sistema' },
+    { role: 'user', content: 'Lee' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'cs', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'cs', name: 'read_file', content: 'X'.repeat(10000) }
+  ], { maxInputTokens: 3000 });
+  const smallTool = smallModel.messages.find(m => m.role === 'tool');
+  assert.match(smallTool.content, /Truncado por ChatContextManager/);
+});
+
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
   assert.equal(ChatContextManager.calculateInputBudget({ model: 'gpt-4o-mini' }), 1000000 - 4096 - 100000);
   const budget = ChatContextManager.calculateInputBudget({ totalContextLimit: 90112 });

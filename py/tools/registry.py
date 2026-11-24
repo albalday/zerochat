@@ -19,7 +19,7 @@ from tools.agents import (
 )
 from tools.browser_action import BROWSER_ACTIONS, browser_action
 from tools.browser_secret import BROWSER_SECRET_MODES, browser_fill_secret
-from tools.filesystem import edit_file, get_diagnostics, list_directory, read_file, search_files, write_file
+from tools.filesystem import READ_FILE_DEFAULT_MAX_BYTES, edit_file, get_diagnostics, list_directory, read_file, search_files, write_file
 from tools.jobs import (
     COMMAND_DEFAULT_TIMEOUT,
     COMMAND_MAX_TIMEOUT,
@@ -51,7 +51,7 @@ LOCAL_TOOLS_DEFINITIONS = [
                 "start_line": {"type": "integer", "description": "First line (1-based)", "default": 1},
                 "end_line": {"type": "integer", "description": "Last line (inclusive)"},
                 "max_lines": {"type": "integer", "description": "Line cap if no end_line", "default": 500},
-                "max_bytes": {"type": "integer", "description": "Byte cap", "default": 100000},
+                "max_bytes": {"type": "integer", "description": "Byte cap", "default": READ_FILE_DEFAULT_MAX_BYTES},
                 "tail_lines": {
                     "type": "integer",
                     "description": "Return only the last N lines (max 2000), without terminal color codes and keeping the last state of progress bars; start_line and end_line are ignored"

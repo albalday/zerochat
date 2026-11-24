@@ -160,8 +160,8 @@
   // 3. Control y Poda de Resultados de Herramientas (Tool Results)
   // ==========================================================================
 
-  const DEFAULT_MAX_ACTIVE_TOOL_CHARS = 30000;      // ~7.500 tokens para la herramienta del turno actual
-  const DEFAULT_MAX_HISTORICAL_TOOL_CHARS = 1200;   // ~300 tokens para herramientas de turnos pasados
+  const DEFAULT_MAX_ACTIVE_TOOL_CHARS = 64000;      // Red de seguridad del turno en curso (por encima de los 60.000 de web, MCP y read_file)
+  const DEFAULT_MAX_HISTORICAL_TOOL_CHARS = 4000;   // Poda para herramientas de turnos pasados ya cerrados
 
   const { serializeContent } = Utils;
 
@@ -369,38 +369,44 @@
     const atomicBlocks = groupIntoAtomicBlocks(conversationMessages);
     const lastBlock = atomicBlocks.pop(); // Último bloque indispensable
 
-    // Aplicar límite al bloque activo si contiene herramientas
+    // Aplicar techo de seguridad a herramientas del turno en curso (acotado al presupuesto del modelo)
     const isExplicitActiveToolChars = typeof options.maxActiveToolChars === 'number';
-    const processedLastBlock = lastBlock.map(m => {
-      if (m.role === 'tool') {
-        const isReadKnowledge = !isExplicitActiveToolChars && (m.name === 'read_knowledge_chunk' || m.name === 'readknowledgechunk');
-        const effectiveMaxActiveChars = isReadKnowledge
-          ? Math.max(maxActiveToolChars, Math.min(45000, Math.floor(inputBudget * 1.5)))
-          : maxActiveToolChars;
-        return {
-          ...m,
-          content: truncateToolContent(m.content, effectiveMaxActiveChars, m.name)
-        };
-      }
-      return m;
-    });
+    const effectiveMaxActiveChars = isExplicitActiveToolChars
+      ? maxActiveToolChars
+      : Math.min(maxActiveToolChars, Math.max(maxHistoricalToolChars, Math.floor(inputBudget * 1.5)));
+    const capActiveTool = m => (m.role === 'tool'
+      ? { ...m, content: truncateToolContent(m.content, effectiveMaxActiveChars, m.name) }
+      : m);
+
+    const processedLastBlock = lastBlock.map(capActiveTool);
 
     const systemTokens = estimateHistoryTokens(systemMessages, model);
     const lastBlockTokens = estimateHistoryTokens(processedLastBlock, model);
 
     let currentTokens = systemTokens + lastBlockTokens;
-    const remainingBudget = Math.max(0, inputBudget - currentTokens);
 
-    // 4. Poda de herramientas pasadas en los bloques históricos
-    let prunedToolsCount = 0;
-    const processedHistoricalBlocks = atomicBlocks.map(block => {
-      return block.map(m => {
-        if (m.role === 'tool') {
-          const pruned = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
-          if (pruned._prunedByContextManager) prunedToolsCount++;
-          return pruned;
+    // 4. Poda solo para turnos pasados cerrados (anteriores al último mensaje user); los pasos previos del turno en
+    // curso conservan sus resultados hasta el techo activo para no perder datos ni invalidar la caché de prefijo.
+    const lastTurnStartsAtLastBlock = lastBlock[0]?.role === 'user';
+    let lastUserBlockIdx = -1;
+    if (!lastTurnStartsAtLastBlock) {
+      for (let i = atomicBlocks.length - 1; i >= 0; i--) {
+        if (atomicBlocks[i][0]?.role === 'user') {
+          lastUserBlockIdx = i;
+          break;
         }
-        return m;
+      }
+    }
+
+    let prunedToolsCount = 0;
+    const processedHistoricalBlocks = atomicBlocks.map((block, bIdx) => {
+      const isClosedTurn = lastTurnStartsAtLastBlock || bIdx < lastUserBlockIdx;
+      return block.map(m => {
+        if (m.role !== 'tool') return m;
+        if (!isClosedTurn) return capActiveTool(m);
+        const pruned = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
+        if (pruned._prunedByContextManager) prunedToolsCount++;
+        return pruned;
       });
     });
 

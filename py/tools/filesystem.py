@@ -182,7 +182,11 @@ def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tu
     return selected, total_lines, False
 
 
-def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = 100000,
+# Tope por defecto de read_file: alineado con los 60.000 chars de web/MCP, por debajo de los 64.000 de ChatContextManager.
+READ_FILE_DEFAULT_MAX_BYTES = 60000
+
+
+def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = READ_FILE_DEFAULT_MAX_BYTES,
               tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
     """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
     try:
