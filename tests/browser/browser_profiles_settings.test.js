@@ -407,11 +407,13 @@ test('Browser UI - abrir una conversación guardada con otro perfil no cambia el
     const page = await browser.newPage();
     page.setDefaultTimeout(5000);
     await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({ activeProfile: { id: 'profile:local' } })));
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
 
-    await page.click('#active-profile-trigger');
-    await page.click('[data-profile-id="profile:local"]');
+    // El perfil de la pestaña se fija antes de cargar, como los perfiles: Chromium guarda localStorage con retraso y una
+    // recarga justo después de activarlo desde el menú podía leer la configuración anterior (Mirror) con la suite cargada.
+    // Lo que se prueba es que abrir la conversación no lo cambie.
     await page.evaluate(() => window.ChatStorage.saveConversation(
       { id: 'chat-remote-profile', title: 'Con perfil remoto', profileId: 'Remoto chat', createdAt: Date.now(), updatedAt: Date.now() },
       [{ id: 'chat-remote-profile_m', role: 'user', content: 'hola' }]

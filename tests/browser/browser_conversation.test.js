@@ -638,10 +638,12 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
     const page = await browser.newPage();
     page.setDefaultTimeout(5000);
     await seedConnectionProfiles(page);
+    await page.addInitScript(() => localStorage.setItem('zerochat_runtime_config_v2', JSON.stringify({ activeProfile: { id: 'profile:local' } })));
     await page.goto(getIndexUrl(), { waitUntil: 'load' });
     await waitForAppReady(page);
-    await page.click('#active-profile-trigger');
-    await page.click('[data-profile-id="profile:local"]');
+    // El perfil de la pestaña se fija antes de cargar, como los perfiles: Chromium guarda localStorage con retraso y una
+    // recarga justo después de activarlo desde el menú podía leer la configuración anterior (Mirror) con la suite cargada.
+    // Lo que se prueba es que abrir la conversación no lo cambie.
     await page.evaluate(async () => {
       const now = Date.now();
       await window.ChatStorage.saveConversation({ id: 'ag1', title: 'Informe', agent: 'informes.diario', profileId: 'Remoto chat', serverRun: true, createdAt: now, updatedAt: now }, [
@@ -675,6 +677,7 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
     // Como el usuario: en la barra, la conversación está en el historial de agentes.
     await page.reload({ waitUntil: 'load' });
     await waitForAppReady(page);
+    assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile?.id), 'profile:local', 'Tras recargar, antes de abrir el agente');
     await page.click('#sidebar-history-switch [data-history="agents"]');
     await page.locator('.sidebar-chat-item[data-session-id="ag1"]').evaluate(item => item.click());
     await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'ag1');
