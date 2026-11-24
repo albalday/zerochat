@@ -118,6 +118,8 @@
     btnStopStream: 'btn-stop-stream',
     generationStatus: 'generation-status',
     btnAttachFile: 'btn-attach-file',
+    agentSupervisionNotice: 'agent-supervision-notice',
+    agentSupervisionText: 'agent-supervision-text',
     fileInput: 'file-input',
     attachmentsContainer: 'attachments-container',
     // Razonamiento y modo proyecto
@@ -348,8 +350,10 @@
     const agent = activeAgentSession();
     const locked = isAgentComposerLocked();
     elements.chatContainer.classList.toggle('agent-supervision', Boolean(agent));
+    elements.agentSupervisionNotice.hidden = !agent;
+    elements.agentSupervisionText.textContent = agent ? t('agent_supervision_notice', { agent: agent.agent }) : '';
     elements.userInput.readOnly = locked;
-    elements.userInput.placeholder = locked ? t('agent_supervision_placeholder', { agent: agent.agent }) : t('input_placeholder');
+    elements.userInput.placeholder = locked ? t('agent_supervision_placeholder') : t('input_placeholder');
     elements.btnAttachFile.disabled = locked;
     UIComposer.syncGenerationControls(elements, ServerRun.isComposerBusy());
     if (locked) elements.btnSend.disabled = true;

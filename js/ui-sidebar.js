@@ -30,7 +30,7 @@
   let expandedGroups = new Set();
   // Historial a la vista, de chats ('user') o de agentes ('agents'), y la conversación activa a la que siguió por última vez.
   let historyView = 'user';
-  let followedSession = { id: null, found: false };
+  let followedSessionId = null;
   const SEARCH_DEBOUNCE_MS = 180;
   let searchState = { seq: 0, query: '', ids: null, timer: null };
 
@@ -162,14 +162,15 @@
   /**
    * Conmutador entre el historial de chats y el de agentes (session.agent), que no se mezclan. Solo se ve si hay
    * conversaciones de agentes. Al cambiar la conversación activa, el historial pasa al suyo para que se vea en la
-   * lista; una nueva aún sin guardar es un chat. El botón de agentes lleva una marca si alguno espera respuesta
+   * lista; una nueva aún sin guardar (también la que sustituye a la activa borrada) no lo cambia hasta que aparece
+   * en la lista. El botón de agentes lleva una marca si alguno espera respuesta
    * del usuario y no se están viendo. Devuelve si la vista es la de agentes.
    */
   function renderHistorySwitch(container, sessions, currentSessionId, runStatusMap) {
     const current = sessions.find(session => session.id === currentSessionId);
-    if (currentSessionId !== followedSession.id || (current && !followedSession.found)) {
-      followedSession = { id: currentSessionId, found: Boolean(current) };
-      historyView = current?.agent ? 'agents' : 'user';
+    if (current && current.id !== followedSessionId) {
+      followedSessionId = current.id;
+      historyView = current.agent ? 'agents' : 'user';
     }
     const agentSessions = sessions.filter(session => session.agent);
     if (agentSessions.length === 0) historyView = 'user';

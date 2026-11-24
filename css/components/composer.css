@@ -67,6 +67,26 @@
   margin-right: auto;
 }
 
+/* Aviso de conversación de agente en solo lectura, sobre el compositor */
+.agent-supervision-notice {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: var(--max-content-width);
+  margin: 0 auto 0.5rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background-color: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.agent-supervision-notice .ui-icon {
+  color: var(--primary);
+}
+
 .file-chip {
   display: inline-flex;
   align-items: center;

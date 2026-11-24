@@ -286,10 +286,17 @@ test('Browser UI - el historial de agentes va aparte de los chats, cada conversa
     assert.equal(await page.$eval('#sidebar-project-filter', select => select.value), 'current');
     assert.deepEqual(await shownIds(), ['h1', 'h2']);
 
-    // Abrir una conversación de agente pasa a su historial, y una nueva aún sin guardar vuelve a los chats.
+    // Abrir una conversación de agente pasa a su historial. Una nueva aún sin guardar, como la que sustituye a la
+    // activa al borrarla, no lo cambia; al guardarse como chat, el historial pasa a los chats.
     await setActive('ag3');
     assert.equal((await historySwitch()).pressed, 'agents');
     await setActive('session_nueva');
+    assert.equal((await historySwitch()).pressed, 'agents');
+    await page.evaluate(() => {
+      const sessions = window.ChatState.get('sessions');
+      window.ChatState.set('sessions', { ...sessions, list: [{ id: 'session_nueva', title: 'Nueva', project: '/repo/app', updatedAt: Date.now() }, ...sessions.list] });
+      document.getElementById('sidebar-search-input').dispatchEvent(new Event('input'));
+    });
     assert.equal((await historySwitch()).pressed, 'user');
 
     // Sin conversaciones de agentes no hay conmutador.

@@ -662,6 +662,7 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
       const shown = selector => [...document.querySelectorAll(`#messages-list ${selector}`)].some(el => getComputedStyle(el).display !== 'none');
       return {
         supervision: document.getElementById('chat-container').classList.contains('agent-supervision'),
+        notice: document.getElementById('agent-supervision-notice').hidden ? '' : document.getElementById('agent-supervision-text').textContent,
         readOnly: input.readOnly,
         placeholder: input.placeholder,
         send: document.getElementById('btn-send').disabled,
@@ -678,7 +679,7 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
     await page.locator('.sidebar-chat-item[data-session-id="ag1"]').evaluate(item => item.click());
     await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'ag1');
     assert.deepEqual(await composer(), {
-      supervision: true, readOnly: true, placeholder: 'Conversación del agente informes.diario: solo lectura',
+      supervision: true, notice: await page.evaluate(() => window.ChatI18n.t('agent_supervision_notice', { agent: 'informes.diario' })), readOnly: true, placeholder: 'Solo lectura',
       send: true, attach: true, reuse: false, branch: true
     });
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().activeProfile?.id), 'profile:local');
@@ -711,7 +712,7 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
     await page.locator('.sidebar-chat-item[data-session-id="h1"]').evaluate(item => item.click());
     await page.waitForFunction(() => window.ChatState.get('sessions').activeId === 'h1');
     assert.deepEqual(await composer(), {
-      supervision: false, readOnly: false, placeholder: 'Escribe un mensaje...', send: false, attach: false, reuse: true, branch: false
+      supervision: false, notice: '', readOnly: false, placeholder: 'Escribe un mensaje...', send: false, attach: false, reuse: true, branch: false
     });
   } finally {
     await browser.close();
