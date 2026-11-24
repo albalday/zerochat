@@ -650,17 +650,21 @@ class ApprovedCallOnResumeTest(HandlerTestCase):
         target = str(self.base_dir / "approved.txt")
         other = str(self.base_dir / "other.txt")
         self.run_session("allow_once", target)
-        denied_other = self.call_local("write_file", {"path": other, "content": "adios"})
-        self.assertEqual((denied_other.get("isError"), denied_other.get("securityStatus")), (True, "deny"))
+        # Otra llamada sin permiso no se ejecuta: vuelve a pausar la ejecución (needs_input), nunca un reto.
+        paused_other = self.call_local("write_file", {"path": other, "content": "adios"})
+        self.assertEqual((paused_other.get("awaitingApproval"), paused_other.get("arguments")), (True, {"path": other, "content": "adios"}))
+        self.assertFalse((self.base_dir / "other.txt").exists())
         ran = self.call_local("write_file", {"content": "hola", "path": target})
         self.assertNotIn("requiresAuthorization", ran)
+        self.assertNotIn("awaitingApproval", ran)
         self.assertEqual((self.base_dir / "approved.txt").read_text(encoding="utf-8"), "hola")
-        denied_repeat = self.call_local("write_file", {"path": target, "content": "hola"})
-        self.assertEqual((denied_repeat.get("isError"), denied_repeat.get("securityStatus")), (True, "deny"))
+        self.assertTrue(self.call_local("write_file", {"path": target, "content": "hola"}).get("awaitingApproval"), "Solo una vez")
 
         self.run_session("deny", target)
-        denied = self.call_local("write_file", {"path": target, "content": "hola"})
-        self.assertEqual((denied.get("isError"), denied.get("securityStatus")), (True, "deny"))
+        (self.base_dir / "approved.txt").unlink()
+        self.assertTrue(self.call_local("write_file", {"path": target, "content": "hola"}).get("awaitingApproval"))
+        self.assertFalse((self.base_dir / "approved.txt").exists())
+        self.assertEqual(challenges(self.controller), {})
 
 
 class CommandPatternTest(HandlerTestCase):
@@ -892,18 +896,23 @@ class SessionLifecycleTest(HandlerTestCase):
         self.assertTrue(self.evaluate("write_file", {"path": "/test/ok.txt"}).allowed)
         self.assertTrue(self.evaluate("run_command", {"command": "echo ok"}).allowed)
 
-        # Fuera de las reglas del proyecto, en ejecución desatendida se deniega sin crear reto ni ejecutar
+        # Fuera de las reglas del proyecto, en ejecución desatendida se pausa (needs_input) sin crear reto ni ejecutar
         outside_write = self.call_local("write_file", {"path": "/etc/passwd", "content": "x"})
         outside_cmd = self.call_local("run_command", {"command": "rm -rf /tmp/x"})
-        self.assertEqual((outside_write.get("isError"), outside_write.get("securityStatus")), (True, "deny"))
-        self.assertEqual((outside_cmd.get("isError"), outside_cmd.get("securityStatus")), (True, "deny"))
+        self.assertEqual((outside_write.get("awaitingApproval"), outside_write.get("toolName"), outside_write.get("isError")), (True, "write_file", False))
+        self.assertEqual((outside_cmd.get("awaitingApproval"), outside_cmd.get("toolName")), (True, "run_command"))
+        self.assertNotIn("requiresAuthorization", outside_cmd)
         self.assertEqual(challenges(self.controller), {})
 
-        # Un servicio MCP externo sigue permitido salvo denegación explícita
+        # Un servicio MCP externo sin permiso tampoco se ejecuta sin preguntar: pausa igual; con su servidor permitido, se ejecuta.
         with unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "server_of", return_value="ext_srv"), \
              unittest.mock.patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", return_value={"content": [{"type": "text", "text": "ok"}]}) as mock_ext:
             res, err, _ = zerochat.call_tool({"name": "ext_srv__ping", "arguments": {}}, self.ctx)
             self.assertIsNone(err)
+            self.assertEqual((res.get("awaitingApproval"), res.get("serverId")), (True, "ext_srv"))
+            mock_ext.assert_not_called()
+            self.controller.apply_session_overlay({"servers": {"ext_srv": {"policy": zerochat.POLICY_ALLOW}}}, self.ctx)
+            res, err, _ = zerochat.call_tool({"name": "ext_srv__ping", "arguments": {}}, self.ctx)
             self.assertEqual(res["content"][0]["text"], "ok")
             mock_ext.assert_called_once()
 
@@ -932,8 +941,8 @@ class SessionLifecycleTest(HandlerTestCase):
         self.assertTrue(self.evaluate("write_file", {"path": "/etc/passwd"}, ctx_maint).allowed)
         self.assertTrue(self.evaluate("run_command", {"command": "cat /etc/passwd > /tmp/out"}, ctx_maint).allowed)
         # El proyecto sin RW:/** sigue contenido en la misma ejecución
-        denied = zerochat.call_tool({"name": "read_file", "arguments": {"path": "/etc/passwd"}}, ctx_restricted)[0]
-        self.assertEqual((denied.get("isError"), denied.get("securityStatus")), (True, "deny"))
+        paused = zerochat.call_tool({"name": "read_file", "arguments": {"path": "/etc/passwd"}}, ctx_restricted)[0]
+        self.assertTrue(paused.get("awaitingApproval"))
 
     def test_rotating_the_daily_token_forgets_session_authorizations_and_challenges(self):
         set_tool(self.controller, "tool_x", zerochat.POLICY_ALLOW, scope=zerochat.SCOPE_SESSION)

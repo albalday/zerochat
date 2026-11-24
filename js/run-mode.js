@@ -1,7 +1,7 @@
 /**
  * Modo ejecución desatendida (zerochat.py --prompt, --conversation y --run-file) en el runner de
- * Node.js: pide el prompt o carga la conversación existente, informa del paso en curso, gestiona
- * las autorizaciones de herramientas (permitiendo, denegando o pausando), exporta si se pidió
+ * Node.js: pide el prompt o carga la conversación existente, informa del paso en curso, termina en
+ * needs_input si el servidor pausa una herramienta sin permiso (tool_approval), exporta si se pidió
  * (--export) y devuelve el resultado o el estado de espera al usuario (needs_input).
  * Todo viaja por JSON-RPC zerochat/run/*.
  */
@@ -20,7 +20,6 @@
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getProfileCheck = () => resolveDep('ChatProfileCheck', './profile-check.js');
-  const getToolCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
@@ -83,16 +82,6 @@
     if (!pendingToolApproval(messages)) return messages;
     const lastAssistantIdx = messages.findLastIndex(m => m.role === 'assistant' && Array.isArray(m.tool_calls));
     return lastAssistantIdx !== -1 ? messages.slice(0, lastAssistantIdx) : messages;
-  }
-
-  /**
-   * Contesta cada petición de autorización aprobándola para la sesión.
-   */
-  function answerToolApprovals(report) {
-    getToolCards().setAuthorizationResponder(toolName => {
-      report({ kind: 'approval_allowed', text: toolName });
-      return 'allow_session';
-    });
   }
 
   async function waitForBackend(startupConnection, connectBackend) {
@@ -186,8 +175,6 @@
       const check = getState().get('ui').profileCheck;
       if (check.status === 'error') console.warn(`[RunMode] The model is not ready (${check.reason}): ${check.message}`);
 
-      answerToolApprovals(report);
-
       if (isConversationMode) {
         await switchToSession(conversationId);
       } else if (newConversationId) {
@@ -263,7 +250,6 @@
     pendingAskUserQuestion,
     pendingToolApproval,
     prepareConversationForContinuation,
-    answerToolApprovals,
     start
   };
 }));

@@ -33,37 +33,40 @@ test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanen
   } finally { security.manager.setToolPolicy = previous; }
 });
 
-test('AgentRuntime - pause_for_user detiene el bucle y conserva assistant y tool en el historial', async t => {
+test('AgentRuntime - la pausa del servidor en una ejecución desatendida cierra el turno sin preguntar y deja la llamada pendiente', async t => {
   const registry = new ToolRegistry();
+  let asked = false;
   registry.registerTool(makeTool({
     name: 'mcp_test_pause_action',
     category: 'mcp',
-    // El backend responde con un reto: la herramienta no se ejecuta hasta que el usuario decida
-    execute: async () => ({ requiresAuthorization: true, challengeId: 'ch-p1' })
+    // El servidor de una ejecución desatendida no emite un reto: responde que la llamada espera a la persona.
+    execute: async () => ({ awaitingApproval: true, toolName: 'mcp_test_pause_action', ruleOffer: { rule: 'RW:/x/**' } })
   }));
+  registry.registerTool(makeTool({ name: 'second_tool', execute: async () => assert.fail('El turno termina con la pausa') }));
 
-  // Como la tarjeta de la herramienta en el chat, que pregunta al usuario.
   const executor = new ToolExecutor(registry);
+  let steps = 0;
   const result = await runAgent(t, registry, {
-    dispatchToolCall: (toolCall, context) => executor.executeToolCall(toolCall, { ...context, requestToolAuthorization: async () => 'pause_for_user' }),
+    dispatchToolCall: (toolCall, context) => executor.executeToolCall(toolCall, { ...context, requestToolAuthorization: async () => { asked = true; return 'allow_once'; } }),
     api: {
-      streamChatCompletion: async () => ({
-        accumulatedText: 'Voy a ejecutar la herramienta.',
-        toolCalls: [{ id: 'call_p1', function: { name: 'mcp_test_pause_action', arguments: '{}' } }]
-      })
+      streamChatCompletion: async () => {
+        steps += 1;
+        return {
+          accumulatedText: 'Voy a ejecutar la herramienta.',
+          toolCalls: [{ id: 'call_p1', function: { name: 'mcp_test_pause_action', arguments: '{}' } }]
+        };
+      }
     },
     messages: [{ role: 'user', content: 'Ejecuta.' }]
   });
 
+  assert.equal(asked, false, 'No se responde con la tarjeta: lo decide la persona en la interfaz');
+  assert.equal(steps, 1);
   assert.equal(result.status, 'completed');
-  assert.equal(result.toolCallCount, 1);
   assert.equal(result.history.length, 3); // user, assistant, tool
-  assert.equal(result.history[1].role, 'assistant');
   assert.equal(result.history[1].tool_calls[0].function.name, 'mcp_test_pause_action');
-  assert.equal(result.history[2].role, 'tool');
   const toolPayload = JSON.parse(result.history[2].content);
-  assert.equal(toolPayload.awaitingApproval, true);
-  assert.equal(toolPayload.success, false);
+  assert.deepEqual(toolPayload, { success: false, error: 'Execution paused waiting for user authorization.', awaitingApproval: true, ruleOffer: { rule: 'RW:/x/**' } });
 });
 
 test('AgentRuntime - compacta con el límite de contexto configurado, conserva el checkpoint y no reintenta si falla en el mismo ciclo', async t => {

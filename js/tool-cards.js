@@ -713,8 +713,6 @@
           if (resEl) {
             resEl.innerHTML = `<div class="tool-auth-denied-notice">${escapeHtml(t('tool_auth_denied_msg'))}</div>`;
           }
-        } else if (decisionType === 'pause_for_user') {
-          renderPendingAuthBadge(badge);
         } else {
           // Permitido: restaurar badge a ejecutando
           if (badge) {

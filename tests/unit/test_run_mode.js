@@ -42,17 +42,6 @@ test('RunMode.pendingAskUserQuestion toma la pregunta de ask_user de los mensaje
   for (const [messages, expected] of rows) assert.equal(RunMode.pendingAskUserQuestion(messages), expected, JSON.stringify(messages));
 });
 
-test('RunMode.answerToolApprovals aprueba todas las herramientas en la sesión', t => {
-  const ToolCards = require('../../js/tool-cards.js');
-  let responder = null;
-  t.mock.method(ToolCards, 'setAuthorizationResponder', fn => { responder = fn; });
-  const events = [];
-  RunMode.answerToolApprovals(event => events.push(event));
-  const tools = ['read_file', 'run_command', 'write_file', 'edit_file'];
-  assert.deepEqual(tools.map(name => [name, responder(name)]), tools.map(name => [name, 'allow_session']));
-  assert.deepEqual(events, tools.map(name => ({ kind: 'approval_allowed', text: name })));
-});
-
 test('RunMode - pendingToolApproval y prepareConversationForContinuation detectan y retiran pasos con awaitingApproval', () => {
   const tool = (name, content) => ({ role: 'tool', name, content });
   const user = { role: 'user', content: 'hola' };

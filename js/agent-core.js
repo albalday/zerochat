@@ -318,6 +318,13 @@
           services: createToolServices()
         });
 
+        if (result?.awaitingApproval) {
+          // En una ejecución desatendida el servidor no pregunta: pausa el turno hasta que la persona responda en la interfaz.
+          return failure('Execution paused waiting for user authorization.', {
+            ...base, awaitingApproval: true, ruleOffer: result.ruleOffer, endTurn: true,
+            result: { endTurn: true, awaitingApproval: true }, executionTimeMs: elapsed()
+          });
+        }
         if (result?.requiresAuthorization) {
           const { error, ...authorization } = await this.authorize(result, { tool, args, toolCall, context, elapsed });
           if (error) return failure(error, { ...base, ...authorization });
@@ -351,16 +358,6 @@
       });
       const decisionType = (typeof decision === 'object' && decision !== null) ? decision.decision : decision;
       if (context.signal?.aborted) return { error: 'Tool execution cancelled.' };
-      if (decisionType === 'pause_for_user') {
-        return {
-          error: 'Execution paused waiting for user authorization.',
-          awaitingApproval: true,
-          challengeId,
-          ruleOffer,
-          endTurn: true,
-          result: { endTurn: true, awaitingApproval: true, challengeId }
-        };
-      }
       const security = getToolSecurity().manager;
       if (decisionType === 'deny') {
         if (security.mcpClient) await security.authorizeChallenge(challengeId, 'deny').catch(() => {});

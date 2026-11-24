@@ -10699,6 +10699,26 @@ def _denied(tool_name: str, reason: str, detail: str = "") -> tuple[dict, None, 
     }, None, err_msg
 
 
+def _awaiting_approval(tool_name: str, args: dict, server_name: str, server_id: str, decision) -> tuple[dict, None, str]:
+    """
+    Lo que en la interfaz sería un reto, en una ejecución desatendida (local o de un servicio MCP externo) es una pausa:
+    no se ejecuta, el runner cierra el turno y la ejecución termina en needs_input (tool_approval). La persona la
+    aprueba o deniega en la interfaz y la reanudación ejecuta esa llamada (take_approved_call).
+    """
+    log_event(f"[run] {tool_name}: a la espera de que la persona la apruebe ({decision.details or decision.reason})")
+    return {
+        "awaitingApproval": True,
+        "toolName": tool_name,
+        "serverName": server_name,
+        "serverId": server_id,
+        "arguments": args,
+        "ruleOffer": decision.rule_offer,
+        "details": decision.details,
+        "content": [{"type": "text", "text": "This tool needs the user's approval: the run pauses until they answer."}],
+        "isError": False
+    }, None, ""
+
+
 def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
                            job_key: str | None = None, conversation_id: str = "") -> tuple[dict | None, dict | None, str] | None:
     """Evalúa la política de seguridad y devuelve respuesta de denegación o reto si procede."""
@@ -10719,9 +10739,7 @@ def authorize_or_challenge(origin: str, tool_name: str, args: dict, ctx: Securit
             if session.take_approved_call(tool_name, args):
                 log_event(f"[run] {tool_name}: se ejecuta la llamada que la persona aprobó al reanudar")
                 return None
-            if origin == "external":
-                return None
-            return _denied(tool_name, decision.reason, decision.details)
+            return _awaiting_approval(tool_name, args, server_name, server_id, decision)
         ch =ACCESS_CONTROLLER.create_challenge(
             tool_name, args, decision, server_name=server_name, server_id=server_id, origin=origin,
             context=ctx, job_key=job_key, conversation_id=conversation_id

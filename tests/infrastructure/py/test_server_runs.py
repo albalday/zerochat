@@ -774,9 +774,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                                                    server_name="mcp-proxy", server_id="")
         self.assertEqual(ask.status, zerochat.POLICY_ASK)
         with mock.patch("sys.stderr", io.StringIO()) as stderr:
-            result, _, message = zerochat.authorize_or_challenge("local", "run_command", {"command": "rm -rf /"}, ctx)
+            # Lo que preguntaría pausa la ejecución sin aviso de denegación; lo denegado de forma permanente sí lo deja.
+            paused, _, _ = zerochat.authorize_or_challenge("local", "run_command", {"command": "rm -rf /"}, ctx)
+            self.assertTrue(paused["awaitingApproval"])
+            self.assertEqual(session.warnings, [])
+            zerochat.ACCESS_CONTROLLER.import_state({"tools": {"write_file": {"policy": zerochat.POLICY_DENY}}}, ctx)
+            result, _, message = zerochat.authorize_or_challenge("local", "write_file", {"path": "x", "content": "y"}, ctx)
             self.assertEqual(result["securityStatus"], "deny")
-            self.assertIn("Permiso denegado: run_command", stderr.getvalue())
+            self.assertIn("Permiso denegado: write_file", stderr.getvalue())
             # Tope en el borde exacto: RUN_WARNINGS_MAX avisos se guardan, cada uno recortado en RUN_PROGRESS_TEXT_MAX, y del siguiente solo se cuenta.
             session.add_warning("a" * zerochat.RUN_PROGRESS_TEXT_MAX)
             session.add_warning("b" * (zerochat.RUN_PROGRESS_TEXT_MAX + 1))
@@ -786,7 +791,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             session.add_warning("uno de más")
         warnings = zerochat.get_run_state("session_avisos")["warnings"]
         self.assertEqual(len(warnings), zerochat.RUN_WARNINGS_MAX + 1)
-        self.assertTrue(warnings[0].startswith("run_command: ") and message.endswith(warnings[0].removeprefix("run_command: ")))
+        self.assertTrue(warnings[0].startswith("write_file: ") and message.endswith(warnings[0].removeprefix("write_file: ")))
         self.assertEqual(warnings[1], "a" * zerochat.RUN_PROGRESS_TEXT_MAX)
         self.assertEqual(warnings[2], ("b" * zerochat.RUN_PROGRESS_TEXT_MAX) + "…")
         self.assertEqual(warnings[-1], "… y 1 permiso(s) denegado(s) más")
