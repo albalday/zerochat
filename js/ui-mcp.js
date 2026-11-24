@@ -192,19 +192,32 @@
   }
 
   function renderServerOptions(server, language) {
-    const options = (server.options || []).filter(option => option.type === 'boolean');
+    const options = (server.options || []).filter(option => option.type === 'boolean' || option.type === 'text');
     if (options.length === 0) return '';
     return `<div class="mcp-server-options">${options.map(option => {
       const description = localized(option.description, language);
+      const label = escapeHtml(localized(option.label, language) || option.id);
+      const serverId = escapeHtml(server.id);
+      const optionId = escapeHtml(option.id);
+      if (option.type === 'text') {
+        const value = server.userOptions && option.id in server.userOptions ? server.userOptions[option.id] : (option.default ?? '');
+        const placeholder = escapeHtml(localized(option.placeholder, language) || '');
+        return `
+          <div class="mcp-server-option-text-row">
+            <label class="mcp-server-option-label" for="mcp-opt-${serverId}-${optionId}">${label}</label>
+            <input type="text" id="mcp-opt-${serverId}-${optionId}" class="mcp-server-option-input" data-server-id="${serverId}" data-option-id="${optionId}" value="${escapeHtml(String(value ?? ''))}"${placeholder ? ` placeholder="${placeholder}"` : ''}>
+            ${description ? `<span class="label-hint">${escapeHtml(description)}</span>` : ''}
+          </div>`;
+      }
       const value = server.userOptions && option.id in server.userOptions ? server.userOptions[option.id] : option.default;
       return `
         <div class="mcp-server-option-row">
           <label class="switch switch-sm">
-            <input type="checkbox" class="mcp-server-option-checkbox" data-server-id="${escapeHtml(server.id)}" data-option-id="${escapeHtml(option.id)}" ${value ? 'checked' : ''}>
+            <input type="checkbox" class="mcp-server-option-checkbox" data-server-id="${serverId}" data-option-id="${optionId}" ${value ? 'checked' : ''}>
             <span class="slider round"></span>
           </label>
           <div class="mcp-server-option-meta">
-            <span class="mcp-server-option-label">${escapeHtml(localized(option.label, language) || option.id)}</span>
+            <span class="mcp-server-option-label">${label}</span>
             ${description ? `<span class="label-hint">${escapeHtml(description)}</span>` : ''}
           </div>
         </div>`;
@@ -338,17 +351,35 @@
     }
   }
 
-  /** Cambio de una opción booleana de un servidor: se guarda y la respuesta trae la lista de servidores. */
-  async function handleServerOptionChange(checkbox) {
-    if (!checkbox.matches('.mcp-server-option-checkbox')) return;
-    checkbox.disabled = true;
+  /** Cambio de una opción de un servidor (booleana o de texto): se guarda y la respuesta trae la lista de servidores. */
+  async function handleServerOptionChange(target) {
+    if (target.matches('.mcp-server-option-checkbox')) {
+      target.disabled = true;
+      try {
+        await getMCP().manager.configureExternalServer(target.getAttribute('data-server-id'), { [target.getAttribute('data-option-id')]: target.checked });
+      } catch (error) {
+        console.error('[MCP UI] Error configuring server option:', error);
+        target.checked = !target.checked;
+      } finally {
+        target.disabled = false;
+      }
+      return;
+    }
+    if (!target.matches('.mcp-server-option-input')) return;
+    const serverId = target.getAttribute('data-server-id');
+    const optionId = target.getAttribute('data-option-id');
+    const nextValue = target.value.trim();
+    target.value = nextValue;
+    target.disabled = true;
     try {
-      await getMCP().manager.configureExternalServer(checkbox.getAttribute('data-server-id'), { [checkbox.getAttribute('data-option-id')]: checkbox.checked });
+      await getMCP().manager.configureExternalServer(serverId, { [optionId]: nextValue });
     } catch (error) {
       console.error('[MCP UI] Error configuring server option:', error);
-      checkbox.checked = !checkbox.checked;
+      const server = (getState().get('mcp').externalServers || []).find(item => item.id === serverId);
+      const spec = (server?.options || []).find(opt => opt.id === optionId);
+      target.value = server?.userOptions && optionId in server.userOptions ? String(server.userOptions[optionId] ?? '') : String(spec?.default ?? '');
     } finally {
-      checkbox.disabled = false;
+      target.disabled = false;
     }
   }
 
@@ -556,6 +587,11 @@
     on(elements.toolsContainer, 'change', event => handleToolsChange(event.target));
     on(elements.serversList, 'click', event => handleServersClick(elements.serversList, event.target));
     on(elements.serversList, 'change', event => handleServerOptionChange(event.target));
+    on(elements.serversList, 'keydown', event => {
+      if (event.key !== 'Enter' || !event.target.matches('.mcp-server-option-input')) return;
+      event.preventDefault();
+      event.target.blur();
+    });
     // Revocar re-renderiza los ajustes MCP a través de la suscripción a ChatToolSecurity.
     on(elements.savedAuthsList, 'click', async event => {
       const tool = event.target.closest('.btn-revoke-auth');

@@ -100,3 +100,24 @@ test('ChatUIMcp - concilia servicios del proyecto en silencio, detiene los sobra
   assert.deepEqual(started, []);
   assert.deepEqual(stopped, []);
 });
+
+test('ChatUIMcp - renderExternalServers pinta opciones de texto (y secretos) escapando valores', () => {
+  let html = '';
+  const container = { set innerHTML(v) { html = v; }, get innerHTML() { return html; } };
+  ChatUIMcp.renderExternalServers(container, [{
+    id: 'mail',
+    status: 'stopped',
+    displayName: { es: 'Correo', en: 'Mail' },
+    options: [
+      { id: 'MAIL_IMAP_HOST', type: 'text', label: { es: 'Servidor IMAP', en: 'IMAP server' }, placeholder: { es: 'imap.gmail.com', en: 'imap.gmail.com' } },
+      { id: 'MAIL_USER', type: 'text', label: { es: 'Usuario', en: 'User' } }
+    ],
+    userOptions: { MAIL_IMAP_HOST: 'imap."test".com' },
+    secrets: [{ name: 'MAIL_PASSWORD', label: { es: 'Contraseña', en: 'Password' }, configured: false }]
+  }]);
+  assert.match(html, /class="mcp-server-option-input"/);
+  assert.match(html, /data-option-id="MAIL_IMAP_HOST"/);
+  assert.match(html, /value="imap\.&quot;test&quot;\.com"/);
+  assert.match(html, /placeholder="imap\.gmail\.com"/);
+  assert.match(html, /data-secret-name="MAIL_PASSWORD"/);
+});

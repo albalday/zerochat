@@ -25,11 +25,11 @@
       }
     },
     "mail": {
-      "version": "1.0.2",
+      "version": "1.0.3",
       "files": {
         "mail_mcp_server.py": "100284e5f2407e61d9fa15de4bbbeb762c1efc4fedc464b2a306aac26f60378a",
-        "README.md": "33070af54300cb6f76dff9950cb17cd11a3093f86bc50b1f22646821876de891",
-        "service.json": "bad1e620600f839ce5962b9aebc5329b1d3fe6368f359d30ad2b63d64a089ed8"
+        "README.md": "a9307b1e405b7bc9ff0b9020022f535f90efee6ec3861f7d5157a967ce81ca55",
+        "service.json": "957748275e1fab9f9d20a70c773136f6bb29b3648e326ca26b738161e0999d16"
       }
     },
     "memory": {

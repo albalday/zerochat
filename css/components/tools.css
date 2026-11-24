@@ -1343,6 +1343,23 @@
   color: var(--text-main);
 }
 
+.mcp-server-option-text-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.mcp-server-option-input {
+  width: 100%;
+  max-width: 24rem;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+  color: var(--text-main);
+  font-size: 0.8rem;
+}
+
 .mcp-server-secrets {
   margin-top: 0.5rem;
   display: flex;

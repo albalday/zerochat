@@ -4,13 +4,13 @@ Servicio MCP gestionado incluido en ZeroChat para consultar, buscar y redactar b
 
 ## Configuración en Ajustes › MCP
 
-Guarda los tres secretos del servicio (se almacenan ofuscados en SQLite y se pasan solo por variables de entorno):
+Configura los dos campos de texto del servicio (se guardan en las preferencias del servidor local) y su contraseña secreta (se almacena ofuscada en SQLite y se pasa solo por variable de entorno):
 
 - `MAIL_IMAP_HOST`: servidor IMAP (por ejemplo `imap.gmail.com`).
   - Por defecto deduce el servidor SMTP sustituyendo `imap.` por `smtp.` (puerto `465` SSL), o `smtp.office365.com:587` para Outlook.
   - Si tu servidor SMTP es distinto o usa otro puerto, usa el formato `imap.ejemplo.com:993|smtp.ejemplo.com:587` (`587` usa STARTTLS; cualquier otro puerto usa SSL).
 - `MAIL_USER`: dirección de correo o usuario.
-- `MAIL_PASSWORD`: contraseña de la cuenta o **contraseña de aplicación** de 16 caracteres (obligatoria en Gmail con verificación en dos pasos desde [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
+- `MAIL_PASSWORD` (secreto): contraseña de la cuenta o **contraseña de aplicación** de 16 caracteres (obligatoria en Gmail con verificación en dos pasos desde [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords)).
 
 ## Herramientas
 

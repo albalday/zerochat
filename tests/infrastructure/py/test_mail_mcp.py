@@ -24,9 +24,12 @@ class MailMcpCatalogTest(unittest.TestCase):
     def test_service_json_y_manifest_declaran_secretos_y_send_desactivado(self):
         definition = json.loads((MAIL_DIR / "service.json").read_text(encoding="utf-8"))
         self.assertEqual(definition["id"], "mail")
-        self.assertEqual([s["name"] for s in zerochat.service_secrets(definition)],
-                         ["MAIL_IMAP_HOST", "MAIL_USER", "MAIL_PASSWORD"])
+        self.assertEqual([(o["id"], o["type"], o.get("required")) for o in definition["options"]],
+                         [("MAIL_IMAP_HOST", "text", True), ("MAIL_USER", "text", True)])
+        self.assertEqual([s["name"] for s in zerochat.service_secrets(definition)], ["MAIL_PASSWORD"])
         self.assertNotIn("${secret:", json.dumps(definition["launch"]["args"]))
+        self.assertEqual(definition["launch"]["env"]["MAIL_IMAP_HOST"], "${option:MAIL_IMAP_HOST}")
+        self.assertEqual(definition["launch"]["env"]["MAIL_USER"], "${option:MAIL_USER}")
         self.assertEqual(definition["launch"]["env"]["MAIL_PASSWORD"], "${secret:MAIL_PASSWORD}")
         self.assertFalse(zerochat.service_tool_settings(definition, "send_email")["enabledByDefault"])
         self.assertTrue(zerochat.service_tool_settings(definition, "read_message")["enabledByDefault"])
@@ -182,13 +185,26 @@ class MailMcpStdioIntegrationTest(unittest.TestCase):
 
         manager = zerochat.McpServiceManager(services_root)
         self.addCleanup(manager.close)
-        zerochat.save_secret("mcp:mail:MAIL_IMAP_HOST", "imap.gmail.com")
-        zerochat.save_secret("mcp:mail:MAIL_USER", "bot@gmail.com")
         zerochat.save_secret("mcp:mail:MAIL_PASSWORD", "app-secret")
 
+        # Sin las opciones de texto obligatorias no arranca
+        missing = next(s for s in manager.start("mail") if s["id"] == "mail")
+        self.assertEqual(missing["status"], "error")
+        self.assertIn("MAIL_IMAP_HOST", missing["error"])
+
+        # Validación de opciones desconocidas o tipo incorrecto
+        with self.assertRaises(ValueError):
+            manager.configure("mail", {"UNKNOWN": "x"})
+        with self.assertRaises(ValueError):
+            manager.configure("mail", {"MAIL_IMAP_HOST": True})
+        with self.assertRaises(ValueError):
+            manager.configure("mail", {"MAIL_USER": "x" * (zerochat.MAX_OPTION_TEXT_LENGTH + 1)})
+
+        manager.configure("mail", {"MAIL_IMAP_HOST": " imap.gmail.com ", "MAIL_USER": "bot@gmail.com"})
         servers = manager.start("mail")
         mail_status = next(s for s in servers if s["id"] == "mail")
         self.assertEqual(mail_status["status"], "running", mail_status.get("error"))
+        self.assertEqual(mail_status["userOptions"], {"MAIL_IMAP_HOST": "imap.gmail.com", "MAIL_USER": "bot@gmail.com"})
         tools = {t["name"]: t for t in manager.tools()}
         self.assertIn("mail_search_messages", tools)
         self.assertIn("mail_send_email", tools)
@@ -198,3 +214,6 @@ class MailMcpStdioIntegrationTest(unittest.TestCase):
         err_call = manager.call("mail_read_message", {"uid": "bad"})
         self.assertTrue(err_call["isError"])
         self.assertIn("uid", err_call["content"][0]["text"])
+        # Cambiar una opción de texto en marcha detiene el proceso para que no siga con el valor antiguo
+        stopped = next(s for s in manager.configure("mail", {"MAIL_USER": "other@gmail.com"}) if s["id"] == "mail")
+        self.assertEqual(stopped["status"], "stopped")

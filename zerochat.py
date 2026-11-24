@@ -4591,6 +4591,7 @@ class McpServiceRecord:
 
 # Nombre de la variable de entorno de un secreto que declara un servicio en su service.json ("secrets").
 SERVICE_SECRET_NAME_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
+MAX_OPTION_TEXT_LENGTH = 1024
 
 
 def service_secrets(server: dict) -> list[dict]:
@@ -4933,7 +4934,13 @@ class McpServiceManager:
                 if not opt_id:
                     continue
                 val = user_opts.get(opt_id, opt.get("default"))
-                values[f"option:{opt_id}"] = str(val)
+                if opt.get("type") == "text":
+                    text_val = "" if val is None else str(val).strip()
+                    if opt.get("required") and not text_val:
+                        raise RuntimeError(f"Falta configurar {opt_id} en Ajustes › MCP.")
+                    values[f"option:{opt_id}"] = text_val
+                else:
+                    values[f"option:{opt_id}"] = "" if val is None else str(val)
                 if opt.get("type") == "boolean":
                     option_args.extend(opt.get("argsWhenTrue", []) if val else opt.get("argsWhenFalse", []))
 
@@ -5015,16 +5022,46 @@ class McpServiceManager:
             self._notify_state_changed()
             return self.list_servers()
 
+    @staticmethod
+    def _normalize_option_value(spec: dict, key: str, value):
+        opt_type = spec.get("type")
+        if opt_type == "boolean":
+            if not isinstance(value, bool):
+                raise ValueError(f"La opción {key} debe ser booleana.")
+            return value
+        if opt_type == "text":
+            if not isinstance(value, str):
+                raise ValueError(f"La opción {key} debe ser texto.")
+            normalized = value.strip()
+            if len(normalized) > MAX_OPTION_TEXT_LENGTH:
+                raise ValueError(f"La opción {key} supera {MAX_OPTION_TEXT_LENGTH} caracteres.")
+            return normalized
+        return value
+
     def configure(self, server_id: str, options: dict | None = None) -> list[dict]:
         with self._lock:
             self.services = self._load_services()
-            if server_id not in self.services:
+            server = self.services.get(server_id)
+            if not server:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
             entry = self.preferences.setdefault(server_id, {})
+            changed = False
             if options is not None:
+                declared = {opt["id"]: opt for opt in server.get("options", []) if isinstance(opt, dict) and opt.get("id")}
                 opts = entry.setdefault("options", {})
-                opts.update(options)
+                for key, value in options.items():
+                    spec = declared.get(key)
+                    if not spec:
+                        raise ValueError(f"Opción desconocida para {server_id}: {key}")
+                    normalized = self._normalize_option_value(spec, key, value)
+                    if opts.get(key) != normalized:
+                        opts[key] = normalized
+                        changed = True
             self._save_preferences()
+            if changed:
+                record = self.records.pop(server_id, None)
+                if record and record.client:
+                    record.client.stop()
             self._notify_state_changed()
             return self.list_servers()
 

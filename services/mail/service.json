@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "mail",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "displayName": {
     "es": "Correo (IMAP / SMTP)",
     "en": "Email (IMAP / SMTP)"
@@ -18,21 +18,35 @@
     }
   },
   "transport": "stdio",
-  "secrets": [
+  "options": [
     {
-      "name": "MAIL_IMAP_HOST",
+      "id": "MAIL_IMAP_HOST",
+      "type": "text",
+      "required": true,
       "label": {
-        "es": "Servidor IMAP (p. ej. imap.gmail.com)",
-        "en": "IMAP server (e.g. imap.gmail.com)"
+        "es": "Servidor IMAP",
+        "en": "IMAP server"
+      },
+      "placeholder": {
+        "es": "imap.gmail.com",
+        "en": "imap.gmail.com"
       }
     },
     {
-      "name": "MAIL_USER",
+      "id": "MAIL_USER",
+      "type": "text",
+      "required": true,
       "label": {
         "es": "Correo o usuario",
         "en": "Email address or username"
+      },
+      "placeholder": {
+        "es": "usuario@ejemplo.com",
+        "en": "user@example.com"
       }
-    },
+    }
+  ],
+  "secrets": [
     {
       "name": "MAIL_PASSWORD",
       "label": {
@@ -69,8 +83,8 @@
     ],
     "cwd": "${serviceDir}",
     "env": {
-      "MAIL_IMAP_HOST": "${secret:MAIL_IMAP_HOST}",
-      "MAIL_USER": "${secret:MAIL_USER}",
+      "MAIL_IMAP_HOST": "${option:MAIL_IMAP_HOST}",
+      "MAIL_USER": "${option:MAIL_USER}",
       "MAIL_PASSWORD": "${secret:MAIL_PASSWORD}"
     },
     "handshakeTimeoutSeconds": 15,
