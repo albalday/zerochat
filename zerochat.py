@@ -5704,6 +5704,16 @@ def current_run_session() -> RunSession | None:
     return RUN_SESSION
 
 
+# Lo que una herramienta puede retener su respuesta en modo ejecución: el fetch de Node del runner corta a los 300 s
+# sin recibir cabeceras (headersTimeout de undici, UND_ERR_HEADERS_TIMEOUT), así que las esperas largas se acotan antes.
+RUNNER_TOOL_WAIT_MAX = 240
+
+
+def tool_wait_max(maximum: int) -> int:
+    """Tope de una espera dentro de una herramienta: maximum, o RUNNER_TOOL_WAIT_MAX si es menor en modo ejecución."""
+    return min(maximum, RUNNER_TOOL_WAIT_MAX) if RUN_SESSION is not None else maximum
+
+
 def run_project_environment(env: dict) -> dict:
     """El entorno del proyecto que recibe la interfaz: en una ejecución con systemDataPrompt propio, ese en lugar del
     guardado, sin escribirlo en SQLite."""
@@ -6176,8 +6186,8 @@ AGENTS_TOOL = "check_agents"
 AGENT_RESULT_SUMMARY_CHARS = 500
 # Texto de los mensajes del último turno que devuelve el detalle, entre todos.
 AGENT_TURN_MAX_CHARS = 20000
-# Tope de wait_seconds: por debajo de los 300 s que el fetch de Node espera la respuesta (headersTimeout del runner).
-AGENT_MAX_WAIT = 240
+# Tope de wait_seconds: solo existe en modo ejecución, donde el runner de Node no espera más una respuesta.
+AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
 # Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
 # ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
 AGENT_WAIT_RECHECK_SECONDS = 5.0
@@ -7819,7 +7829,7 @@ class JobManager:
             if same is not None:
                 raise ValueError(
                     f"This command is already running as job_id {same.id} (for {int(same.elapsed())} s). Do not run it again: "
-                    f"follow it with check_command(job_id={same.id}, wait_seconds=600), or stop it first with "
+                    f"follow it with check_command(job_id={same.id}, wait_seconds={tool_wait_max(COMMAND_MAX_WAIT)}), or stop it first with "
                     f"check_command(job_id={same.id}, stop=true) if you really need a new run."
                 )
             if sum(1 for job in self._jobs.values() if job.status == "running") >= MAX_RUNNING_JOBS:
@@ -8047,18 +8057,19 @@ def run_command(command: str, timeout_seconds: int = COMMAND_DEFAULT_TIMEOUT, ba
         return _tool_error(str(exc), os=DETECTED_OS)
     if background:
         if not job.done.wait(BACKGROUND_STARTUP_WAIT):
+            follow = tool_wait_max(COMMAND_MAX_WAIT)
             return _job_result(job, note=(
-                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds=600, pattern='error|Traceback'), "
-                f"which returns when it finishes, prints an error or after 600 s, and stop it with check_command(job_id={job.id}, stop=true)."
+                f"Running in background. Follow it with check_command(job_id={job.id}, wait_seconds={follow}, pattern='error|Traceback'), "
+                f"which returns when it finishes, prints an error or after {follow} s, and stop it with check_command(job_id={job.id}, stop=true)."
             ))
         return _job_result(job)
-    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, COMMAND_MAX_TIMEOUT)
+    timeout = _clamp_seconds(timeout_seconds, COMMAND_DEFAULT_TIMEOUT, 1, tool_wait_max(COMMAND_MAX_TIMEOUT))
     if not job.done.wait(timeout):
         # No se mata: lo hecho no se pierde y relanzarlo no lo duplica.
         job.background = True
         return _job_result(job, note=(
             f"Still running after {timeout} s, so it was moved to the background instead of being killed. "
-            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds=600) "
+            f"Do not run it again. Follow it with check_command(job_id={job.id}, wait_seconds={tool_wait_max(COMMAND_MAX_WAIT)}) "
             f"and stop it with check_command(job_id={job.id}, stop=true)."
         ))
     return _job_result(job)
@@ -8082,7 +8093,7 @@ def check_command(job_id: int | None = None, wait_seconds: int = 0, stop: bool =
     if stop:
         JOBS.stop(job, "model")
         return _job_result(job, output_field="new_output")
-    wait = _clamp_seconds(wait_seconds, 0, 0, COMMAND_MAX_WAIT)
+    wait = _clamp_seconds(wait_seconds, 0, 0, tool_wait_max(COMMAND_MAX_WAIT))
     if not wait and terms is None:
         return _job_result(job, output_field="new_output")
     cancel = WAITS.open(job_key, job)

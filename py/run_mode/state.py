@@ -544,6 +544,16 @@ def current_run_session() -> RunSession | None:
     return RUN_SESSION
 
 
+# Lo que una herramienta puede retener su respuesta en modo ejecución: el fetch de Node del runner corta a los 300 s
+# sin recibir cabeceras (headersTimeout de undici, UND_ERR_HEADERS_TIMEOUT), así que las esperas largas se acotan antes.
+RUNNER_TOOL_WAIT_MAX = 240
+
+
+def tool_wait_max(maximum: int) -> int:
+    """Tope de una espera dentro de una herramienta: maximum, o RUNNER_TOOL_WAIT_MAX si es menor en modo ejecución."""
+    return min(maximum, RUNNER_TOOL_WAIT_MAX) if RUN_SESSION is not None else maximum
+
+
 def run_project_environment(env: dict) -> dict:
     """El entorno del proyecto que recibe la interfaz: en una ejecución con systemDataPrompt propio, ese en lugar del
     guardado, sin escribirlo en SQLite."""

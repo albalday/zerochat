@@ -12,7 +12,7 @@ import time
 
 from core.environment import get_no_project_dir
 from core.live_events import live_change_seq, wait_live_change
-from run_mode.state import current_run_session, run_process_alive, watch_run_exit
+from run_mode.state import RUNNER_TOOL_WAIT_MAX, current_run_session, run_process_alive, watch_run_exit
 from security.context import SecurityContext, normalize_directory_path
 from storage.db import agent_matches, get_conversation, get_run_state, list_conversations
 from tools.common import _tool_error
@@ -22,8 +22,8 @@ AGENTS_TOOL = "check_agents"
 AGENT_RESULT_SUMMARY_CHARS = 500
 # Texto de los mensajes del último turno que devuelve el detalle, entre todos.
 AGENT_TURN_MAX_CHARS = 20000
-# Tope de wait_seconds: por debajo de los 300 s que el fetch de Node espera la respuesta (headersTimeout del runner).
-AGENT_MAX_WAIT = 240
+# Tope de wait_seconds: solo existe en modo ejecución, donde el runner de Node no espera más una respuesta.
+AGENT_MAX_WAIT = RUNNER_TOOL_WAIT_MAX
 # Los agentes corren en otros procesos: su final llega sin sondeo (se espera su PID, watch_run_exit), pero una
 # ejecución nueva (lanzada por cron o por un script) solo se ve en SQLite, así que la espera la relee cada tanto.
 AGENT_WAIT_RECHECK_SECONDS = 5.0

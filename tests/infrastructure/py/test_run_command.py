@@ -195,6 +195,26 @@ class BackgroundCommandTest(unittest.TestCase):
                 invalid = json.loads(zerochat.check_command(**kwargs, ctx=zerochat.project_context()))
                 self.assertIs(invalid["success"], False)
 
+    def test_en_modo_ejecucion_las_esperas_de_comandos_no_pasan_del_tope_del_runner(self):
+        # El fetch de Node del runner corta a los 300 s sin respuesta: en modo ejecución, run_command y check_command
+        # responden antes de RUNNER_TOOL_WAIT_MAX aunque se pidan 600 s; fuera de él el tope sigue siendo 600.
+        self.assertLess(zerochat.RUNNER_TOOL_WAIT_MAX, 300)
+        self.assertEqual(zerochat.tool_wait_max(zerochat.COMMAND_MAX_WAIT), zerochat.COMMAND_MAX_WAIT)
+        gate = self._gate("gate-runner")
+        with patch.object(zerochat, "RUNNER_TOOL_WAIT_MAX", 1), patch.object(zerochat, "RUN_SESSION", zerochat.RunSession("Hola")):
+            started = time.monotonic()
+            moved = run(f"read _ < '{gate}'", timeout_seconds=600)
+            self.assertLess(time.monotonic() - started, 10)
+            self.assertEqual(moved["status"], "running")
+            self.assertIn("Still running after 1 s", moved["note"])
+            self.assertIn("wait_seconds=1)", moved["note"])
+            started = time.monotonic()
+            waited = check(moved["job_id"], wait_seconds=600)
+            self.assertLess(time.monotonic() - started, 10)
+            self.assertEqual((waited["returned_because"], waited["status"]), ("wait_elapsed", "running"))
+        self._open_gate(gate)
+        self.assertEqual(check(moved["job_id"], wait_seconds=10)["returned_because"], "command_finished")
+
     def test_check_command_vuelve_en_cuanto_una_linea_nueva_cumple_el_patron(self):
         # Texto literal con | (no regex: (a+)+$ contra 40 «a» y «!» no bloquea ni casa) y sin distinguir mayúsculas.
         gate = self._gate("gate-pattern")
