@@ -22,10 +22,10 @@
 
 ## M87 Mejoras sistema de agentes
 
-Goal: cerrar los huecos del sistema de agentes detectados al compararlo con otros ejecutores (concurrencia, worktrees, espera del master, avisos y salida para orquestadores).
+Goal: cerrar los huecos del sistema de agentes detectados al compararlo con otros ejecutores (concurrencia, espera del master, avisos y salida para orquestadores).
 Done when: las tareas acordadas de M87 están implementadas con todos los niveles de §4 en verde.
 - [x] M87-T1 Impedir dos ejecuciones simultáneas de la misma conversación también desde la CLI: aplicar _check_no_active_run (py/run_mode/state.py) en run_session_from_args (py/cli/main.py) para --run-file y --conversation (solape de cron con conversation_id fijo), con código de salida acordado y prueba (2026-11-24)
-- [ ] M87-T2 Worktrees y supervisión: que una carpeta git worktree de un proyecto herede su entorno guardado (sin salir con código 3) y que check_agents del master vea a los agentes que trabajan en worktrees del mismo proyecto, en lugar de filtrar solo por project == ctx.workspace_dir; decidir el modelo (proyecto padre vs. carpeta) con el usuario antes de empezar, con pruebas
+- [x] M87-T2 Worktrees y supervisión: que una carpeta git worktree de un proyecto herede su entorno guardado (sin salir con código 3) y que check_agents del master vea a los agentes que trabajan en worktrees del mismo proyecto, en lugar de filtrar solo por project == ctx.workspace_dir; decidir el modelo (proyecto padre vs. carpeta) con el usuario antes de empezar, con pruebas (dropped: agents work in the project folder and its subdirectories (R:/RW: rules, output dirs in .gitignore); no worktree model)
 - [ ] M87-T3 Espera sin sondeo del controlador: añadir a check_agents una espera larga opcional hasta que algún agente vigilado cambie de estado o termine (completed, error, limit, needs_input), apoyándose en watch_run_exit/notify_live_change y un tope de espera, con pruebas
 - [ ] M87-T4 Avisos activos de agentes: punto de aviso explícito en agents/template.sh (comando configurable) para needs_input (5), limit (6) y error, de modo que un agente de cron que se pausa o falla avise sin abrir la interfaz
 - [x] M87-T5 Salida para orquestadores de shell: emitir en stderr (siempre, también con --log off) el conversation_id de la ejecución de --run-file, sobre todo si es nueva, para que el script la siga sin HTTP; documentarlo en py/README.md y las plantillas, con prueba (2026-11-24)
