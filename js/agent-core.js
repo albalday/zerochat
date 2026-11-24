@@ -437,6 +437,27 @@
   const LOOP_REPETITIONS = 5;
   const LOOP_MAX_PERIOD = 2;
   const LOOP_HISTORY_SIZE = LOOP_REPETITIONS * LOOP_MAX_PERIOD;
+  // Esperas del servidor local: repetir la misma llamada mientras lo vigilado avanza no es un bucle.
+  const WAIT_TOOLS = new Set(['check_command', 'check_agents']);
+
+  /**
+   * Lo que una espera vio de lo vigilado, para compararlo con la llamada idéntica anterior: una firma de su estado
+   * (la del comando, o estado, actividad y consumo de cada agente) y `progress` si trajo salida nueva de un comando en
+   * marcha. null si no es una espera o su resultado no se puede leer.
+   */
+  function waitActivity(toolName, resultText) {
+    if (!WAIT_TOOLS.has(toolName) || typeof resultText !== 'string') return null;
+    let parsed;
+    try { parsed = JSON.parse(resultText); } catch (_) { return null; }
+    if (!parsed || typeof parsed !== 'object' || parsed.success === false) return null;
+    if (toolName === 'check_command') {
+      return { progress: parsed.status === 'running' && Boolean(parsed.new_output), signature: `${parsed.status}:${parsed.exit_code ?? ''}` };
+    }
+    const agents = Array.isArray(parsed.agents) ? parsed.agents : [parsed];
+    return {
+      signature: JSON.stringify(agents.map(agent => [agent.conversation_id, agent.status, agent.updated_at, agent.step_text, agent.usage ?? null]))
+    };
+  }
 
   /**
    * Contenido del mensaje `tool` de una ejecución. Las imágenes (de RAG o capturas del servidor
@@ -516,7 +537,10 @@
     createLoopGuard() {
       let history = [];
       let lastResetText = null;
-      return (text, toolCalls) => {
+      // Última actividad que vio cada espera (por la huella de su llamada) y contador de lotes con avance.
+      const lastActivity = new Map();
+      let progressMarks = 0;
+      const track = (text, toolCalls) => {
         const visibleText = (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
         if (visibleText && visibleText !== lastResetText) {
           history = [];
@@ -526,6 +550,26 @@
         if (history.length > LOOP_HISTORY_SIZE) history.shift();
         return this.detectLoop(history);
       };
+      /**
+       * Tras ejecutar el lote: si alguna espera (check_command, check_agents) vio avance respecto a la misma llamada
+       * anterior, el lote deja de contar como repetición. Una espera que ya no ve cambios (terminado, o el plazo
+       * agotado sin novedades) sigue contando, y la quinta igual se detiene.
+       */
+      track.observe = (toolCalls, results) => {
+        let progressed = false;
+        toolCalls.forEach((call, index) => {
+          const result = results[index] || {};
+          // Lo que recibe el modelo: el texto ya preparado o, sin él, el del resultado.
+          const text = result.resultText ?? (result.tool && result.result != null ? result.tool.toModel(result.args, result.result) : null);
+          const activity = waitActivity(call.function?.name, text);
+          if (!activity) return;
+          const key = this.getToolCallFingerprint(call);
+          if (activity.progress || (lastActivity.has(key) && lastActivity.get(key) !== activity.signature)) progressed = true;
+          lastActivity.set(key, activity.signature);
+        });
+        if (progressed && history.length > 0) history[history.length - 1] = `progress:${++progressMarks}`;
+      };
+      return track;
     }
 
     /**
@@ -767,6 +811,7 @@
             stepIndex, toolContext, signal: abortSignal, dispatchToolCall, createMessageId, callbacks
           });
           toolCallCount += batch.results.length;
+          trackToolBatch.observe(toolCalls, batch.results);
 
           // Cada assistant con tool_calls va seguido de los mensajes tool de sus resultados.
           const assistantMsg = {

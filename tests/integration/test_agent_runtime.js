@@ -411,6 +411,45 @@ test('AgentRuntime - detección de bucles: quinto lote idéntico o alternado se 
   }
 });
 
+test('AgentRuntime - repetir check_command o check_agents mientras lo vigilado avanza no es un bucle; sin avance, la quinta se detiene', async t => {
+  /** Registro con la espera `name`, que devuelve en orden los resultados de `results` (el último se repite). */
+  const waitRegistry = (name, results) => {
+    const registry = new ToolRegistry();
+    let calls = 0;
+    registry.registerTool(makeTool({ name, execute: async () => results[Math.min(calls++, results.length - 1)] }));
+    return { registry, count: () => calls };
+  };
+  const repeat = (tool, times) => scriptedApi(Array.from({ length: times }, () => ({ tool, args: { job_id: 4, wait_seconds: 240 } })), 'Hecho.');
+  const run = async (name, results, times) => {
+    const { registry, count } = waitRegistry(name, results);
+    const res = await runAgent(t, registry, { api: repeat(name, times), messages: [{ role: 'user', content: 'Sigue el trabajo.' }] });
+    return { status: res.status, executed: count() };
+  };
+  const command = (status, newOutput = '', exitCode = null) => ({ success: true, status, new_output: newOutput, exit_code: exitCode });
+
+  // check_command: salida nueva en cada espera (o el paso de en marcha a terminado) es avance.
+  assert.deepEqual(await run('check_command', Array.from({ length: 8 }, (_, i) => command('running', `línea ${i}\n`)), 8), { status: 'completed', executed: 8 });
+  // Esperas agotadas sin salida, o un comando que ya terminó: la quinta llamada igual se detiene sin ejecutarse.
+  assert.deepEqual(await run('check_command', [command('running')], 10), { status: 'loop_detected', executed: 4 });
+  assert.deepEqual(await run('check_command', [command('exited', '', 0)], 10), { status: 'loop_detected', executed: 4 });
+  // Tres esperas sin salida y luego termina: el final es avance y hacen falta cinco más iguales para detenerse.
+  const transition = [command('running'), command('running'), command('running'), command('exited', '', 0)];
+  assert.deepEqual(await run('check_command', transition, 8), { status: 'completed', executed: 8 });
+  assert.deepEqual(await run('check_command', transition, 12), { status: 'loop_detected', executed: 8 });
+
+  // check_agents: un agente en marcha cuya actividad avanza (updated_at, paso, consumo) no es un bucle.
+  const agents = (updatedAt, status = 'running', stepText = 'paso') => ({
+    success: true, returned_because: 'wait_elapsed', agents: [{ agent: 'a.b', conversation_id: 'c1', status, updated_at: updatedAt, step_text: stepText, usage: null }]
+  });
+  assert.deepEqual(await run('check_agents', Array.from({ length: 8 }, (_, i) => agents(1000 + i)), 8), { status: 'completed', executed: 8 });
+  assert.deepEqual(await run('check_agents', Array.from({ length: 8 }, (_, i) => agents(1000, 'running', `paso ${i}`)), 8), { status: 'completed', executed: 8 });
+  // Sin ningún avance (en marcha quieto o ya terminado), como cualquier otra llamada repetida.
+  assert.deepEqual(await run('check_agents', [agents(1000)], 10), { status: 'loop_detected', executed: 4 });
+  assert.deepEqual(await run('check_agents', [agents(2000, 'completed')], 10), { status: 'loop_detected', executed: 4 });
+  // Otra herramienta con el mismo resultado cambiante sigue contando como repetición.
+  assert.deepEqual(await run('read_status', Array.from({ length: 8 }, (_, i) => command('running', `línea ${i}\n`)), 8), { status: 'loop_detected', executed: 4 });
+});
+
 test('AgentRuntime - maxSteps detiene el turno en el borde exacto sin cerrarlo, con los resultados del último paso en el historial', async t => {
   const { registry, counts } = countingRegistry(['read_page']);
   const pages = () => scriptedApi(Array.from({ length: 5 }, (_, page) => ({ tool: 'read_page', args: { page } })), 'Leído.');
