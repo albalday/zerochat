@@ -139,7 +139,8 @@
         conversation_id: conversationId,
         new_conversation_id: newConversationId,
         max_steps: maxSteps = null,
-        project_mode: projectMode = null
+        project_mode: projectMode = null,
+        reasoning = null
       } = await send('zerochat/run/prompt');
       // --run-file decide si se inyectan las normas y el estado del proyecto; --prompt y --conversation, no (null).
       if (typeof projectMode === 'boolean') getConfig().updateRuntime({ projectMode });
@@ -168,6 +169,8 @@
         await activateSessionProfile(match.id);
         report({ kind: 'profile', text: match.name });
       }
+      // El razonamiento de --run-file va después del perfil, que trae el suyo; sin él (null) queda el del perfil.
+      if (typeof reasoning === 'string') getConfig().updateRuntime({ reasoningEffort: reasoning });
 
       // La comprobación del perfil, como en la interfaz: da el límite de contexto real y avisa si el modelo no está listo.
       getProfileCheck().start();

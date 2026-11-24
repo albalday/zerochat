@@ -315,7 +315,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         # Tope del fichero en el borde exacto: N bytes se aceptan y N+1 no.
         body = json.dumps({"prompt": "Hola"})
         at_limit = (body + " " * (zerochat.RUN_FILE_MAX_BYTES - len(body))).encode()
-        self.assertEqual(zerochat.parse_run_request(at_limit), {"prompt": "Hola", "projectMode": False})
+        self.assertEqual(zerochat.parse_run_request(at_limit), {"prompt": "Hola", "projectMode": False, "reasoning": "medium"})
         with self.assertRaisesRegex(ValueError, "no puede superar"):
             zerochat.parse_run_request(at_limit + b" ")
 
@@ -325,6 +325,15 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             for invalid in (maximum + 1, 0, True, "5", 2.5):
                 with self.assertRaisesRegex(ValueError, f"{key} debe ser un entero"):
                     zerochat.parse_run_request(json.dumps({"prompt": "Hola", key: invalid}).encode())
+
+        # reasoning: uno de los niveles del selector, medium si el fichero no lo indica.
+        for level in zerochat.RUN_REASONING_LEVELS:
+            self.assertEqual(zerochat.parse_run_request(json.dumps({"prompt": "Hola", "reasoning": level}).encode())["reasoning"], level)
+        self.assertEqual(zerochat.RUN_REASONING_LEVELS, ("none", "low", "medium", "high", "xhigh"))
+        for invalid in ("max", "Medium", "", None, 2, True):
+            with self.assertRaisesRegex(ValueError, "reasoning debe ser"):
+                zerochat.parse_run_request(json.dumps({"prompt": "Hola", "reasoning": invalid}).encode())
+        self.assertIsNone(session_from(["--prompt", "Hola"]).reasoning, "Sin --run-file queda el del perfil")
 
         # projectMode: por defecto no se inyectan las normas del proyecto; solo admite booleanos.
         self.assertTrue(zerochat.parse_run_request(json.dumps({"prompt": "Hola", "projectMode": True}).encode())["projectMode"])
@@ -387,9 +396,10 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_general_profile({"name": "informes", "settings": {}})
         session = session_from(["--run-file", write_request({
             "conversation_id": "session_agente_1", "prompt": "Otra vez", "agent": "informes.diario", "profile": "informes",
-            "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30})])
-        launch = {"profile": "informes", "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30}
+            "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30, "reasoning": "high"})])
+        launch = {"profile": "informes", "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30, "reasoning": "high"}
         self.assertEqual(session.launch, launch)
+        self.assertEqual(session.reasoning, "high")
         zerochat.RUN_SESSION = session
         saved_step, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
             "conversation": {"id": "session_agente_1"},
@@ -412,8 +422,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         # Continuarla sin --run-file (la interfaz con run/start o --conversation) repite su lanzamiento, no el perfil pedido.
         resumed = session_from(["--conversation", "session_agente_1"])
-        self.assertEqual((resumed.profile, resumed.system_data_prompt, resumed.max_steps, resumed.timeout_seconds, resumed.project_mode, resumed.agent),
-                         ("informes", "Manual del agente", 30, None, True, "informes.diario"))
+        self.assertEqual((resumed.profile, resumed.system_data_prompt, resumed.max_steps, resumed.timeout_seconds, resumed.project_mode, resumed.agent,
+                          resumed.reasoning), ("informes", "Manual del agente", 30, None, True, "informes.diario", "high"))
+        # El runner lo recibe con el prompt para aplicarlo tras activar el perfil.
+        zerochat.RUN_SESSION = resumed
+        delivered, err, _ = zerochat.dispatch_run("zerochat/run/prompt", {"run_id": resumed.run_id}, zerochat.project_context())
+        self.assertEqual((err, delivered["reasoning"]), (None, "high"))
+        zerochat.RUN_SESSION = None
         self.assertEqual(session_from(["--conversation", "session_agente_1", "--profile", "informes"]).profile, "informes")
         rejects(["--conversation", "session_agente_1", "--profile", "local"])
         self.assertEqual(zerochat._run_target({"conversation_id": "session_agente_1", "profile": "local"})[2], "informes")
@@ -763,7 +778,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             result = launch(run_file="agents/diario.json", prompt="Informe de marzo")
             self.assertEqual((result["agent"], result["new"], result["run_id"], result["project"]), ("informes.diario", True, "run_1", ctx.key))
             self.assertTrue(result["conversation_id"].startswith("session_"))
-            self.assertEqual(launched[0], ({"agent": "informes.diario", "prompt": "Informe de marzo", "projectMode": False, "conversation_id": result["conversation_id"]},
+            self.assertEqual(launched[0], ({"agent": "informes.diario", "prompt": "Informe de marzo", "projectMode": False, "reasoning": "medium",
+                                            "conversation_id": result["conversation_id"]},
                                            ctx.workspace_dir))
             # Un conversation_id fijo en marcha no se lanza otra vez.
             upsert_run({"run_id": "r_fija", "conversation_id": "fija", "status": "running", "pid": os.getpid(),
@@ -786,8 +802,10 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
         zerochat.save_conversation({"id": "mia", "title": "mia", "updatedAt": 1000, "project": ctx.key, "agent": "informes.diario"},
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
-        self.assertEqual([item["conversation_id"] for item in check(project=str(other))["agents"]], ["suya"])
-        self.assertEqual([item["conversation_id"] for item in check()["agents"]], ["mia"])
+        # El listado de cada proyecto da la más reciente del agente: la que este master acaba de lanzar en él.
+        self.assertEqual([item["conversation_id"] for item in check(project=str(other))["agents"]], [result["conversation_id"]])
+        self.assertEqual((check(project=str(other), conversation_id="suya")["success"], check(conversation_id="suya")["success"]), (True, False))
+        self.assertEqual((check(conversation_id="mia")["success"], check(project=str(other), conversation_id="mia")["success"]), (True, False))
         self.assertIn("do not give RW access", check(project=str(other), prune_keep=0)["error"])
         self.assertIn("does not exist", check(project=str(other / "nada"))["error"])
 

@@ -75,9 +75,12 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
-RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode", "watchAgents") + tuple(RUN_FILE_LIMIT_KEYS))
+RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode", "watchAgents", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS))
 # Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
-RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "watchAgents") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "watchAgents", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
+# Niveles de razonamiento de --run-file (los del selector de la interfaz) y el que usa si no indica ninguno.
+RUN_REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh")
+DEFAULT_RUN_REASONING = "medium"
 # Patrones de watchAgents que admite una ejecución (agentes que vigila con check_agents).
 MAX_WATCH_AGENTS = 32
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
@@ -108,11 +111,16 @@ def _run_request_object(raw: bytes) -> dict:
 
 
 def _agent_options(data: dict) -> dict:
-    """projectMode (sin él, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual) y
-    watchAgents (los agentes del mismo proyecto que la ejecución puede consultar con check_agents)."""
+    """projectMode (sin él, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual),
+    reasoning (el nivel de razonamiento de la ejecución, DEFAULT_RUN_REASONING si no lo indica) y watchAgents (los
+    agentes que la ejecución puede consultar con check_agents)."""
     if "projectMode" in data and not isinstance(data["projectMode"], bool):
         raise ValueError("projectMode debe ser true o false")
     options = {"projectMode": data.get("projectMode", False)}
+    reasoning = data.get("reasoning", DEFAULT_RUN_REASONING)
+    if reasoning not in RUN_REASONING_LEVELS:
+        raise ValueError(f"reasoning debe ser uno de: {', '.join(RUN_REASONING_LEVELS)}")
+    options["reasoning"] = reasoning
     if "watchAgents" in data:
         patterns = data["watchAgents"]
         if not isinstance(patterns, list) or not 1 <= len(patterns) <= MAX_WATCH_AGENTS:
@@ -481,7 +489,7 @@ class RunSession:
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
                  agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = (),
-                 track_run: bool = False):
+                 track_run: bool = False, reasoning: str | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -507,6 +515,9 @@ class RunSession:
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode
+        # reasoning de --run-file (o de su lanzamiento al continuarla): el runner lo aplica tras activar el perfil;
+        # None (--prompt, --conversation de un chat) deja el del perfil.
+        self.reasoning = reasoning
         # Límites de --run-file: el de pasos lo aplica el bucle del runner y el de tiempo, run_supervisor.
         self.max_steps = max_steps
         self.timeout_seconds = timeout_seconds
@@ -686,7 +697,8 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # Para switch_model, que busca por nombre: el runner no puede listar los perfiles con su credencial.
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
-                       "export": export_format, "max_steps": session.max_steps, "project_mode": session.project_mode})
+                       "export": export_format, "max_steps": session.max_steps, "project_mode": session.project_mode,
+                       "reasoning": session.reasoning})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:

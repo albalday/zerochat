@@ -144,6 +144,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
     < ok.calls.findIndex(c => c.method === 'zerochat/run/result'));
 
   // 2. Límite de pasos; projectMode true vuelve a inyectarlas.
+  Config.updateRuntime({ reasoningEffort: 'low' });
   const limit = await runScenario({
     promptPayload: { prompt: 'Lee', new_conversation_id: 'session_lim', max_steps: 2, project_mode: true },
     submitResult: { limit: 'steps' },
@@ -151,6 +152,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   });
   assert.deepEqual(limit.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', limit: 'steps' });
   assert.equal(Config.getActive().projectMode, true);
+  assert.equal(Config.getActive().reasoningEffort, 'low', 'Sin reasoning (--prompt, --conversation de un chat) no se toca el nivel');
 
   // 3. Pausa por ask_user.
   const ask = await runScenario({

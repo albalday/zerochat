@@ -6,6 +6,7 @@ Agent run-file template (agents/template.json — omit conversation_id for a fre
   "profile": "local",
   "systemDataPrompt": "Read agents/<role>.md and follow its instructions strictly.",
   "prompt": "Run the scheduled task.",
+  "reasoning": "medium",
   "maxSteps": 40,
   "timeout": 600
 }
