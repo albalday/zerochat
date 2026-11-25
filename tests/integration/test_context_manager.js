@@ -59,6 +59,31 @@ test('ContextManager - estimación de tokens para texto, código, razonamiento e
   assert.equal(ChatContextManager.shouldCompress(tinyClosedBigActive, { maxInputTokens: 2000, compressionThresholdRatio: 0.7 }), false);
 });
 
+test('ContextManager - shouldCompress mide los turnos cerrados podados como se envían, en el borde exacto del umbral', () => {
+  const history = [];
+  for (let turn = 0; turn < 4; turn++) {
+    history.push(
+      { role: 'user', content: `Pregunta ${turn}` },
+      { role: 'assistant', content: null, tool_calls: [{ id: `r${turn}`, function: { name: 'read_file', arguments: `{"n":${turn}}` } }] },
+      { role: 'tool', tool_call_id: `r${turn}`, name: 'read_file', content: 'X'.repeat(60000), images: [{ dataUrl: 'data:image/png;base64,AA==' }] },
+      { role: 'assistant', content: `Respuesta ${turn}` }
+    );
+  }
+  history.push({ role: 'user', content: 'Pregunta actual' });
+
+  // Lo que se envía: resultados cerrados a DEFAULT_MAX_HISTORICAL_TOOL_CHARS (4000) y sin sus imágenes.
+  const sent = history.map(m => (m.role === 'tool'
+    ? { role: 'tool', tool_call_id: m.tool_call_id, name: m.name, content: ChatContextManager.truncateToolContent(m.content, 4000, m.name) }
+    : m));
+  const sentTokens = ChatContextManager.estimateHistoryTokens(sent);
+  assert.ok(ChatContextManager.estimateHistoryTokens(history) > sentTokens * 5, 'El historial crudo sobrestima mucho lo enviado');
+
+  // Umbral 0.7 * presupuesto: N (justo alcanzado) compacta y N+1 (un token de presupuesto más) no.
+  const atThreshold = Math.floor(sentTokens / 0.7);
+  assert.equal(ChatContextManager.shouldCompress(history, { maxInputTokens: atThreshold }), true);
+  assert.equal(ChatContextManager.shouldCompress(history, { maxInputTokens: atThreshold + 1 }), false);
+});
+
 test('ContextManager - Preservación obligatoria de System Prompt y Último Mensaje con presupuesto pequeño', () => {
   const messages = [
     { role: 'system', content: 'INSTRUCCIÓN CRÍTICA DE SISTEMA' },

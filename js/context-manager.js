@@ -461,6 +461,24 @@
   }
 
   /**
+   * Techo de los resultados de herramientas de un bloque del turno en curso: individual (DEFAULT_MAX_ACTIVE_TOOL_CHARS
+   * o `maxActiveToolChars`) y agregado por lote, ambos acotados al presupuesto de entrada.
+   */
+  function createActiveBlockCap(options, inputBudget) {
+    const maxHistoricalToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
+    const isExplicitActiveToolChars = typeof options.maxActiveToolChars === 'number';
+    const maxBatchCharsFromBudget = Math.max(
+      maxHistoricalToolChars,
+      Math.floor(inputBudget * ACTIVE_BATCH_BUDGET_RATIO * CHARS_PER_TOKEN_ESTIMATE)
+    );
+    const perToolChars = isExplicitActiveToolChars
+      ? options.maxActiveToolChars
+      : Math.min(DEFAULT_MAX_ACTIVE_TOOL_CHARS, maxBatchCharsFromBudget);
+    const batchChars = isExplicitActiveToolChars ? 0 : maxBatchCharsFromBudget;
+    return block => capToolBatchBlock(block, perToolChars, batchChars);
+  }
+
+  /**
    * Construye el contexto optimizado aplicando presupuesto, poda y ventana deslizante.
    * `options.activeTurnCut` (`{ cut: null }`, uno por ejecución del bucle) guarda entre pasos el corte de poda y
    * exclusión del turno en curso para que el prefijo enviado no cambie en cada paso; sin él no hay histéresis.
@@ -470,7 +488,6 @@
     const providerType = options.providerType || 'openai';
     const inputBudget = calculateInputBudget(options);
     const maxHistoricalToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
-    const maxActiveToolChars = options.maxActiveToolChars || DEFAULT_MAX_ACTIVE_TOOL_CHARS;
 
     if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
       return {
@@ -519,16 +536,7 @@
     const lastBlock = atomicBlocks.pop(); // Último bloque indispensable
 
     // Aplicar techo de seguridad individual y agregado por lote a herramientas del turno en curso (acotado al inputBudget)
-    const isExplicitActiveToolChars = typeof options.maxActiveToolChars === 'number';
-    const maxBatchCharsFromBudget = Math.max(
-      maxHistoricalToolChars,
-      Math.floor(inputBudget * ACTIVE_BATCH_BUDGET_RATIO * CHARS_PER_TOKEN_ESTIMATE)
-    );
-    const effectiveMaxActiveChars = isExplicitActiveToolChars
-      ? maxActiveToolChars
-      : Math.min(maxActiveToolChars, maxBatchCharsFromBudget);
-    const effectiveMaxBatchChars = isExplicitActiveToolChars ? 0 : maxBatchCharsFromBudget;
-    const capActiveBlock = block => capToolBatchBlock(block, effectiveMaxActiveChars, effectiveMaxBatchChars);
+    const capActiveBlock = createActiveBlockCap(options, inputBudget);
 
     const processedLastBlock = capActiveBlock(lastBlock);
 
@@ -824,7 +832,19 @@
     const extraInputTokens = Number.isFinite(options.extraInputTokens) && options.extraInputTokens > 0
       ? Math.round(options.extraInputTokens)
       : 0;
-    const totalTokens = estimateHistoryTokens(messages, model)
+    // Se mide lo que buildOptimizedContext enviaría, no el historial crudo: los resultados de turnos cerrados van podados
+    // y sin sus imágenes, y los del turno en curso con su techo individual y por lote.
+    const maxHistoricalToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
+    const asSentClosed = m => {
+      if (!m || m.role !== 'tool') return m;
+      const { images: _images, ...pruned } = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
+      return pruned;
+    };
+    const closedSent = messages.slice(0, compressibleEnd).map(asSentClosed);
+    const capActiveBlock = createActiveBlockCap(options, inputBudget);
+    const activeSent = groupIntoAtomicBlocks(messages.slice(compressibleEnd)).flatMap(capActiveBlock);
+    const totalTokens = estimateHistoryTokens(closedSent, model)
+      + estimateHistoryTokens(activeSent, model)
       + estimateToolDefinitionsTokens(options.toolDefinitions)
       + extraInputTokens;
     const thresholdRatio = options.compressionThresholdRatio || 0.70;
@@ -834,7 +854,7 @@
     }
 
     // Evitar gastar una llamada al resumidor e invalidar la caché cuando los turnos cerrados apenas ocupan contexto.
-    const compressibleTokens = estimateHistoryTokens(messagesSinceCheckpoint, model);
+    const compressibleTokens = estimateHistoryTokens(messagesSinceCheckpoint.map(asSentClosed), model);
     if (compressibleTokens < (inputBudget * MIN_COMPRESSIBLE_BUDGET_RATIO)) {
       return false;
     }
