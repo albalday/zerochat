@@ -652,10 +652,13 @@ test('Browser UI - la conversación de un agente se supervisa en solo lectura si
         { id: 'a2', role: 'assistant', content: null, tool_calls: [{ id: 'call_q', type: 'function', function: { name: 'ask_user', arguments: '{"question":"¿Mes?","options":["Octubre","Noviembre"]}' } }] },
         { id: 't1', role: 'tool', tool_call_id: 'call_q', name: 'ask_user', content: '{"status":"shown_to_user"}' }
       ]);
+      // La llamada pausada repite herramienta con una anterior del mismo turno que sí se ejecutó: su tarjeta es la suya.
       await window.ChatStorage.saveConversation({ id: 'ag_auth', title: 'Permiso', agent: 'informes.diario', profileId: 'Remoto chat', serverRun: true, createdAt: now - 500, updatedAt: now - 500 }, [
         { id: 'u1', role: 'user', content: 'Ejecuta' },
-        { id: 'a1', role: 'assistant', content: null, tool_calls: [{ id: 'call_w', type: 'function', function: { name: 'write_file', arguments: '{"path":"a.txt"}' } }] },
-        { id: 't1', role: 'tool', tool_call_id: 'call_w', name: 'write_file', content: '{"awaitingApproval":true}' }
+        { id: 'a0', role: 'assistant', content: null, tool_calls: [{ id: 'call_ok', type: 'function', function: { name: 'run_command', arguments: '{"command":"date"}' } }] },
+        { id: 't0', role: 'tool', tool_call_id: 'call_ok', name: 'run_command', content: '{"success":true,"status":"exited","exit_code":0,"output":"2026-11-25"}' },
+        { id: 'a1', role: 'assistant', content: null, tool_calls: [{ id: 'call_w', type: 'function', function: { name: 'run_command', arguments: '{"command":"ls ~"}' } }] },
+        { id: 't1', role: 'tool', tool_call_id: 'call_w', name: 'run_command', content: '{"awaitingApproval":true}' }
       ]);
       await window.ChatStorage.saveConversation({ id: 'h1', title: 'Humana', createdAt: now - 1000, updatedAt: now - 1000 }, [{ id: 'hu', role: 'user', content: 'Hola' }]);
     });

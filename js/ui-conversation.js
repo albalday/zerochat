@@ -538,15 +538,21 @@
     const ToolCards = getToolCards();
     const markdownParts = [];
     const lastAssistant = isLastGroup ? group.findLast(message => message.role === 'assistant') : null;
-    for (const item of group) {
+    for (const [index, item] of group.entries()) {
       if (item.role !== 'assistant') continue;
       if (item.content) {
         renderAssistantBlock(createAssistantBlock(content), item.content);
         markdownParts.push(item.content);
       }
       const onAuthorizationDecision = item === lastAssistant ? callbacks.onToolAuthorization : null;
-      for (const toolCall of item.tool_calls || []) {
-        const toolMsg = group.find(message => message.role === 'tool' && (message.tool_call_id === toolCall.id || message.name === toolCall.function?.name));
+      // Los resultados de este paso son los mensajes tool que lo siguen: una llamada solo toma el suyo, por su id o,
+      // si no lo tiene, por su posición en el lote, y nunca el de otra llamada del turno a la misma herramienta.
+      const stepResults = [];
+      for (let next = index + 1; next < group.length && group[next].role === 'tool'; next++) stepResults.push(group[next]);
+      for (const [callIndex, toolCall] of (item.tool_calls || []).entries()) {
+        const toolMsg = toolCall.id
+          ? stepResults.find(message => message.tool_call_id === toolCall.id)
+          : stepResults[callIndex];
         const card = ToolCards.renderHistoricalToolCard(toolCall, toolMsg, { onAuthorizationDecision });
         const success = !toolMsg?.content || !/"success"\s*:\s*false|"error"\s*:/i.test(toolMsg.content);
         ToolCards.appendToolCard(content, card, { completed: true, success });
