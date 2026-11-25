@@ -599,12 +599,17 @@
       hysteresisState = null;
     }
 
-    const pruneBlockTools = block => block.map(m => {
-      if (m.role !== 'tool') return m;
-      const pruned = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
-      if (pruned._prunedByContextManager) prunedToolsCount++;
-      return pruned;
-    });
+    const pruneBlockTools = block => block
+      // Al podar un bloque (turno cerrado o paso antiguo del turno activo), retirar también su mensaje de evidencia
+      // visual (TOOL_EVIDENCE_FLAG): el resultado textual del mensaje `tool` ya describe la imagen/captura y así
+      // las imágenes antiguas dejan de consumir ~1200 tokens cada una.
+      .filter(m => !m?.[TOOL_EVIDENCE_FLAG])
+      .map(m => {
+        if (m.role !== 'tool') return m;
+        const pruned = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
+        if (pruned._prunedByContextManager) prunedToolsCount++;
+        return pruned;
+      });
 
     let prunedToolsCount = 0;
     let processedHistoricalBlocks = atomicBlocks.map((block, bIdx) => {

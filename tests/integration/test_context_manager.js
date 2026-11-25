@@ -296,6 +296,48 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
   assert.match(overN.messages[1].content, /omitted from this summary due to size limit/);
 });
 
+test('ContextManager - recorta evidencia visual (image_url) de turnos cerrados y pasos podados conservando la del turno activo', () => {
+  const ConfigStore = require('../../js/config-store.js');
+  const img = tag => ({ dataUrl: `data:image/png;base64,${tag}`, mimeType: 'image/png', url: `https://example.com/${tag}` });
+  const hasImagePart = message => Array.isArray(message.content) && message.content.some(p => p.type === 'image_url');
+
+  // 1. Turno cerrado con captura + turno activo con captura: solo sobrevive la imagen del turno activo.
+  const twoTurns = [
+    { role: 'user', content: 'Mira la página 1' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 's1', function: { name: 'browser_action', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 's1', name: 'browser_action', content: 'Captura 1', images: [img('OLD')] },
+    { role: 'assistant', content: 'Vista la página 1.' },
+    { role: 'user', content: 'Mira la página 2' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 's2', function: { name: 'browser_action', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 's2', name: 'browser_action', content: 'Captura 2', images: [img('NEW')] }
+  ];
+  const preparedTwo = ChatEngine.buildEffectiveMessages(twoTurns, ConfigStore.normalize({}), { totalContextLimit: 150000 });
+  const imageMessagesTwo = preparedTwo.filter(hasImagePart);
+  assert.equal(imageMessagesTwo.length, 1);
+  assert.ok(imageMessagesTwo[0].content.some(p => p.image_url?.url.includes('NEW')));
+
+  // 2. Dentro de un mismo turno largo que activa poda intra-turno, los pasos podados pierden su bloque de imagen
+  //    y el paso reciente intacto la conserva.
+  const longVisualTurn = [
+    { id: 'u_visual_prune', role: 'user', content: 'Inspecciona tres pantallas.' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'v1', function: { name: 'browser_action', arguments: '{"p":1}' } }] },
+    { role: 'tool', tool_call_id: 'v1', name: 'browser_action', content: 'A'.repeat(12000), images: [img('STEP1')] },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'v2', function: { name: 'browser_action', arguments: '{"p":2}' } }] },
+    { role: 'tool', tool_call_id: 'v2', name: 'browser_action', content: 'B'.repeat(12000), images: [img('STEP2')] },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'v3', function: { name: 'browser_action', arguments: '{"p":3}' } }] },
+    { role: 'tool', tool_call_id: 'v3', name: 'browser_action', content: 'C'.repeat(4000), images: [img('STEP3')] }
+  ];
+  const preparedLong = ChatEngine.buildEffectiveMessages(longVisualTurn, ConfigStore.normalize({}), {
+    maxInputTokens: 6000,
+    maxHistoricalToolChars: 1000,
+    maxActiveToolChars: 20000
+  });
+  const imageUrls = preparedLong.filter(hasImagePart)
+    .flatMap(m => m.content.filter(p => p.type === 'image_url').map(p => p.image_url.url));
+  assert.equal(imageUrls.some(u => u.includes('STEP1')), false, 'La imagen del paso podado debe omitirse');
+  assert.equal(imageUrls.some(u => u.includes('STEP3')), true, 'La imagen del paso reciente intacto debe conservarse');
+});
+
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
   assert.equal(ChatContextManager.calculateInputBudget({ model: 'gpt-4o-mini' }), 128000 - 4096 - 12800);
   const budget = ChatContextManager.calculateInputBudget({ totalContextLimit: 90112 });
