@@ -602,6 +602,10 @@
       }
     }
 
+    // Si la poda de este paso no baja el turno al objetivo de histéresis, el corte de exclusión avanza también ahora:
+    // si no, cada paso nuevo volvería a superar inputBudget y a mover el corte de poda, cambiando el prefijo en cada paso.
+    let exclusionCutDue = false;
+
     // Evaluar si el turno en curso (desde el último user en adelante, respetando currentExcludeEndIdx) cabe en inputBudget.
     if (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1) {
       const firstActiveKept = Math.max(lastUserBlockIdx + 1, currentExcludeEndIdx + 1);
@@ -656,6 +660,7 @@
             if (totalActiveAfterPrune <= targetBudget) break;
           }
         }
+        exclusionCutDue = totalActiveAfterPrune > targetBudget;
       }
     }
 
@@ -683,7 +688,7 @@
       return acc + estimateHistoryTokens(block, model);
     }, currentTokens + reservedUserTokens + noteReserveTokens);
 
-    const needsNewExclusionCut = neededWithPreviousCut > inputBudget;
+    const needsNewExclusionCut = exclusionCutDue || neededWithPreviousCut > inputBudget;
     const willNeedNoteReserve = hasExcludedActiveAlready || (needsNewExclusionCut && !lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1);
     const activeNoteReserve = willNeedNoteReserve ? EXCLUDED_STEPS_NOTE_RESERVE_TOKENS : 0;
     const windowLimit = needsNewExclusionCut

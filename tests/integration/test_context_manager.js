@@ -250,37 +250,42 @@ test('ContextManager - ventana deslizante contigua sin huecos y tope agregado po
 });
 
 test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos recientes y nota sintética en borde exacto N/N+1', () => {
-  // Simulación de un turno largo (1 user + 25 pasos de read_file de 60.000 chars en modelo de 150K):
+  // Simulación de un turno largo (1 user + 60 pasos de read_file de 60.000 chars en modelo de 150K):
   // 1. La reserva de pasos recientes (~45% de inputBudget) deja espacio para decenas de pasos antiguos podados
-  //    (no se excluyen pasos en el paso 11).
-  // 2. La histéresis mantiene estable el prefijo (caché KV) en la mayoría de los pasos tras superar el presupuesto.
+  //    (no se excluyen pasos en el paso 14).
+  // 2. La histéresis mantiene el prefijo enviado (caché KV) durante varios pasos tras cada corte, también cuando los
+  //    pasos podados acumulados superan por sí solos el objetivo de histéresis y el corte de exclusión avanza.
   // 3. Si aun así se excluyen pasos, aparece la nota sintética determinista tras el user con las llamadas omitidas.
   const messages = [
     { role: 'system', content: 'Sistema de agente' },
-    { id: 'u_long_turn', role: 'user', content: 'Revisa los 25 ficheros del proyecto.' }
+    { id: 'u_long_turn', role: 'user', content: 'Revisa los 60 ficheros del proyecto.' }
   ];
-  let prefixChanges = 0;
-  let prevPrefix = null;
+  const changedSteps = [];
+  let prevSent = null;
   let step14Result = null;
+  let lastResult = null;
   const activeTurnCut = { cut: null };
-  for (let step = 0; step < 25; step++) {
+  for (let step = 0; step < 60; step++) {
     messages.push(
       { role: 'assistant', content: null, tool_calls: [{ id: `c_${step}`, function: { name: 'read_file', arguments: JSON.stringify({ path: `src/file_${step}.js` }) } }] },
       { role: 'tool', tool_call_id: `c_${step}`, name: 'read_file', content: `// file ${step}\n` + 'x'.repeat(59980) }
     );
     const out = ChatContextManager.buildOptimizedContext(messages, { totalContextLimit: 150000, activeTurnCut });
-    const currentPrefix = JSON.stringify(out.messages.slice(0, -2));
-    if (prevPrefix !== null && !currentPrefix.startsWith(prevPrefix.slice(0, -1))) {
-      prefixChanges++;
-    }
-    prevPrefix = currentPrefix;
+    // El prefijo se conserva si lo enviado en el paso anterior sigue siendo el principio de lo que se envía ahora.
+    const sent = JSON.stringify(out.messages);
+    if (prevSent !== null && !sent.startsWith(prevSent.slice(0, -1))) changedSteps.push(step);
+    prevSent = sent;
     if (step === 14) step14Result = out;
+    lastResult = out;
   }
   // En el paso 14 (~15 pasos de 60 KB), todos los pasos siguen presentes gracias a la poda (0 excluidos).
   assert.equal(step14Result.diagnostics.excludedCount, 0);
   assert.ok(step14Result.diagnostics.prunedToolsCount >= 10);
-  // Con histéresis, el prefijo cambia en menos de la mitad de los pasos (en lugar de casi todos).
-  assert.ok(prefixChanges <= 10, `Demasiados cambios de prefijo para caché KV: ${prefixChanges}`);
+  // Tras cada corte el prefijo se mantiene al menos un paso: nunca cambia en dos pasos seguidos.
+  const consecutive = changedSteps.filter((step, i) => i > 0 && step === changedSteps[i - 1] + 1);
+  assert.deepEqual(consecutive, [], `Cambios de prefijo en pasos seguidos: ${changedSteps.join(',')}`);
+  assert.ok(lastResult.diagnostics.excludedCount > 0, 'Con 60 pasos el corte de exclusión ha avanzado');
+  assert.ok(lastResult.diagnostics.totalTokens <= lastResult.diagnostics.budget);
   assert.ok(activeTurnCut.cut, 'El corte del turno queda en el estado de la ejecución');
 
   // El corte es de la ejecución que lo guardó: otra con el mismo mensaje y sus primeros pasos no lo hereda.
