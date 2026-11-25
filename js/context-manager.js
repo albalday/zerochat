@@ -104,7 +104,8 @@
   }
 
   /**
-   * Estima los tokens de un único mensaje (incluyendo multimodales, tool_calls y tool results).
+   * Estima los tokens de un único mensaje (incluyendo multimodales, tool_calls, tool results,
+   * imágenes adjuntas antes de convertirse en image_url, commandNotes y reasoningReplay).
    */
   function estimateMessageTokens(message, model = '') {
     if (!message || typeof message !== 'object') return 0;
@@ -126,10 +127,29 @@
       });
     }
 
-    // Razonamiento reenviado dentro del turno en curso (buildEffectiveMessages)
-    ['reasoning_content', 'reasoning'].forEach(field => {
-      if (typeof message[field] === 'string') tokens += estimateTextTokens(message[field]);
+    // Imágenes adjuntas en el historial antes de expandirse a bloques image_url (user y tool)
+    if (Array.isArray(message.images) && message.images.length > 0 && !Array.isArray(message.content)) {
+      message.images.forEach(img => {
+        if (img && img.dataUrl) tokens += 1200;
+      });
+    }
+
+    // Notas internas de comandos en segundo plano terminados
+    if (typeof message.commandNotes === 'string' && message.commandNotes) {
+      tokens += estimateTextTokens(message.commandNotes);
+    }
+
+    // Razonamiento reenviado dentro del turno en curso (buildEffectiveMessages o workingMessages)
+    let hasInlineReasoning = false;
+    ['reasoning_content', 'reasoning', 'thinking'].forEach(field => {
+      if (typeof message[field] === 'string' && message[field]) {
+        tokens += estimateTextTokens(message[field]);
+        hasInlineReasoning = true;
+      }
     });
+    if (!hasInlineReasoning && typeof message.reasoningReplay?.text === 'string' && message.reasoningReplay.text) {
+      tokens += estimateTextTokens(message.reasoningReplay.text);
+    }
 
     // Tool calls emitidas por el asistente
     if (Array.isArray(message.tool_calls)) {
@@ -145,6 +165,22 @@
       });
     }
 
+    return tokens;
+  }
+
+  /**
+   * Estima los tokens totales de las definiciones Function Calling enviadas en `payload.tools`.
+   */
+  function estimateToolDefinitionsTokens(tools = []) {
+    if (!Array.isArray(tools) || tools.length === 0) return 0;
+    let tokens = 0;
+    for (const tool of tools) {
+      if (!tool || typeof tool !== 'object') continue;
+      tokens += 12; // Overhead por definición
+      try {
+        tokens += estimateTextTokens(JSON.stringify(tool));
+      } catch (_) { /* definición no serializable */ }
+    }
     return tokens;
   }
 
@@ -450,9 +486,13 @@
     const processedLastBlock = capActiveBlock(lastBlock);
 
     const systemTokens = estimateHistoryTokens(systemMessages, model);
+    const toolDefsTokens = estimateToolDefinitionsTokens(options.toolDefinitions);
+    const extraInputTokens = Number.isFinite(options.extraInputTokens) && options.extraInputTokens > 0
+      ? Math.round(options.extraInputTokens)
+      : 0;
     const lastBlockTokens = estimateHistoryTokens(processedLastBlock, model);
 
-    let currentTokens = systemTokens + lastBlockTokens;
+    let currentTokens = systemTokens + toolDefsTokens + extraInputTokens + lastBlockTokens;
 
     // 4. Poda para turnos pasados cerrados (anteriores al último mensaje user) y poda progresiva intra-turno si el
     // turno en curso supera el presupuesto por sí solo: mantiene a techo activo solo los pasos más recientes que quepan
@@ -611,7 +651,12 @@
 
     const model = options.model || '';
     const inputBudget = calculateInputBudget(options);
-    const totalTokens = estimateHistoryTokens(messages, model);
+    const extraInputTokens = Number.isFinite(options.extraInputTokens) && options.extraInputTokens > 0
+      ? Math.round(options.extraInputTokens)
+      : 0;
+    const totalTokens = estimateHistoryTokens(messages, model)
+      + estimateToolDefinitionsTokens(options.toolDefinitions)
+      + extraInputTokens;
     const thresholdRatio = options.compressionThresholdRatio || 0.70;
 
     return totalTokens >= (inputBudget * thresholdRatio);
@@ -844,6 +889,8 @@
     calculateInputBudget,
     estimateTextTokens,
     estimateMessageTokens,
+    estimateToolDefinitionsTokens,
+    estimateHistoryTokens,
     truncateToolContent,
     buildOptimizedContext,
     TOOL_EVIDENCE_FLAG,

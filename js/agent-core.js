@@ -684,6 +684,8 @@
       let workingMessages = [...messages];
       let finalText = '';
       let lastStats = null;
+      // Desfase calibrado entre los promptTokens reales del servidor y el estimador local en el paso anterior.
+      let calibratedInputOffset = 0;
       // Consumo acumulado de todas las llamadas al modelo del turno (callbacks.onUsage tras cada una).
       const usage = { modelCalls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, reasoningTokens: 0, estimated: false };
       let toolCallCount = 0;
@@ -709,9 +711,10 @@
         const next = { ...connection, ...(await resolveConnection()) };
         const sameModel = ['apiUrl', 'apiType', 'model'].every(key => next[key] === connection[key]);
         if (!sameModel) {
-          // El razonamiento que se reenvía y un resumen que falló son del modelo anterior.
+          // El razonamiento que se reenvía, un resumen que falló y la calibración son del modelo anterior.
           workingMessages = workingMessages.map(withoutReasoningReplay);
           compressionUnavailable = false;
+          calibratedInputOffset = 0;
           // Para el modelo nuevo, lo anterior es un turno cerrado (como al cambiar en el selector): un
           // proveedor que valida las llamadas del turno en curso (las firmas de Gemini 3) no recibe como
           // suyas las del otro modelo.
@@ -740,32 +743,50 @@
           await refreshConnection();
           callbacks.onStepStart?.(stepIndex);
 
-          // La compactación sustituye de una vez el punto de control anterior y el diálogo posterior.
-          const compactionOptions = { ...connection.contextOptions, model: connection.model, providerType: connection.apiType };
-          if (!compressionUnavailable && connection.summarizeHistory && ContextManager.shouldCompress(workingMessages, compactionOptions)) {
-            callbacks.onCompactionStart?.(stepIndex);
-            const compacted = await ContextManager.compressHistory({
-              messages: workingMessages,
-              summarizeFn: connection.summarizeHistory,
-              options: compactionOptions
-            });
-            if (compacted.compressed) {
-              workingMessages = compacted.messages;
-            } else {
-              // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.
-              compressionUnavailable = true;
+          const stepToolDefinitions = resolveToolDefinitions ? await resolveToolDefinitions() : [];
+          const prepareStepMessages = msgs => (prepareMessages
+            ? prepareMessages(withSwitchBoundaries(msgs), { toolDefinitions: stepToolDefinitions, extraInputTokens: calibratedInputOffset })
+            : withSwitchBoundaries(msgs));
+
+          // La compactación sustituye los turnos cerrados anteriores al turno en curso.
+          const compactionOptions = {
+            ...connection.contextOptions,
+            model: connection.model,
+            providerType: connection.apiType,
+            toolDefinitions: stepToolDefinitions,
+            extraInputTokens: calibratedInputOffset
+          };
+          if (!compressionUnavailable && connection.summarizeHistory) {
+            const candidateMessages = prepareMessages ? await prepareStepMessages(workingMessages) : workingMessages;
+            if (ContextManager.shouldCompress(candidateMessages, compactionOptions)) {
+              callbacks.onCompactionStart?.(stepIndex);
+              const compacted = await ContextManager.compressHistory({
+                messages: workingMessages,
+                summarizeFn: connection.summarizeHistory,
+                options: compactionOptions
+              });
+              if (compacted.compressed) {
+                workingMessages = compacted.messages;
+              } else {
+                // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.
+                compressionUnavailable = true;
+              }
             }
           }
+
+          const preparedMessages = await prepareStepMessages(workingMessages);
+          const estimatedStepInput = ContextManager.estimateHistoryTokens(preparedMessages, connection.model)
+            + ContextManager.estimateToolDefinitionsTokens(stepToolDefinitions);
 
           const step = await this.requestStep({
             apiUrl: connection.apiUrl,
             apiType: connection.apiType,
             apiKey: connection.apiKey,
             model: connection.model,
-            messages: prepareMessages ? await prepareMessages(withSwitchBoundaries(workingMessages)) : withSwitchBoundaries(workingMessages),
+            messages: preparedMessages,
             temperature: connection.temperature,
             reasoningEffort: stepReasoningEffort,
-            tools: resolveToolDefinitions ? await resolveToolDefinitions() : [],
+            tools: stepToolDefinitions,
             signal: abortSignal,
             onBeforeRequest
           }, stepIndex, callbacks);
@@ -782,6 +803,9 @@
             toolCalls = [];
           }
           lastStats = step.stats || lastStats;
+          if (step.stats && Number.isFinite(step.stats.promptTokens) && step.stats.promptTokens > 0) {
+            calibratedInputOffset = Math.max(0, Math.round(step.stats.promptTokens - estimatedStepInput));
+          }
           addStepUsage(usage, step.stats);
           callbacks.onUsage?.({ ...usage });
 

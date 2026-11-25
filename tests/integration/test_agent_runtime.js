@@ -150,6 +150,31 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
   });
   assert.equal(singleTurnRes.status, 'completed');
   assert.equal(singleTurnSummaryCalls, 0);
+
+  // Calibración con promptTokens reales del servidor: aunque el estimador local vea pocos tokens, si el paso 1
+  // informa un promptTokens real muy por encima del umbral, el paso 2 compacta los turnos cerrados.
+  const shortClosedHistory = [
+    { role: 'user', content: 'u1' }, { role: 'assistant', content: 'a1' },
+    { role: 'user', content: 'u2' }, { role: 'assistant', content: 'a2' },
+    { role: 'user', content: 'u3' }, { role: 'assistant', content: 'a3' },
+    { role: 'user', content: 'u4' }, { role: 'assistant', content: 'a4' },
+    { role: 'user', content: 'actual' }
+  ];
+  let calibratedStep = 0;
+  let calibratedSummaries = 0;
+  const calibratedRes = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async () => (++calibratedStep === 1
+        ? { accumulatedText: '', toolCalls: [{ id: 'c_cal', function: { name: 'lookup', arguments: '{}' } }], stats: { promptTokens: 1800, completionTokens: 10, isEstimated: false } }
+        : { accumulatedText: 'Listo.', toolCalls: [], stats: { promptTokens: 500, completionTokens: 10, isEstimated: false } })
+    },
+    messages: shortClosedHistory,
+    contextOptions: { maxInputTokens: 2000, compressionThresholdRatio: 0.7 },
+    summarizeHistory: async () => { calibratedSummaries++; return 'Checkpoint calibrado.'; }
+  });
+  assert.equal(calibratedRes.status, 'completed');
+  assert.equal(calibratedSummaries, 1);
+  assert.equal(calibratedRes.history[0]._isSummaryBlock, true);
 });
 
 test('AgentRuntime - la conexión del agente solo llega a las herramientas de categoría agent', async t => {

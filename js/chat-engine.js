@@ -352,10 +352,11 @@
         if (kind === 'assistant') return `${assistantMsgId}_turn_${info.stepIndex}_assistant`;
         return `${assistantMsgId}_turn_${info.stepIndex}_tool_${info.toolCall?.id || info.toolIndex}_${Date.now()}`;
       },
-      prepareMessages: messages => buildEffectiveMessages(messages, turn.appConfig, {
+      prepareMessages: (messages, extraOptions = {}) => buildEffectiveMessages(messages, turn.appConfig, {
         currentRagSystemContext,
         projectContext,
-        projectDirectory
+        projectDirectory,
+        ...extraOptions
       }),
       resolveToolDefinitions: () => AgentCore.registry.getActiveDefinitions(turn.appConfig),
       dispatchToolCall: async (toolCall, context) => AgentCore.dispatchToolCall(toolCall, {

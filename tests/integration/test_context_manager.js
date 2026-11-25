@@ -21,6 +21,31 @@ test('ContextManager - estimación de tokens para texto, código, razonamiento e
     ]
   };
   assert.ok(ChatContextManager.estimateMessageTokens(multimodalMsg) > 1000, 'Debe incluir la estimación de tokens para la imagen');
+
+  // Campos de workingMessages antes de buildEffectiveMessages: images, commandNotes y reasoningReplay.text
+  const toolWithImage = { role: 'tool', content: 'ok', images: [{ dataUrl: 'data:image/png;base64,AA==' }] };
+  assert.ok(ChatContextManager.estimateMessageTokens(toolWithImage) >= 1200, 'Debe contar imágenes en message.images');
+  const userWithNotes = { role: 'user', content: 'hola', commandNotes: 'Comando terminado '.repeat(30) };
+  assert.ok(ChatContextManager.estimateMessageTokens(userWithNotes) > ChatContextManager.estimateMessageTokens({ role: 'user', content: 'hola' }) + 100);
+  const assistantWithReplay = { role: 'assistant', content: null, reasoningReplay: { field: 'reasoning_content', text: 'pensamiento '.repeat(40) } };
+  assert.ok(ChatContextManager.estimateMessageTokens(assistantWithReplay) > ChatContextManager.estimateMessageTokens(base) + 50);
+
+  // Definiciones de herramientas: cuentan en shouldCompress y en buildOptimizedContext
+  const heavyTools = Array.from({ length: 10 }, (_, i) => ({
+    type: 'function',
+    function: { name: `mcp_tool_${i}`, description: 'desc '.repeat(80), parameters: { type: 'object', properties: { a: { type: 'string' } } } }
+  }));
+  const defsTokens = ChatContextManager.estimateToolDefinitionsTokens(heavyTools);
+  assert.ok(defsTokens > 1000);
+  const smallClosedHistory = [
+    { role: 'user', content: 'u1' }, { role: 'assistant', content: 'a1' },
+    { role: 'user', content: 'u2' }, { role: 'assistant', content: 'a2' },
+    { role: 'user', content: 'u3' }, { role: 'assistant', content: 'a3' },
+    { role: 'user', content: 'u4' }, { role: 'assistant', content: 'a4' },
+    { role: 'user', content: 'actual' }
+  ];
+  assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.7 }), false);
+  assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.7, toolDefinitions: heavyTools }), true);
 });
 
 test('ContextManager - Preservación obligatoria de System Prompt y Último Mensaje con presupuesto pequeño', () => {
