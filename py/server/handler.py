@@ -356,6 +356,11 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if self._send_json_response(200, response_payload) and not quiet:
             self._log_res(200, log_detail, (time.monotonic() - t0) * 1000, error_info=error_info)
 
+    def _capture_browser_user_agent(self, grant):
+        """Solo un navegador autenticado da el User-Agent real: el runner de Node manda el de su fetch ("node")."""
+        if grant.kind != "runner":
+            capture_frontend_user_agent(self.headers.get("User-Agent", ""))
+
     def do_POST(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
@@ -369,7 +374,6 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
             return
 
-        capture_frontend_user_agent(self.headers.get("User-Agent", ""))
         mark_browser_active()
         grant = self._resolve_grant()
         # Una ejecución solo atiende a su runner: ni el token diario ni sesiones remotas, ni zerochat/login.
@@ -387,6 +391,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
                 "error": {"code": -32000, "message": "Unauthorized: invalid or missing session token"}
             }, safe_path, t0, "Token de sesión ausente o inválido")
             return
+        self._capture_browser_user_agent(grant)
 
         req = self._read_rpc_request(safe_path, t0)
         if req is None:

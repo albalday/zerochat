@@ -53,6 +53,20 @@ def start_worker(test) -> subprocess.Popen:
     return worker
 
 
+def post_rpc(method, sent_token, user_agent=None) -> int:
+    """Una petición HTTP entera al manejador, en memoria (sin sockets ni plazos de red); devuelve su estado."""
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {}}).encode()
+    agent = f"User-Agent: {user_agent}\r\n" if user_agent else ""
+    head = (f"POST / HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n{agent}"
+            f"X-ZeroChat-Token: {sent_token}\r\nContent-Length: {len(body)}\r\n\r\n").encode()
+    connection = mock.Mock(sent=bytearray())
+    connection.makefile.side_effect = lambda mode, *args: io.BytesIO(head + body) if "r" in mode else io.BytesIO()
+    connection.sendall.side_effect = connection.sent.extend
+    with mock.patch("sys.stderr", io.StringIO()):
+        zerochat.ZeroChatServerHandler(connection, ("127.0.0.1", 50000), mock.Mock())
+    return int(bytes(connection.sent).split(b" ", 2)[1])
+
+
 def save_conv(*conversation_ids):
     """Conversaciones guardadas para filas de runs: list_server_runs limpia las terminadas sin conversación."""
     for conv_id in conversation_ids:
@@ -1219,22 +1233,10 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         patches.start()
         self.addCleanup(patches.stop)
 
-        def post(method, sent_token):
-            """Una petición HTTP entera al manejador, en memoria: sin sockets ni plazos de red."""
-            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {}}).encode()
-            head = (f"POST / HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n"
-                    f"X-ZeroChat-Token: {sent_token}\r\nContent-Length: {len(body)}\r\n\r\n").encode()
-            connection = mock.Mock(sent=bytearray())
-            connection.makefile.side_effect = lambda mode, *args: io.BytesIO(head + body) if "r" in mode else io.BytesIO()
-            connection.sendall.side_effect = connection.sent.extend
-            with mock.patch("sys.stderr", io.StringIO()):
-                zerochat.ZeroChatServerHandler(connection, ("127.0.0.1", 50000), mock.Mock())
-            return int(bytes(connection.sent).split(b" ", 2)[1])
-
         def renews(method, sent_token, status):
             # Un valor que ninguna lectura de time.monotonic() puede dar: renovar es dejar de tenerlo, sin esperar a que avance el reloj.
             zerochat.HEARTBEAT_LAST_SEEN = float("-inf")
-            self.assertEqual(post(method, sent_token), status)
+            self.assertEqual(post_rpc(method, sent_token), status)
             self.assertNotEqual(zerochat.HEARTBEAT_LAST_SEEN, float("-inf"), (method, sent_token))
 
         renews("zerochat/heartbeat", token, 200)
@@ -1252,6 +1254,29 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             zerochat.heartbeat_watchdog(server)
         stop.assert_called_once_with(server)
         self.assertEqual(waiting.timeouts, [], "Decide sin esperar en la condición")
+
+    def test_el_user_agent_real_solo_lo_fija_un_navegador_autenticado_y_nunca_el_runner(self):
+        token = "ua-test-token"
+        today = zerochat.datetime.date.today().isoformat()
+        default = zerochat.DEFAULT_USER_AGENT
+        patches = mock.patch.multiple(zerochat, SESSION_TOKEN=token, SESSION_TOKEN_DATE=today, ACTIVE_USER_AGENT=default,
+                                      SERVICE_USER_AGENT=default, _FRONTEND_USER_AGENT_CAPTURED=False,
+                                      _STORED_USER_AGENT=None, _STORED_USER_AGENT_LOADED=False)
+        patches.start()
+        self.addCleanup(patches.stop)
+        runner_token = zerochat.issue_runner_token("run-ua", conversation_id="conv-ua")
+        self.addCleanup(zerochat.revoke_token, runner_token)
+
+        # El fetch del runner de Node manda "node" y un token sin validar no es un navegador: ninguno lo fija.
+        self.assertEqual(post_rpc("tools/list", runner_token, user_agent="node"), 200)
+        self.assertEqual(post_rpc("tools/list", "token-erroneo", user_agent="Intruso/1.0"), 401)
+        self.assertIs(zerochat.ACTIVE_USER_AGENT, default)
+        self.assertEqual(zerochat.SERVICE_USER_AGENT, default)
+        self.assertIsNone(zerochat.load_last_frontend_user_agent())
+
+        self.assertEqual(post_rpc("tools/list", token, user_agent="Mozilla/5.0 (X11) Navegador/1.0"), 200)
+        self.assertEqual(zerochat.SERVICE_USER_AGENT, "Mozilla/5.0 (X11) Navegador/1.0")
+        self.assertEqual(zerochat.load_last_frontend_user_agent(), "Mozilla/5.0 (X11) Navegador/1.0")
 
     def test_heartbeat_watchdog_no_apaga_si_hay_run_activo_y_apaga_en_cuanto_termina_su_proceso(self):
         worker = start_worker(self)

@@ -31,3 +31,10 @@
 ## M91 Adjuntos en el MCP de correo: closed 2026-11-25
 
 ## M92 Acciones durante un turno en marcha: closed 2026-11-25
+
+## M93 Correcciones del navegador de agentes
+
+Goal: que las ejecuciones desatendidas no contaminen el User-Agent real guardado del navegador.
+Done when: el runner de Node no fija ni persiste su User-Agent, con todos los niveles de §4 en verde.
+- [x] M93-T1 Capturar el User-Agent del frontend solo tras autenticar y nunca con el token del runner (py/server/handler.py), con prueba (2026-11-25)
+
