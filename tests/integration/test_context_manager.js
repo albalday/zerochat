@@ -38,14 +38,25 @@ test('ContextManager - estimación de tokens para texto, código, razonamiento e
   const defsTokens = ChatContextManager.estimateToolDefinitionsTokens(heavyTools);
   assert.ok(defsTokens > 1000);
   const smallClosedHistory = [
-    { role: 'user', content: 'u1' }, { role: 'assistant', content: 'a1' },
-    { role: 'user', content: 'u2' }, { role: 'assistant', content: 'a2' },
-    { role: 'user', content: 'u3' }, { role: 'assistant', content: 'a3' },
-    { role: 'user', content: 'u4' }, { role: 'assistant', content: 'a4' },
+    { role: 'user', content: 'u1 '.repeat(120) }, { role: 'assistant', content: 'a1 '.repeat(120) },
+    { role: 'user', content: 'u2 '.repeat(120) }, { role: 'assistant', content: 'a2 '.repeat(120) },
+    { role: 'user', content: 'u3 '.repeat(120) }, { role: 'assistant', content: 'a3 '.repeat(120) },
+    { role: 'user', content: 'u4 '.repeat(120) }, { role: 'assistant', content: 'a4 '.repeat(120) },
     { role: 'user', content: 'actual' }
   ];
   assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.7 }), false);
   assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.7, toolDefinitions: heavyTools }), true);
+
+  // Si los turnos cerrados ocupan menos del 20% del presupuesto, no se compacta aunque el turno activo sea grande.
+  const tinyClosedBigActive = [
+    { role: 'user', content: 'hola' }, { role: 'assistant', content: 'ok' },
+    { role: 'user', content: 'analiza' },
+    ...Array.from({ length: 3 }, (_, i) => ([
+      { role: 'assistant', content: null, tool_calls: [{ id: `tb_${i}`, function: { name: 'read_file', arguments: '{}' } }] },
+      { role: 'tool', tool_call_id: `tb_${i}`, name: 'read_file', content: 'X'.repeat(5000) }
+    ])).flat()
+  ];
+  assert.equal(ChatContextManager.shouldCompress(tinyClosedBigActive, { maxInputTokens: 2000, compressionThresholdRatio: 0.7 }), false);
 });
 
 test('ContextManager - Preservación obligatoria de System Prompt y Último Mensaje con presupuesto pequeño', () => {
@@ -498,10 +509,24 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   assert.equal(callWithArgs(100), `Assistant: [Called tools: write_file(${'a'.repeat(100)})]`);
   assert.match(callWithArgs(101), /Truncado por ChatContextManager: 1 caracteres omitidos de la salida de write_file/);
 
-  // La transcripción para el resumidor se acota al presupuesto de entrada del modelo.
+  // La transcripción para el resumidor se acota siempre (incluso con totalContextLimit: null usando el respaldo 128K)
+  // con aviso propio y en borde exacto N / N+1.
   const hugeTranscript = ChatContextManager.formatHistoryTranscript(
     Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `Mensaje ${i}: ${'x'.repeat(500)}` })),
     { maxInputTokens: 1500 }
   );
-  assert.match(hugeTranscript, /Truncado por ChatContextManager.*conversation_history/);
+  assert.match(hugeTranscript, /Transcript truncated: \d+ characters omitted to fit the summarizer budget/);
+
+  const baseForEdge = [{ role: 'user', content: 'A'.repeat(2500) }];
+  const exactEdge = ChatContextManager.formatHistoryTranscript(baseForEdge, { maxTranscriptChars: 2506 });
+  assert.equal(exactEdge, `User: ${'A'.repeat(2500)}`);
+  const overEdge = ChatContextManager.formatHistoryTranscript(baseForEdge, { maxTranscriptChars: 2505 });
+  assert.match(overEdge, /Transcript truncated: 1 characters omitted to fit the summarizer budget/);
+
+  // Con totalContextLimit: null también aplica el respaldo de 128K (calculateInputBudget -> 111104 * 2 = 222208 chars).
+  const fallbackBig = ChatContextManager.formatHistoryTranscript(
+    Array.from({ length: 250 }, (_, i) => ({ role: 'user', content: `M${i}: ${'y'.repeat(1000)}` })),
+    { totalContextLimit: null }
+  );
+  assert.match(fallbackBig, /Transcript truncated:/);
 });

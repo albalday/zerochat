@@ -820,6 +820,8 @@
   // ==========================================================================
 
   const SUMMARIZER_SYSTEM_PROMPT = `You consolidate a conversation checkpoint. Create one concise, cumulative summary of the checkpoint supplied, if any, and every subsequent message supplied. Preserve user goals, decisions, verified facts, tool calls and their results, open questions, and details needed to continue. Do not mention this instruction or omit relevant information merely because of its source.`;
+  // Fracción mínima del presupuesto que deben ocupar los turnos cerrados comprimibles para justificar compactar.
+  const MIN_COMPRESSIBLE_BUDGET_RATIO = 0.20;
 
   /**
    * Índice del mensaje `user` que abre el turno en curso si no es un mensaje de evidencia visual; -1 si no hay ninguno.
@@ -833,7 +835,7 @@
   }
 
   /**
-   * Evalúa si una conversación amerita compresión según presupuesto y volumen de turnos cerrados.
+   * Evalúa si una conversación amerita compresión según presupuesto y volumen real de turnos cerrados.
    */
   function shouldCompress(messages = [], options = {}) {
     if (!Array.isArray(messages) || messages.length < 8) {
@@ -864,7 +866,22 @@
       + extraInputTokens;
     const thresholdRatio = options.compressionThresholdRatio || 0.70;
 
-    return totalTokens >= (inputBudget * thresholdRatio);
+    if (totalTokens < (inputBudget * thresholdRatio)) {
+      return false;
+    }
+
+    // Evitar gastar una llamada al resumidor e invalidar la caché cuando los turnos cerrados apenas ocupan contexto.
+    const minCompressibleRatio = typeof options.minCompressibleBudgetRatio === 'number'
+      ? options.minCompressibleBudgetRatio
+      : MIN_COMPRESSIBLE_BUDGET_RATIO;
+    if (minCompressibleRatio > 0) {
+      const compressibleTokens = estimateHistoryTokens(messagesSinceCheckpoint, model);
+      if (compressibleTokens < (inputBudget * minCompressibleRatio)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -926,15 +943,14 @@
     });
 
     const transcript = lines.join('\n\n');
-    let maxTranscriptChars = typeof options.maxTranscriptChars === 'number' && options.maxTranscriptChars > 0
+    const maxTranscriptChars = typeof options.maxTranscriptChars === 'number' && options.maxTranscriptChars > 0
       ? Math.floor(options.maxTranscriptChars)
-      : 0;
-    if (!maxTranscriptChars && (options.totalContextLimit || options.maxInputTokens)) {
-      // Dejar margen para las instrucciones del resumidor y la salida del checkpoint (~2.5 chars/token del 80% del presupuesto).
-      maxTranscriptChars = Math.max(2000, Math.floor(calculateInputBudget(options) * 0.8 * 2.5));
-    }
-    if (maxTranscriptChars > 0 && transcript.length > maxTranscriptChars) {
-      return truncateToolContent(transcript, maxTranscriptChars, 'conversation_history');
+      : Math.max(2000, Math.floor(calculateInputBudget(options) * 0.8 * 2.5));
+    if (transcript.length > maxTranscriptChars) {
+      const head = transcript.slice(0, Math.floor(maxTranscriptChars * 0.7));
+      const tail = transcript.slice(-Math.floor(maxTranscriptChars * 0.2));
+      const omitted = transcript.length - maxTranscriptChars;
+      return `${head}\n\n[... Transcript truncated: ${omitted} characters omitted to fit the summarizer budget ...]\n\n${tail}`;
     }
     return transcript;
   }

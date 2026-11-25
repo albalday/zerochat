@@ -769,33 +769,42 @@
             ? prepareMessages(withSwitchBoundaries(msgs), { toolDefinitions: stepToolDefinitions, extraInputTokens: calibratedInputOffset })
             : withSwitchBoundaries(msgs));
 
-          // La compactación sustituye los turnos cerrados anteriores al turno en curso.
+          // Evaluar shouldCompress sobre workingMessages (sin evidencia visual desmarcada) sumando el coste real
+          // del prompt de sistema efectivo, las definiciones de herramientas y la calibración con promptTokens.
+          let preparedMessages = await prepareStepMessages(workingMessages);
+          const effectiveSystemTokens = ContextManager.estimateHistoryTokens(
+            preparedMessages.filter(m => m && m.role === 'system' && !m._isSummaryBlock),
+            connection.model
+          );
+          const workingSystemTokens = ContextManager.estimateHistoryTokens(
+            workingMessages.filter(m => m && m.role === 'system' && !m._isSummaryBlock),
+            connection.model
+          );
+          const extraSystemTokens = Math.max(0, effectiveSystemTokens - workingSystemTokens);
+
           const compactionOptions = {
             ...connection.contextOptions,
             model: connection.model,
             providerType: connection.apiType,
             toolDefinitions: stepToolDefinitions,
-            extraInputTokens: calibratedInputOffset
+            extraInputTokens: calibratedInputOffset + extraSystemTokens
           };
-          if (!compressionUnavailable && connection.summarizeHistory) {
-            const candidateMessages = prepareMessages ? await prepareStepMessages(workingMessages) : workingMessages;
-            if (ContextManager.shouldCompress(candidateMessages, compactionOptions)) {
-              callbacks.onCompactionStart?.(stepIndex);
-              const compacted = await ContextManager.compressHistory({
-                messages: workingMessages,
-                summarizeFn: connection.summarizeHistory,
-                options: compactionOptions
-              });
-              if (compacted.compressed) {
-                workingMessages = compacted.messages;
-              } else {
-                // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.
-                compressionUnavailable = true;
-              }
+          if (!compressionUnavailable && connection.summarizeHistory && ContextManager.shouldCompress(workingMessages, compactionOptions)) {
+            callbacks.onCompactionStart?.(stepIndex);
+            const compacted = await ContextManager.compressHistory({
+              messages: workingMessages,
+              summarizeFn: connection.summarizeHistory,
+              options: compactionOptions
+            });
+            if (compacted.compressed) {
+              workingMessages = compacted.messages;
+              preparedMessages = await prepareStepMessages(workingMessages);
+            } else {
+              // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.
+              compressionUnavailable = true;
             }
           }
 
-          const preparedMessages = await prepareStepMessages(workingMessages);
           const estimatedStepInput = ContextManager.estimateHistoryTokens(preparedMessages, connection.model)
             + ContextManager.estimateToolDefinitionsTokens(stepToolDefinitions);
 

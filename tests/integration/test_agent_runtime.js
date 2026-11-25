@@ -154,10 +154,10 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
   // Calibración con promptTokens reales del servidor: aunque el estimador local vea pocos tokens, si el paso 1
   // informa un promptTokens real muy por encima del umbral, el paso 2 compacta los turnos cerrados.
   const shortClosedHistory = [
-    { role: 'user', content: 'u1' }, { role: 'assistant', content: 'a1' },
-    { role: 'user', content: 'u2' }, { role: 'assistant', content: 'a2' },
-    { role: 'user', content: 'u3' }, { role: 'assistant', content: 'a3' },
-    { role: 'user', content: 'u4' }, { role: 'assistant', content: 'a4' },
+    { role: 'user', content: 'u1 '.repeat(120) }, { role: 'assistant', content: 'a1 '.repeat(120) },
+    { role: 'user', content: 'u2 '.repeat(120) }, { role: 'assistant', content: 'a2 '.repeat(120) },
+    { role: 'user', content: 'u3 '.repeat(120) }, { role: 'assistant', content: 'a3 '.repeat(120) },
+    { role: 'user', content: 'u4 '.repeat(120) }, { role: 'assistant', content: 'a4 '.repeat(120) },
     { role: 'user', content: 'actual' }
   ];
   let calibratedStep = 0;
@@ -175,6 +175,35 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
   assert.equal(calibratedRes.status, 'completed');
   assert.equal(calibratedSummaries, 1);
   assert.equal(calibratedRes.history[0]._isSummaryBlock, true);
+
+  // Un turno único con evidencia visual (imagen en tool) no confunde el mensaje de evidencia con inicio de turno
+  // ni dispara onCompactionStart/summarizeHistory cuando no hay turnos cerrados previos.
+  const ChatEngine = require('../../js/chat-engine.js');
+  const ConfigStore = require('../../js/config-store.js');
+  let visualSummaries = 0;
+  const visualCompactions = [];
+  const visualSingleTurn = [
+    { role: 'user', content: 'Captura y analiza.' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'v1', function: { name: 'lookup', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'v1', name: 'lookup', content: 'X'.repeat(3000), images: [{ dataUrl: 'data:image/png;base64,AA==' }] },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'v2', function: { name: 'lookup', arguments: '{"n":2}' } }] },
+    { role: 'tool', tool_call_id: 'v2', name: 'lookup', content: 'Y'.repeat(3000) },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'v3', function: { name: 'lookup', arguments: '{"n":3}' } }] },
+    { role: 'tool', tool_call_id: 'v3', name: 'lookup', content: 'Z'.repeat(3000) },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'v4', function: { name: 'lookup', arguments: '{"n":4}' } }] },
+    { role: 'tool', tool_call_id: 'v4', name: 'lookup', content: 'W'.repeat(3000) }
+  ];
+  const visualRes = await runAgent(t, registry, {
+    api: { streamChatCompletion: async () => ({ accumulatedText: 'Analizado.', toolCalls: [] }) },
+    messages: visualSingleTurn,
+    prepareMessages: (msgs, extra) => ChatEngine.buildEffectiveMessages(msgs, ConfigStore.normalize({}), extra),
+    contextOptions: { maxInputTokens: 2000, compressionThresholdRatio: 0.5 },
+    summarizeHistory: async () => { visualSummaries++; return 'No debe llamarse'; },
+    callbacks: { onCompactionStart: step => visualCompactions.push(step) }
+  });
+  assert.equal(visualRes.status, 'completed');
+  assert.equal(visualSummaries, 0);
+  assert.deepEqual(visualCompactions, []);
 });
 
 test('AgentRuntime - la conexión del agente solo llega a las herramientas de categoría agent', async t => {
