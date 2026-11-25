@@ -41,7 +41,7 @@
   const USER_BROWSERS = Object.freeze(['chrome', 'msedge', 'chromium']);
   /** Canales del sistema que también pueden usarse en modo propio headless de Playwright. */
   const OWN_SYSTEM_ENGINES = Object.freeze(['chrome', 'msedge', 'system-chromium']);
-  /** Modos de User-Agent para Playwright en modo propio. */
+  /** Modos de User-Agent de los motores de Playwright en modo propio (los navegadores instalados envían el suyo). */
   const USER_AGENT_MODES = Object.freeze(['auto', 'rotate', 'custom']);
 
   /** Configuración de ejecución por defecto: estado inicial de ChatState y base de ChatConfig.normalize. */

@@ -4089,6 +4089,12 @@ MODERN_USER_AGENTS = (
 DEFAULT_USER_AGENT = MODERN_USER_AGENTS[0]
 
 
+def sets_user_agent(config: dict) -> bool:
+    """Solo los motores de Playwright llevan el User-Agent de ZeroChat: los navegadores instalados y el
+    del usuario son navegadores reales y actualizados que envían el suyo."""
+    return config["mode"] == "own" and config["engine"] in OWN_BROWSER_ENGINES
+
+
 def own_browser_profile_dir(engine: str) -> Path:
     return get_data_dir() / "playwright" / "profile" / engine
 
@@ -4117,7 +4123,7 @@ def validate_browser_config(raw) -> dict:
     if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
         raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
     config["userAgent"] = _validate_user_agent(config["userAgent"])
-    if config["userAgentMode"] == "custom" and not config["userAgent"]:
+    if sets_user_agent(config) and config["userAgentMode"] == "custom" and not config["userAgent"]:
         raise ValueError("userAgent es obligatorio cuando userAgentMode es custom")
     return config
 
@@ -4182,8 +4188,7 @@ def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[
         args = ["--browser=chrome", "--isolated", f"--executable-path={executable}"]
     else:
         args = [f"--browser={config['engine']}", "--isolated"]
-    # El motor propio usa el User-Agent de ZeroChat; en modo user lo pone el navegador del usuario.
-    if user_agent:
+    if user_agent and sets_user_agent(config):
         args.append(f"--user-agent={user_agent}")
     if config["headless"]:
         args.append("--headless")

@@ -69,7 +69,10 @@
   const shownTool = () => (selectable(section.tool) ? section.tool : 'none');
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
   const tokenValid = config => TOKEN_PATTERN.test(config.extensionToken);
-  const userAgentValid = config => config.userAgentMode !== 'custom'
+  // Solo los motores de Playwright llevan el User-Agent de ZeroChat: los navegadores instalados y el
+  // del usuario son reales y actualizados y envían el suyo (playwright_launch_args en el servidor).
+  const setsUserAgent = config => config.mode === 'own' && !OWN_SYSTEM_ENGINES.includes(config.engine);
+  const userAgentValid = config => !setsUserAgent(config) || config.userAgentMode !== 'custom'
     || (typeof config.userAgent === 'string' && config.userAgent.trim().length > 0 && config.userAgent.length <= USER_AGENT_MAX_LEN && !/[\r\n\0]/.test(config.userAgent));
   const normalizeExtensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
 
@@ -144,7 +147,7 @@
     ).join('');
     const uaError = userAgentValid(section.config) ? ''
       : `<p id="browser-user-agent-error" class="server-query-status status-error" role="alert">${escapeHtml(t('browser_user_agent_invalid'))}</p>`;
-    const customUaField = uaMode === 'custom'
+    const customUaField = uaMode === 'custom' && setsUserAgent(section.config)
       ? `<div class="form-field">
           <label for="browser-user-agent"><strong>${escapeHtml(t('browser_user_agent_custom'))}</strong><span class="label-hint">${escapeHtml(t('browser_user_agent_custom_hint'))}</span></label>
           <input type="text" id="browser-user-agent" name="browser-user-agent" value="${escapeHtml(section.config.userAgent || '')}" spellcheck="false"${userAgentValid(section.config) ? '' : ' aria-invalid="true" aria-describedby="browser-user-agent-error"'}>
@@ -158,10 +161,10 @@
           <span class="browser-row-text"><strong>${escapeHtml(t('browser_data_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_data_hint', { name: engineName }))}</span></span>
           <button type="button" class="btn-secondary" data-browser-action="clear">${escapeHtml(t('browser_data_clear'))}</button>
         </div>
-        <div class="form-field">
+        ${setsUserAgent(section.config) ? `<div class="form-field">
           <label for="browser-user-agent-mode"><strong>${escapeHtml(t('browser_user_agent_mode'))}</strong><span class="label-hint">${escapeHtml(t('browser_user_agent_mode_hint'))}</span></label>
           <select id="browser-user-agent-mode" name="browser-user-agent-mode">${uaOptions}</select>
-        </div>
+        </div>` : ''}
         ${customUaField}
         <label class="browser-check"><input type="checkbox" name="browser-show-window"${section.config.headless ? '' : ' checked'}>${escapeHtml(t('browser_show_window'))}</label>
       </div>`;

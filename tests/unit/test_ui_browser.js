@@ -22,6 +22,9 @@ test('UIBrowser.getSavePlan - decide validación, envío y reinicio según herra
   assert.deepEqual(plan({ config: null, savedConfig: null }, 'running'), NOTHING);
   assert.deepEqual(plan({ config: { ...SAVED, engine: 'firefox' } }, 'error'), { ...NOTHING, setConfig: true });
   assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: '' } }, 'running'), { ...NOTHING, userAgentInvalid: true });
+  // Los navegadores instalados y el del usuario envían su User-Agent: el personalizado no se pide ni se valida.
+  assert.deepEqual(plan({ config: { ...SAVED, engine: 'chrome', userAgentMode: 'custom', userAgent: '' } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
+  assert.deepEqual(plan({ config: { ...SAVED, mode: 'user', userAgentMode: 'custom', userAgent: '' } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
   assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'UA\ninject' } }, 'running'), { ...NOTHING, userAgentInvalid: true });
   assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'Mozilla/5.0 Test/1.0' } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
   assert.deepEqual(plan({ config: { ...SAVED, userAgentMode: 'custom', userAgent: 'x'.repeat(CONTRACT.userAgentMaxLength) } }, 'running'), { ...NOTHING, setConfig: true, offerRestart: true });
