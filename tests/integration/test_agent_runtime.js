@@ -397,7 +397,7 @@ function assertNoSynthesis(api) {
     'El runtime nunca pide una síntesis sin herramientas');
 }
 
-test('AgentRuntime - detección de bucles: quinto lote idéntico o alternado se detiene, pero un texto nuevo o argumentos distintos continúan sin límite de pasos', async t => {
+test('AgentRuntime - detección de bucles: quinto lote idéntico o alternado se detiene incluso con narración distinta, pero argumentos distintos continúan sin límite de pasos', async t => {
   // 1. Ciclos de programación test -> editar -> test con edición distinta y lectura de 60 páginas
   const { registry: progReg, counts: progCounts } = countingRegistry(['run_tests', 'apply_change', 'read_page']);
   const progSteps = [];
@@ -445,14 +445,10 @@ test('AgentRuntime - detección de bucles: quinto lote idéntico o alternado se 
     assert.equal(res.status, 'completed');
   }
 
-  // 4. Un texto nuevo para el usuario reinicia el control; la misma frase o una tool call en texto no
+  // 4. El texto narrativo que acompaña a llamadas repetidas (aunque cambie en cada paso) no reinicia el control
   const { registry: txtReg, counts: txtCounts } = countingRegistry(['repeat']);
-  const newTextSteps = [1, 2, 3, 4].map(() => ({ tool: 'repeat' }))
-    .concat([{ tool: 'repeat', text: 'Sigo esperando a que el servicio responda.' }], [1, 2, 3].map(() => ({ tool: 'repeat' })));
-  assert.equal((await runAgent(t, txtReg, { api: scriptedApi(newTextSteps), messages: [{ role: 'user', content: 'Espera.' }] })).status, 'completed');
-  assert.equal(txtCounts.repeat, 8);
-
   for (const steps of [
+    Array.from({ length: 8 }, (_, i) => ({ tool: 'repeat', text: `Ahora reviso el paso ${i + 1}...` })),
     Array.from({ length: 8 }, (_, i) => ({ tool: 'repeat', text: i % 2 ? 'Voy a  buscar...' : 'voy a buscar...' })),
     Array.from({ length: 8 }, (_, i) => ({ tool: 'repeat', text: `<tool_call>{"name":"repeat","n":${i}}</tool_call>` }))
   ]) {
@@ -471,19 +467,23 @@ test('AgentRuntime - repetir check_command o check_agents mientras lo vigilado a
     registry.registerTool(makeTool({ name, execute: async () => results[Math.min(calls++, results.length - 1)] }));
     return { registry, count: () => calls };
   };
-  const repeat = (tool, times) => scriptedApi(Array.from({ length: times }, () => ({ tool, args: { job_id: 4, wait_seconds: 240 } })), 'Hecho.');
-  const run = async (name, results, times) => {
+  const repeat = (tool, times, args = { job_id: 4, wait_seconds: 240 }) => scriptedApi(Array.from({ length: times }, () => ({ tool, args })), 'Hecho.');
+  const run = async (name, results, times, args) => {
     const { registry, count } = waitRegistry(name, results);
-    const res = await runAgent(t, registry, { api: repeat(name, times), messages: [{ role: 'user', content: 'Sigue el trabajo.' }] });
+    const res = await runAgent(t, registry, { api: repeat(name, times, args), messages: [{ role: 'user', content: 'Sigue el trabajo.' }] });
     return { status: res.status, executed: count() };
   };
-  const command = (status, newOutput = '', exitCode = null) => ({ success: true, status, new_output: newOutput, exit_code: exitCode });
+  const command = (status, newOutput = '', exitCode = null, extra = {}) => ({ success: true, status, new_output: newOutput, exit_code: exitCode, ...extra });
 
   // check_command: salida nueva en cada espera (o el paso de en marcha a terminado) es avance.
   assert.deepEqual(await run('check_command', Array.from({ length: 8 }, (_, i) => command('running', `línea ${i}\n`)), 8), { status: 'completed', executed: 8 });
-  // Esperas agotadas sin salida, o un comando que ya terminó: la quinta llamada igual se detiene sin ejecutarse.
+  // Sondeos inmediatos sin espera real (sin wait_elapsed o wait_seconds < 10), o comando ya terminado: la quinta se detiene.
   assert.deepEqual(await run('check_command', [command('running')], 10), { status: 'loop_detected', executed: 4 });
+  assert.deepEqual(await run('check_command', [command('running', '', null, { returned_because: 'wait_elapsed' })], 10, { job_id: 4, wait_seconds: 5 }), { status: 'loop_detected', executed: 4 });
   assert.deepEqual(await run('check_command', [command('exited', '', 0)], 10), { status: 'loop_detected', executed: 4 });
+  // Comando silencioso en marcha con espera real (wait_elapsed y wait_seconds >= 10): margen acotado de 6 esperas + 4 repeticiones = 10 ejecutadas antes de cortar en la 11.ª.
+  assert.deepEqual(await run('check_command', [command('running', '', null, { returned_because: 'wait_elapsed' })], 10, { job_id: 4, wait_seconds: 60 }), { status: 'completed', executed: 10 });
+  assert.deepEqual(await run('check_command', [command('running', '', null, { returned_because: 'wait_elapsed' })], 15, { job_id: 4, wait_seconds: 60 }), { status: 'loop_detected', executed: 10 });
   // Tres esperas sin salida y luego termina: el final es avance y hacen falta cinco más iguales para detenerse.
   const transition = [command('running'), command('running'), command('running'), command('exited', '', 0)];
   assert.deepEqual(await run('check_command', transition, 8), { status: 'completed', executed: 8 });

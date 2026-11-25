@@ -432,26 +432,40 @@
 
   // Un bucle es el mismo lote de herramientas repetido 5 veces seguidas (aaaaa) o dos
   // lotes alternados 5 veces (ababababab). Ciclos como test -> editar -> test no cuentan
-  // porque cada edición cambia los argumentos, y un texto nuevo para el usuario entre
-  // pasos reinicia el control.
+  // porque cada edición cambia los argumentos. El texto narrativo que acompaña a las llamadas
+  // no reinicia el control.
   const LOOP_REPETITIONS = 5;
   const LOOP_MAX_PERIOD = 2;
   const LOOP_HISTORY_SIZE = LOOP_REPETITIONS * LOOP_MAX_PERIOD;
   // Esperas del servidor local: repetir la misma llamada mientras lo vigilado avanza no es un bucle.
   const WAIT_TOOLS = new Set(['check_command', 'check_agents']);
+  // Margen acotado de esperas reales agotadas (wait_elapsed con wait_seconds >= 10) sobre un comando silencioso en marcha.
+  const SILENT_COMMAND_WAIT_MIN_SECONDS = 10;
+  const SILENT_COMMAND_WAIT_GRACE = 6;
 
   /**
    * Lo que una espera vio de lo vigilado, para compararlo con la llamada idéntica anterior: una firma de su estado
-   * (la del comando, o estado, actividad y consumo de cada agente) y `progress` si trajo salida nueva de un comando en
-   * marcha. null si no es una espera o su resultado no se puede leer.
+   * (la del comando, o estado, actividad y consumo de cada agente), `progress` si trajo salida nueva de un comando en
+   * marcha y `silentWait` si agotó una espera real (`wait_elapsed` con `wait_seconds >= 10`) en un comando en marcha.
+   * null si no es una espera o su resultado no se puede leer.
    */
-  function waitActivity(toolName, resultText) {
+  function waitActivity(toolName, resultText, args) {
     if (!WAIT_TOOLS.has(toolName) || typeof resultText !== 'string') return null;
     let parsed;
     try { parsed = JSON.parse(resultText); } catch (_) { return null; }
     if (!parsed || typeof parsed !== 'object' || parsed.success === false) return null;
     if (toolName === 'check_command') {
-      return { progress: parsed.status === 'running' && Boolean(parsed.new_output), signature: `${parsed.status}:${parsed.exit_code ?? ''}` };
+      const waitedSeconds = Number(args?.wait_seconds ?? parsed.wait_seconds ?? 0);
+      const silentWait = parsed.status === 'running'
+        && !parsed.new_output
+        && parsed.returned_because === 'wait_elapsed'
+        && Number.isFinite(waitedSeconds)
+        && waitedSeconds >= SILENT_COMMAND_WAIT_MIN_SECONDS;
+      return {
+        progress: parsed.status === 'running' && Boolean(parsed.new_output),
+        silentWait,
+        signature: `${parsed.status}:${parsed.exit_code ?? ''}`
+      };
     }
     const agents = Array.isArray(parsed.agents) ? parsed.agents : [parsed];
     return {
@@ -531,29 +545,26 @@
 
     /**
      * Control de bucles de un turno: devuelve una función que registra cada lote de herramientas y
-     * devuelve el periodo del bucle en que ha entrado (0 si no hay). Un texto nuevo para el usuario
-     * reinicia el historial; la misma frase repetida en cada paso ("Voy a buscar...") no lo reinicia.
+     * devuelve el periodo del bucle en que ha entrado (0 si no hay). El texto narrativo que acompaña
+     * a un lote de herramientas no reinicia el historial.
      */
     createLoopGuard() {
-      let history = [];
-      let lastResetText = null;
-      // Última actividad que vio cada espera (por la huella de su llamada) y contador de lotes con avance.
+      const history = [];
+      // Última actividad que vio cada espera (por la huella de su llamada), contador de lotes con avance
+      // y contador de esperas reales agotadas sin salida en comandos en marcha (acotado por SILENT_COMMAND_WAIT_GRACE).
       const lastActivity = new Map();
+      const silentWaitCounts = new Map();
       let progressMarks = 0;
-      const track = (text, toolCalls) => {
-        const visibleText = (text || '').replace(/\s+/g, ' ').trim().toLowerCase();
-        if (visibleText && visibleText !== lastResetText) {
-          history = [];
-          lastResetText = visibleText;
-        }
+      const track = (_text, toolCalls) => {
         history.push(this.getToolBatchFingerprint(toolCalls));
         if (history.length > LOOP_HISTORY_SIZE) history.shift();
         return this.detectLoop(history);
       };
       /**
        * Tras ejecutar el lote: si alguna espera (check_command, check_agents) vio avance respecto a la misma llamada
-       * anterior, el lote deja de contar como repetición. Una espera que ya no ve cambios (terminado, o el plazo
-       * agotado sin novedades) sigue contando, y la quinta igual se detiene.
+       * anterior, o agotó una espera real sobre un comando en marcha dentro del margen de silencio, el lote deja de
+       * contar como repetición. Un comando terminado, un sondeo sin espera o un comando silencioso pasado el margen
+       * siguen contando, y la quinta repetición se detiene.
        */
       track.observe = (toolCalls, results) => {
         let progressed = false;
@@ -561,10 +572,20 @@
           const result = results[index] || {};
           // Lo que recibe el modelo: el texto ya preparado o, sin él, el del resultado.
           const text = result.resultText ?? (result.tool && result.result != null ? result.tool.toModel(result.args, result.result) : null);
-          const activity = waitActivity(call.function?.name, text);
+          const activity = waitActivity(call.function?.name, text, result.args);
           if (!activity) return;
           const key = this.getToolCallFingerprint(call);
-          if (activity.progress || (lastActivity.has(key) && lastActivity.get(key) !== activity.signature)) progressed = true;
+          const changed = lastActivity.has(key) && lastActivity.get(key) !== activity.signature;
+          if (activity.progress || changed) {
+            progressed = true;
+            silentWaitCounts.delete(key);
+          } else if (activity.silentWait) {
+            const count = (silentWaitCounts.get(key) || 0) + 1;
+            silentWaitCounts.set(key, count);
+            if (count <= SILENT_COMMAND_WAIT_GRACE) progressed = true;
+          } else {
+            silentWaitCounts.delete(key);
+          }
           lastActivity.set(key, activity.signature);
         });
         if (progressed && history.length > 0) history[history.length - 1] = `progress:${++progressMarks}`;

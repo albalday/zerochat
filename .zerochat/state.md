@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M89 Adaptación del bucle agéntico al contexto del modelo
-- Next task: M89-T5 Endurecer el control de bucles frente a narración variable y esperas de comandos largos en marcha (js/agent-core.js, js/tools/README.md): (1) en createLoopGuard, hacer que el texto emitido por el asistente dentro de un paso con llamadas a herramientas (toolCalls.length > 0) no reinicie por sí solo el historial de huellas cuando el modelo repite el mismo lote de herramientas narrando con frases distintas; y (2) en waitActivity para check_command, permitir que un comando que sigue en status=='running' y agotó una espera real (returned_because=='wait_elapsed' con wait_seconds significativo) tenga un margen mayor o cuente como espera activa acotada antes de disparar loop_detected en compilaciones o descargas silenciosas, manteniendo el corte tras 5 llamadas sobre comandos terminados o sondeos inmediatos sin espera, actualizando js/tools/README.md y tests/integration/test_agent_runtime.js
+- Next task: none pending
 - Last closed: M87 Mejoras sistema de agentes (2026-11-24)
 - Last updated: 2026-11-25
