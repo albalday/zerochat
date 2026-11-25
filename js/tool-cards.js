@@ -624,8 +624,12 @@
         </div>
       `;
     } else if (ruleOffer?.type === 'directory') {
+      // En un comando la carpeta no se deduce de la tarjeta: el botón la nombra y el título lleva la regla entera.
+      const rule = ruleOffer.directoryRule;
+      const folderPath = rule.slice(rule.indexOf(':') + 1).replace(/\/\*\*$/, '');
+      const folder = folderPath.split('/').filter(Boolean).pop() || folderPath;
       contextualButtonsHtml = `
-        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${escapeHtml(t('tool_auth_allow_path_title'))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_path_btn', { access: ruleOffer.access }))}</span></button>
+        <button type="button" class="btn-auth-action btn-auth-allow-path" title="${escapeHtml(t('tool_auth_allow_path_title', { rule }))}">${SHIELD_SVG} <span>${escapeHtml(t('tool_auth_allow_path_btn', { access: ruleOffer.access, folder }))}</span></button>
       `;
     }
 

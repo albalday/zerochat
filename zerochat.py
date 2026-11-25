@@ -8600,8 +8600,10 @@ class AccessController:
                 return None
             if decision == "allow_server_always" and not challenge.get("serverId"):
                 return None
-            pattern = self._validate_command_pattern(decision, command_pattern, challenge)
             rules = self._validate_directory_rules([directory_rule]) if directory_rule else []
+            if rules and command_pattern:
+                raise ValueError("Una decisión lleva un patrón de comando o una regla de carpeta, no los dos.")
+            pattern = None if rules else self._validate_command_pattern(decision, command_pattern, challenge)
             challenges.pop(challenge_id)
         self._record_decision(challenge, decision, pattern, rules, context)
         return challenge
@@ -8635,6 +8637,9 @@ class AccessController:
         regla de directorio se escriben en una sola transacción y un error de persistencia se propaga.
         """
         tool, server_name, server_id = challenge["toolName"], challenge["serverName"], challenge["serverId"]
+        if rules:
+            # Una regla de carpeta es toda la decisión: no autoriza además la herramienta fuera de esa carpeta.
+            decision, pattern = "", None
         if decision == "allow_session":
             self._allow_for_session(context, tool, server_name, pattern)
         permanent = decision in ("allow_project", "allow_always", "allow_server_always")
@@ -8774,6 +8779,8 @@ class AccessController:
                     f"El comando usa sintaxis de shell que no se puede validar por partes: {raw_command}", None)
         patterns = self._command_patterns(view)
         cwd, by_rule, uncovered = ctx.workspace_dir, False, []
+        # Rutas que dejan sin cubrir un subcomando; None si alguno pide permiso por otra causa ($, ~, órdenes globales).
+        outside: list[str] | None = []
         for operator, segment in segments:
             directory = cd_target(segment)
             if directory is not None:
@@ -8792,6 +8799,12 @@ class AccessController:
                 by_rule = True
             else:
                 uncovered.append(segment)
+                refs = command_outside_references(segment)
+                if refs is None or outside is None:
+                    outside = None
+                else:
+                    outside += [target for target in (self._command_target(cwd, ref) for ref in refs)
+                                if not self.evaluate_directory_rule("RW", target, view["directoryRules"], ctx)["allowed"]]
         if not uncovered:
             return POLICY_ALLOW, "directory_rule_allow" if by_rule else "command_pattern_allow", "", None
         reason, details = (
@@ -8799,7 +8812,30 @@ class AccessController:
             if patterns
             else ("command_outside_directory_rules", "El comando accede a recursos globales o rutas fuera de las reglas de directorio.")
         )
-        return POLICY_ASK, reason, details, command_rule_offer(uncovered)
+        offer = self._command_folder_offer(raw_command, outside, view, ctx) if outside else None
+        return POLICY_ASK, reason, details, offer or command_rule_offer(uncovered)
+
+    def _command_folder_offer(self, raw_command: str, targets: list[str], view: dict, ctx: SecurityContext) -> dict | None:
+        """
+        Regla RW sobre la carpeta común de las rutas que faltan, solo si con ella el comando entero pasaría y la
+        carpeta está dentro de la personal (nunca ella entera, una oculta como .ssh ni las del sistema): un nombre de
+        fichero que cambia cada día no cabe en un patrón de comando, y la carpeta sí se puede conceder en el proyecto.
+        """
+        folders = []
+        for target in targets:
+            resolved = ctx.resolve_path(target)
+            if resolved is None:
+                return None
+            folders.append(resolved if resolved.is_dir() else resolved.parent)
+        common = Path(os.path.commonpath(folders))
+        home = Path.home().resolve()
+        if home not in common.parents or any(part.startswith(".") for part in common.relative_to(home).parts):
+            return None
+        rule = f"RW:{normalize_directory_path(str(common))}/**"
+        widened = {**view, "directoryRules": [*view["directoryRules"], rule]}
+        if self._evaluate_command(raw_command, widened, ctx)[0] != POLICY_ALLOW:
+            return None
+        return {"type": "directory", "access": "RW", "directoryRule": rule}
 
     def _evaluate_path(self, tool_name: str, access: str, path: str, view: dict, ctx: SecurityContext) -> tuple[str, str, str, dict | None]:
         """Herramientas integradas de ficheros: reglas de directorio del proyecto."""

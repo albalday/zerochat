@@ -365,6 +365,22 @@ class PolicyEvaluationTest(ControllerTestCase):
         dec = self.evaluate("srv__write_file", {"path": "/tmp/x.txt"}, server_id="srv")
         self.assertEqual((dec.status, dec.rule_offer), ("ask", None))
 
+    def test_folder_offer_for_commands_whose_only_gap_is_a_folder_inside_home(self):
+        home = self.base_dir.resolve()
+        outbox = home / "outbox"
+        outbox.mkdir()
+        (home / ".ssh").mkdir()
+        norm_out = zerochat.normalize_directory_path(str(outbox))
+        with unittest.mock.patch.object(Path, "home", return_value=home):
+            for command in (f"cp informes/r.html {norm_out}/ && ls -la {norm_out}/", f"cp informes/r.html {norm_out}/nuevo.html"):
+                offer = self.evaluate("run_command", {"command": command}).rule_offer
+                self.assertEqual(offer, {"type": "directory", "access": "RW", "directoryRule": f"RW:{norm_out}/**"}, command)
+            # Ni la carpeta personal entera, ni una oculta, ni fuera de ella, ni si con la regla seguiría preguntando
+            for command in (f"ls {home}", f"cat {home}/.ssh/id_rsa", "cat /etc/hosts", f"ls {norm_out} | python3",
+                            f"sudo ls {norm_out}", f"cp {norm_out}/a ~/b"):
+                offer = self.evaluate("run_command", {"command": command}).rule_offer
+                self.assertNotEqual((offer or {}).get("type"), "directory", command)
+
 
 class PolicyStateTest(ControllerTestCase):
     def test_partial_patch_update_and_revocation(self):
@@ -449,26 +465,30 @@ class PolicyStateTest(ControllerTestCase):
         self.assertEqual(tool_entry(self.controller, "tool_x")["scope"], "session")
         self.assertNotIn("tool_x", stored("tools"))
 
-        self.decide("tool_y", "allow_always", directory_rule=f"R:{self.norm_ws}/extra/**")
+        self.decide("tool_y", "allow_always")
         self.assertIn("tool_y", stored("tools"))
-        self.assertIn(f"R:{self.norm_ws}/extra/**", rules_of(self.controller, self.ctx))
 
         self.controller.clear_session()
         self.assertIsNone(tool_entry(self.controller, "tool_x"))
         self.assertIsNotNone(tool_entry(self.controller, "tool_y"))
 
-        # Herramienta + regla en el borde MAX_POLICY_ENTRIES se guardan en una sola transacción
-        limit = zerochat.MAX_POLICY_ENTRIES
-        self.controller.import_state({
-            "directoryRules": [],
-            "tools": {"tool_y": None, **{f"fill_{i}": {"policy": "allow"} for i in range(limit - 1)}}
-        }, self.ctx)
-        with self.assertRaises(ValueError):
-            self.decide("tool_tx", "allow_always", directory_rule=f"R:{self.norm_ws}/extra/**")
-        self.assertIsNone(tool_entry(self.controller, "tool_tx"))
-        self.assertEqual(rules_of(self.controller, self.ctx), [])
-        self.decide("tool_tx", "allow_always")
-        self.assertEqual(tool_entry(self.controller, "tool_tx")["policy"], zerochat.POLICY_ALLOW)
+    def test_una_regla_de_carpeta_aprobada_no_permite_la_herramienta_fuera_de_ella(self):
+        outside = self.base_dir / "fuera"
+        offer = self.evaluate("read_file", {"path": str(outside / "a.txt")}).rule_offer
+        challenge = self.controller.create_challenge("read_file", {"path": str(outside / "a.txt")},
+                                                     self.evaluate("read_file", {"path": str(outside / "a.txt")}), context=self.ctx)
+        self.controller.authorize_challenge(challenge["id"], "allow_always", context=self.ctx,
+                                            directory_rule=offer["directoryRule"])
+        self.assertNotIn("read_file", stored("tools"))
+        self.assertIn(offer["directoryRule"], rules_of(self.controller, self.ctx))
+        self.assertEqual(self.evaluate("read_file", {"path": str(outside / "b.txt")}).status, zerochat.POLICY_ALLOW)
+        self.assertEqual(self.evaluate("read_file", {"path": "/etc/passwd"}).status, zerochat.POLICY_ASK)
+
+        # Al reanudar una ejecución desatendida, la misma decisión tampoco autoriza la herramienta entera
+        self.controller.apply_tool_decision({"toolName": "write_file", "decision": {
+            "decision": "allow_always", "directoryRule": f"RW:{zerochat.normalize_directory_path(str(outside))}/**"}}, self.ctx)
+        self.assertNotIn("write_file", stored("tools"))
+        self.assertEqual(self.evaluate("write_file", {"path": "/etc/hosts"}).status, zerochat.POLICY_ASK)
 
     def test_storage_failure_or_corrupt_policies_fail_visibly_and_are_not_overwritten(self):
         initial = self.controller.export_state(self.ctx)
@@ -753,6 +773,24 @@ class CommandPatternTest(HandlerTestCase):
         with self.assertRaisesRegex(ValueError, "máximo"):
             self.controller.import_state({"commandPatterns": {"global": [], "project": [f"a{i}" for i in range(limit - half + 1)]}}, ctx_a)
         self.assertEqual(len(saved_patterns()["projects"][ctx_b.key]), half)
+
+    @unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": [], "isError": False}, None, ""))
+    def test_approving_a_folder_offer_lets_the_command_pass_only_with_that_folder(self, _execute_tool):
+        home = self.base_dir.resolve()
+        outbox = home / "outbox"
+        outbox.mkdir()
+        norm_out = zerochat.normalize_directory_path(str(outbox))
+        command = f"cp informes/r.html {norm_out}/ && ls -la {norm_out}/"
+        with unittest.mock.patch.object(Path, "home", return_value=home):
+            gate = self.command_challenge(command)
+        rule = gate["ruleOffer"]["directoryRule"]
+        res, err = self.authorize(gate["challengeId"], "allow_always", directoryRule=rule, commandPattern="cp *")
+        self.assertEqual((res, err["code"]), (None, -32602))
+        res, err = self.authorize(gate["challengeId"], "allow_always", directoryRule=rule)
+        self.assertIsNone(err)
+        self.assertNotIn("run_command", stored("tools"))
+        self.assertEqual(self.status(command.replace("r.html", "otro.html")), "allow")
+        self.assertEqual(self.status("ls /etc"), "ask")
 
     # Aprobar un reto ejecuta el comando pendiente: aquí se sustituye la ejecución para no lanzar sudo de verdad.
     @unittest.mock.patch.object(zerochat, "execute_tool", return_value=({"content": [], "isError": False}, None, ""))
