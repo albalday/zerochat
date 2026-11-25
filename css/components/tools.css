@@ -1144,6 +1144,11 @@
   transform: rotate(90deg);
 }
 
+.mcp-server-chevron,
+.mcp-server-tools-summary .settings-collapsible-chevron {
+  margin-left: 0;
+}
+
 .mcp-server-body {
   display: flex;
   flex-direction: column;
