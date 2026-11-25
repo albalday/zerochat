@@ -483,3 +483,61 @@ test('ConversationService - confirmProjectSwitch avisa solo al abrir un chat de 
   assert.equal(await ConversationService.switchToSession('sess_b', opts), true);
   assert.equal(confirms.length, 3);
 });
+
+test('ConversationService - durante un turno permite borrar chats inactivos, bloquea el activo antes de confirmar y ofrece nueva pestaña al cambiar o crear', async t => {
+  await clearConversations(Storage);
+  const sActive = { id: 'busy_active', title: 'Activo', project: '/repo/a', createdAt: 1000, updatedAt: 1000 };
+  const sOther = { id: 'busy_other', title: 'Otro', project: '/repo/a', createdAt: 2000, updatedAt: 2000 };
+  const sProjectB = { id: 'busy_b', title: 'Proyecto B', project: '/repo/b', createdAt: 3000, updatedAt: 3000 };
+  for (const s of [sActive, sOther, sProjectB]) await Storage.saveConversation(s, [{ id: `${s.id}_m`, role: 'user', content: s.title }]);
+
+  State.replaceConversation({
+    sessionId: 'busy_active',
+    sessions: [sActive, sOther, sProjectB],
+    messages: [{ id: 'busy_active_m', role: 'user', content: 'Activo' }]
+  });
+  State.set('streaming', { isGenerating: true });
+  t.after(() => State.set('streaming', { isGenerating: false }));
+
+  // 1. Borrar el chat activo bloquea antes de pedir confirmación; borrar un inactivo funciona.
+  {
+    const { confirms, alerts } = useDialogs(t, [true]);
+    await ConversationService.deleteSession('busy_active', appOptions());
+    assert.equal(confirms.length, 0);
+    assert.equal(alerts.length, 1);
+
+    await ConversationService.deleteSession('busy_other', appOptions());
+    assert.equal(confirms.length, 1);
+    assert.equal(alerts.length, 1);
+    assert.equal(await Storage.getConversation('busy_other'), null);
+    assert.deepEqual(State.get('sessions').list.map(s => s.id), ['busy_active', 'busy_b']);
+  }
+
+  // 2. deleteAllSessions bloquea antes de confirmar si el lote incluye al activo, y permite borrar otro proyecto.
+  {
+    const { confirms, alerts } = useDialogs(t, [true]);
+    await ConversationService.deleteAllSessions(appOptions({ getSelectedProject: () => '/repo/a', isAgentsHistory: () => false }));
+    assert.equal(confirms.length, 0);
+    assert.equal(alerts.length, 1);
+
+    await ConversationService.deleteAllSessions(appOptions({ getSelectedProject: () => '/repo/b', isAgentsHistory: () => false }));
+    assert.equal(confirms.length, 1);
+    assert.equal(alerts.length, 1);
+    assert.deepEqual(State.get('sessions').list.map(s => s.id), ['busy_active']);
+  }
+
+  // 3. switchToSession y createNewSession ofrecen abrir en nueva pestaña cuando se aporta openInNewTab.
+  {
+    const opened = [];
+    const { confirms, alerts } = useDialogs(t, [true, false, true]);
+    const opts = appOptions({ openInNewTab: (id = '') => opened.push(id) });
+
+    assert.equal(await ConversationService.switchToSession('busy_other', opts), false);
+    assert.equal(await ConversationService.switchToSession('busy_other', opts), false);
+    assert.equal(await ConversationService.createNewSession(opts), false);
+    assert.equal(alerts.length, 0);
+    assert.equal(confirms.length, 3);
+    assert.equal(confirms[0].opts.acceptText, require('../../js/i18n.js').t('chat_open_new_tab'));
+    assert.deepEqual(opened, ['busy_other', '']);
+  }
+});

@@ -867,4 +867,45 @@ test('Browser UI - el HTML exportado se abre solo, sin scripts, con el aspecto d
   }
 });
 
+test('Browser UI - arranque con ?chat=<id> abre esa conversación, limpia la URL y HTML/Imprimir aborta si falla el cambio', async () => {
+  const server = await startStaticServer();
+  const browser = await createTestBrowser();
+  try {
+    const port = server.address().port;
+    const page = await browser.newPage();
+    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.evaluate(async () => {
+      await window.ChatStorage.saveConversation(
+        { id: 'tab_target_1', title: 'Chat en pestaña', createdAt: 1000, updatedAt: 2000 },
+        [{ id: 'm1', role: 'user', content: 'Mensaje en nueva pestaña' }]
+      );
+      await window.ChatStorage.saveConversation(
+        { id: 'tab_other_2', title: 'Otro chat', createdAt: 1000, updatedAt: 2000 },
+        [{ id: 'm2', role: 'user', content: 'Otro' }]
+      );
+    });
+    await page.goto(`http://127.0.0.1:${port}/?chat=tab_target_1`, { waitUntil: 'load' });
+    await waitForAppReady(page);
+    await page.waitForFunction(() => window.ChatState?.get('sessions')?.activeId === 'tab_target_1');
+    const urlAfter = await page.evaluate(() => location.search);
+    assert.equal(urlAfter, '');
+    const msgText = await page.locator('.message-row.user .message-content').textContent();
+    assert.match(msgText, /Mensaje en nueva pestaña/);
+
+    // Si hay un turno en marcha, exportar HTML de otro chat aborta sin generar el HTML del chat activo.
+    const exportPromise = page.evaluate(() => {
+      window.ChatState.set('streaming', { isGenerating: true });
+      return window.ChatUITransfer.buildConversationExport('html', 'tab_other_2');
+    });
+    await page.locator('#notice-cancel').click();
+    const htmlExport = await exportPromise;
+    await page.evaluate(() => window.ChatState.set('streaming', { isGenerating: false }));
+    assert.equal(htmlExport, null);
+  } finally {
+    await browser.close();
+    await stopStaticServer(server);
+  }
+});
+
 });

@@ -51,3 +51,10 @@ Done when: send_email y create_draft adjuntan por nombre los ficheros de la carp
 - [x] M91-T2 Oferta de regla de carpeta en la tarjeta de run_command (py/security/rules.py, py/security/controller.py, interfaz de la tarjeta): cuando todo lo pendiente de un comando (simple o compuesto) son rutas fuera de las reglas de directorio, ofrecer 'Permitir siempre RW en <carpeta>' en el proyecto con la carpeta común de esas rutas; sin oferta si hay órdenes globales, $, ~, sintaxis no partible o si la carpeta sería / o la carpeta personal; al aceptarla el mismo comando pasa por Workspace Trust también en ejecuciones desatendidas, con pruebas (2026-11-25)
 - [x] M91-T3 Corregir que aprobar una regla de carpeta en la tarjeta (allow_always con directoryRule) guarde además la herramienta como permitida en todos los proyectos (read_file quedaba permitida en cualquier ruta, /etc/passwd incluido): una decisión con directoryRule solo añade la regla al proyecto, en authorize_challenge y en apply_tool_decision, con prueba (2026-11-25)
 
+## M92 Acciones durante un turno en marcha
+
+Goal: corregir las guardas centralizadas durante un turno en marcha sin añadir estados de interfaz que mantener, y ofrecer «Abrir en nueva pestaña» desde el aviso de bloqueo al cambiar de chat o abrir uno nuevo.
+Done when: las tareas de M92 están implementadas con todos los niveles de §4 en verde.
+- [x] M92-T1 Corregir guardas centralizadas durante un turno (deleteSession solo bloquea si es el activo y antes de confirmar, deleteAllSessions solo si el lote incluye el activo, y exportConversationAsPrint/HTML aborta si falla el cambio de chat), con pruebas (2026-11-25)
+- [x] M92-T2 Soporte de ?chat=<id> en arranque (js/backend-session.js, js/app.js) y opcion Abrir en nueva pestana en blockSessionTransitionIfBusy al cambiar de chat o crear uno nuevo (js/conversation-service.js, js/i18n.js), con pruebas (2026-11-25)
+

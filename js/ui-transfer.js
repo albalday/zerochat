@@ -48,7 +48,8 @@
 
   /** Muestra la conversación indicada si no es la activa, para los formatos que salen de la página. */
   async function showConversation(id) {
-    if (id !== options.getActiveSessionId()) await options.onSwitchSession(id);
+    if (id === options.getActiveSessionId()) return true;
+    return Boolean(await options.onSwitchSession(id));
   }
 
   /**
@@ -56,13 +57,15 @@
    * formato que sale de la página cambia antes a esa conversación.
    */
   async function buildConversationExport(format, sessionId = options.getActiveSessionId()) {
-    if (getExport().isRenderedFormat(format)) await showConversation(sessionId);
+    if (getExport().isRenderedFormat(format) && !await showConversation(sessionId)) return null;
     const { session, history } = await resolveSessionForExport(sessionId);
     return { title: session.title || 'ZeroChat_Conversation', ...(await getExport().buildConversationExport(format, session, history, options.getConfig())) };
   }
 
   async function downloadConversation(format) {
-    const { title, content, extension, mimeType } = await buildConversationExport(format, targetSessionId());
+    const exported = await buildConversationExport(format, targetSessionId());
+    if (!exported) return;
+    const { title, content, extension, mimeType } = exported;
     Utils.downloadFile(content, `${fileBaseName(title)}.${extension}`, mimeType);
     closeExportModal();
   }
@@ -71,7 +74,7 @@
   async function exportConversationAsPrint() {
     const id = targetSessionId();
     closeExportModal();
-    await showConversation(id);
+    if (!await showConversation(id)) return;
     setTimeout(() => window.print(), 200);
   }
 

@@ -296,6 +296,7 @@
       getProject: () => MCP.currentProject(),
       getSelectedProject: () => UISidebar.getSelectedProject(elements.sidebarProjectFilter, MCP.currentProject()),
       isAgentsHistory: () => UISidebar.isAgentsHistory(),
+      openInNewTab: (sessionId = '') => window.open(buildNewTabUrl(sessionId), '_blank', 'noopener'),
       resetComposerInput: () => resetComposerInput(),
       closeMobileSidebar: () => {
         if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
@@ -600,14 +601,22 @@
   // Escuchadores de Eventos
   // ==========================================================================
 
-  const updateNewTabLink = () => {
+  const buildNewTabUrl = (sessionId = '') => {
     const params = new URLSearchParams(location.search);
     params.delete('project');
+    params.delete('chat');
+    const session = sessionId ? State.get('sessions').list.find(item => item.id === sessionId) : null;
     const mcp = State.get('mcp');
-    const cwd = mcp.status === 'connected' ? mcp.serverInfo?.cwd : '';
-    const next = cwd ? new URLSearchParams([...params, ['project', cwd]]) : params;
-    const query = next.toString();
-    elements.btnSidebarNewTab.href = query ? `${location.pathname}?${query}` : location.pathname;
+    const currentCwd = mcp.status === 'connected' ? mcp.serverInfo?.cwd : '';
+    const project = session && !ConversationService.isAgentConversation(session) ? (session.project || '') : currentCwd;
+    if (project) params.append('project', project);
+    if (sessionId) params.append('chat', sessionId);
+    const query = params.toString();
+    return query ? `${location.pathname}?${query}` : location.pathname;
+  };
+
+  const updateNewTabLink = () => {
+    elements.btnSidebarNewTab.href = buildNewTabUrl();
   };
 
   function setupEventListeners() {
@@ -903,7 +912,7 @@
     subscribeToState();
     loadCachedModels();
     updateUIFromConfig();
-    ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
+    const initialSessionsLoad = ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
     setupEventListeners();
     if (UISidebar.isMobile()) UISidebar.closeSidebar(elements);
 
@@ -944,7 +953,20 @@
         console.warn('[App] Could not synchronize profiles with backend:', error);
       }
     });
+    const launchChatId = BackendSession.parseLaunchChat(location.search);
+    if (launchChatId) {
+      const cleanParams = new URLSearchParams(location.search);
+      cleanParams.delete('chat');
+      const cleanQuery = cleanParams.toString();
+      history.replaceState(null, '', `${location.pathname}${cleanQuery ? `?${cleanQuery}` : ''}${location.hash}`);
+    }
     const startupMcpConnection = backendSession.connectStartup();
+    if (launchChatId) {
+      startupMcpConnection
+        .then(result => (result?.success ? null : initialSessionsLoad))
+        .then(() => ConversationService.switchToSession(launchChatId, getConversationServiceOptions()))
+        .catch(error => console.warn('[App] Could not open the requested conversation:', error));
+    }
     // Al volver a la pestaña se relee enseguida el estado vivo del servidor local (o se reconecta) y se vuelve a
     // comprobar el perfil si había fallado.
     document.addEventListener('visibilitychange', () => {

@@ -42,8 +42,17 @@
     }];
   }
 
-  async function blockSessionTransitionIfBusy(messageKey) {
+  async function blockSessionTransitionIfBusy(messageKey, { onOpenNewTab } = {}) {
     if (!getState().isConversationBusy()) return false;
+    if (typeof onOpenNewTab === 'function') {
+      const accepted = await getDialogs().confirm(t(messageKey), {
+        title: t('notice_warning'),
+        type: 'warning',
+        acceptText: t('chat_open_new_tab')
+      });
+      if (accepted) onOpenNewTab();
+      return true;
+    }
     await getDialogs().alert(t(messageKey));
     return true;
   }
@@ -178,7 +187,8 @@
       options.closeMobileSidebar();
       return true;
     }
-    if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
+    const onOpenNewTab = typeof options.openInNewTab === 'function' ? () => options.openInNewTab(sessionId) : null;
+    if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating', { onOpenNewTab })) return false;
 
     const targetSession = getSavedSessions().find(session => session.id === sessionId);
     // Supervisar un agente no cambia el proyecto de la pestaña: no hay nada que confirmar.
@@ -188,7 +198,7 @@
       if (targetProject !== currentProject) {
         const name = targetProject ? projectName(targetProject) : NO_PROJECT_NAME;
         if (!await getDialogs().confirm(t('chat_switch_project_confirm', { name }))) return false;
-        if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating')) return false;
+        if (await blockSessionTransitionIfBusy('chat_switch_blocked_generating', { onOpenNewTab })) return false;
       }
     }
 
@@ -219,7 +229,8 @@
 
   async function createNewSession(options) {
     const { saveCurrent = true } = options;
-    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    const onOpenNewTab = typeof options.openInNewTab === 'function' ? () => options.openInNewTab() : null;
+    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating', { onOpenNewTab })) return false;
     // showActiveSession repinta la barra justo después: evitamos el repintado intermedio al guardar.
     if (saveCurrent) await saveCurrentSession({ ...options, renderSidebarChats: () => {} });
     if (!await activateConversation(createId('session'), createInitialChatHistory(), 'chat_new_blocked_generating', options)) return false;
@@ -387,8 +398,10 @@
   }
 
   async function deleteSession(sessionId, options) {
+    const isActive = () => sessionId === getActiveSessionId();
+    if (isActive() && await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
     if (!await getDialogs().confirm(t('chat_delete_confirm'))) return;
-    if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
+    if (isActive() && await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     const activeId = getActiveSessionId();
     const deleted = getSavedSessions().find(session => session.id === sessionId);
@@ -446,7 +459,6 @@
    * si devuelve `''`, o las de ese proyecto. La vista de tareas pendientes (`undefined`) no se borra en bloque.
    */
   async function deleteAllSessions(options) {
-    if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
     const targetProject = options.getSelectedProject();
     if (targetProject === undefined) return;
     const agents = options.isAgentsHistory();
@@ -454,12 +466,14 @@
       && (targetProject === null || (session.project || '') === targetProject);
     const targetSessions = getSavedSessions().filter(inTarget);
     if (targetSessions.length === 0) return;
+    const includesActive = () => targetSessions.some(session => session.id === getActiveSessionId());
+    if (includesActive() && await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
     const count = targetSessions.length;
     const message = targetProject === null
       ? t(agents ? 'chat_delete_all_agents_confirm' : 'chat_delete_all_confirm', { count })
       : t(agents ? 'chat_delete_project_agents_confirm' : 'chat_delete_project_confirm', { name: targetProject ? projectName(targetProject) : NO_PROJECT_NAME, count });
     if (!await getDialogs().confirm(message)) return;
-    if (await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
+    if (includesActive() && await blockSessionTransitionIfBusy('chat_delete_blocked_generating')) return;
 
     try {
       await getStorage().deleteConversations({ project: targetProject, agents });

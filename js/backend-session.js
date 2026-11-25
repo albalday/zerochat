@@ -40,6 +40,11 @@
     return (new URLSearchParams(String(search || '').replace(/^\?/, '')).get('project') || '').trim();
   }
 
+  /** Conversación pedida en la consulta de la URL (`?chat=...`), o vacío. */
+  function parseLaunchChat(search) {
+    return (new URLSearchParams(String(search || '').replace(/^\?/, '')).get('chat') || '').trim();
+  }
+
   /** Destino de una configuración: el servidor local (`localUrl`) o el remoto, con la clave del proxy si lo usa. */
   function connectionTarget(config, localUrl) {
     const settings = normalizeConnectionSettings(config);
@@ -128,5 +133,5 @@
     return { connectStartup, connectConfigured, login };
   }
 
-  return { parseLaunchSession, parseLaunchProject, connectionTarget, sessionConnection, create };
+  return { parseLaunchSession, parseLaunchProject, parseLaunchChat, connectionTarget, sessionConnection, create };
 }));
