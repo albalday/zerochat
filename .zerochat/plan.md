@@ -37,4 +37,5 @@
 Goal: que las ejecuciones desatendidas no contaminen el User-Agent real guardado del navegador.
 Done when: el runner de Node no fija ni persiste su User-Agent, con todos los niveles de §4 en verde.
 - [x] M93-T1 Capturar el User-Agent del frontend solo tras autenticar y nunca con el token del runner (py/server/handler.py), con prueba (2026-11-25)
+- [x] M93-T2 Aclarar en la interfaz que Chrome, Edge y Chromium del sistema en modo propio usan un perfil vacío sin las cookies del usuario (js/i18n.js) (2026-11-25)
 
