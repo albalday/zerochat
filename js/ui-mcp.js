@@ -36,10 +36,10 @@
     return [...state.tools, ...state.externalTools];
   }
 
-  /** Herramientas de la sesión conectada; vacío sin conexión. */
-  function getConnectedTools() {
+  /** Herramientas locales del host en la sesión conectada; vacío sin conexión. */
+  function getConnectedLocalTools() {
     const state = getState().get('mcp');
-    return state.status === 'connected' ? getAllMcpTools(state) : [];
+    return state.status === 'connected' ? (state.tools || []) : [];
   }
 
   /** Texto en el idioma de la interfaz de un campo bilingüe de service.json. */
@@ -155,12 +155,7 @@
         </div>`;
     }).join('');
 
-    container.innerHTML = `
-      <div class="mcp-tools-header">
-        <div class="mcp-tools-title">${Icons.get('terminal', { size: 16 })}<span data-i18n="mcp_tools_section_title">${escapeHtml(t('mcp_tools_section_title'))}</span></div>
-        <span class="mcp-tools-counter">${escapeHtml(t('mcp_tools_count', { count: tools.length }))}</span>
-      </div>
-      <div class="mcp-tools-list">${items}</div>`;
+    container.innerHTML = `<div class="mcp-tools-list">${items}</div>`;
 
   }
 
@@ -420,6 +415,16 @@
     }
 
     elements.bootstrapCard.hidden = isConnected;
+    if (elements.serversCard) elements.serversCard.hidden = !isConnected;
+    if (elements.localToolsCard) elements.localToolsCard.hidden = !isConnected;
+    if (elements.serversCounter) {
+      const servers = isConnected ? (state.externalServers || []) : [];
+      const running = servers.filter(server => McpStatus.isRunning(server.status)).length;
+      elements.serversCounter.textContent = servers.length > 0
+        ? t('mcp_servers_counter', { running, total: servers.length })
+        : '';
+      elements.serversCounter.hidden = servers.length === 0;
+    }
     elements.commandSnippet.textContent = generateTerminalCommand();
     renderCurrentToolsList(elements);
     renderExternalServers(elements.serversList, isConnected ? state.externalServers : []);
@@ -558,8 +563,13 @@
 
   function renderCurrentToolsList(elements) {
     const el = elements || cachedElements;
+    const localTools = getConnectedLocalTools();
+    if (el?.localToolsCounter) {
+      el.localToolsCounter.textContent = localTools.length > 0 ? t('mcp_tools_count', { count: localTools.length }) : '';
+      el.localToolsCounter.hidden = localTools.length === 0;
+    }
     if (el?.toolsContainer) {
-      renderToolsList(el.toolsContainer, getConnectedTools(), getConfig().getActive());
+      renderToolsList(el.toolsContainer, localTools, getConfig().getActive());
     }
   }
 

@@ -235,6 +235,10 @@
     folderPickerUse: 'folder-picker-use',
     // MCP
     mcpToolsContainer: 'mcp-tools-container',
+    mcpLocalToolsCard: 'mcp-local-tools-card',
+    mcpLocalToolsCounter: 'mcp-local-tools-counter',
+    mcpServersCard: 'mcp-servers-card',
+    mcpServersCounter: 'mcp-servers-counter',
     mcpServersList: 'mcp-servers-list',
     mcpStatusBadge: 'mcp-status-badge',
     mcpStatusText: 'mcp-status-text',
@@ -920,6 +924,8 @@
       statusBadge: elements.mcpStatusBadge, statusText: elements.mcpStatusText,
       serverDetails: elements.mcpServerDetails, commandSnippet: elements.mcpTerminalCommand,
       btnCopyCmd: elements.btnMcpCopyCmd, bootstrapCard: elements.mcpBootstrapCard,
+      serversCard: elements.mcpServersCard, serversCounter: elements.mcpServersCounter,
+      localToolsCard: elements.mcpLocalToolsCard, localToolsCounter: elements.mcpLocalToolsCounter,
       toolsContainer: elements.mcpToolsContainer, serversList: elements.mcpServersList,
       savedAuthsList: elements.mcpSavedAuthsList, btnClearAuths: elements.btnMcpClearAuths
     });

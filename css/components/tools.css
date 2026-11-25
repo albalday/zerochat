@@ -500,22 +500,17 @@
   margin-top: 0;
 }
 
-.mcp-tools-header {
+.mcp-section-subbar {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 0.25rem;
+  gap: 0.75rem;
   flex-wrap: wrap;
-  gap: 0.5rem;
 }
 
-.mcp-tools-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-main);
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
+.mcp-section-subbar .mcp-section-hint {
+  flex: 1;
+  min-width: 12rem;
 }
 
 .mcp-tools-counter {
@@ -526,6 +521,7 @@
   padding: 0.15rem 0.5rem;
   border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
+  margin-left: auto;
 }
 
 .mcp-tools-list {

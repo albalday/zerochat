@@ -538,23 +538,43 @@ zerochat</code></pre>
             <a href="help/mcp.html" target="_blank" rel="noopener noreferrer" class="mcp-bootstrap-help" data-i18n="mcp_bootstrap_help">Abrir ayuda de MCP</a>
           </div>
 
-          <!-- Tarjeta de Servidores MCP Disponibles -->
-          <div id="mcp-servers-card" class="mcp-status-card">
-            <div class="mcp-status-header">
+          <!-- Tarjeta de Servidores MCP Disponibles (plegable) -->
+          <details id="mcp-servers-card" class="mcp-status-card settings-collapsible-card" open hidden>
+            <summary class="mcp-status-header settings-collapsible-summary">
               <div class="mcp-title-group">
                 <span class="mcp-header-icon">
                   <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-server"></use></svg>
                 </span>
-                <strong data-i18n="mcp_servers_section_title">Servidores MCP Disponibles</strong>
+                <strong data-i18n="mcp_servers_section_title">Servidores MCP externos</strong>
               </div>
-              <a href="help/mcp.html#crear-mcp-con-agente" target="_blank" rel="noopener noreferrer" class="mcp-servers-create-help" data-i18n="mcp_servers_create_help" data-i18n-href="mcp_servers_create_help_href">Añadir un MCP con el agente</a>
+              <span id="mcp-servers-counter" class="mcp-tools-counter"></span>
+              ${Icons.get('chevron-right', { size: 16, className: 'settings-collapsible-chevron' })}
+            </summary>
+            <div class="settings-collapsible-body">
+              <div class="mcp-section-subbar">
+                <p class="label-hint mcp-section-hint" data-i18n="mcp_servers_section_desc">Servicios MCP externos configurados en el servidor local listos para arrancar de forma individual.</p>
+                <a href="help/mcp.html#crear-mcp-con-agente" target="_blank" rel="noopener noreferrer" class="mcp-servers-create-help" data-i18n="mcp_servers_create_help" data-i18n-href="mcp_servers_create_help_href">Añadir un MCP con el agente</a>
+              </div>
+              <div id="mcp-servers-list" class="mcp-servers-list"></div>
             </div>
-            <p class="label-hint mcp-section-hint" data-i18n="mcp_servers_section_desc">Servicios MCP externos configurados en el servidor local listos para arrancar de forma individual.</p>
-            <div id="mcp-servers-list" class="mcp-servers-list"></div>
-          </div>
+          </details>
 
-          <!-- Contenedor dinámico de herramientas MCP registradas -->
-          <div id="mcp-tools-container" class="mcp-tools-container"></div>
+          <!-- Tarjeta de Herramientas Locales del Servidor (plegable) -->
+          <details id="mcp-local-tools-card" class="mcp-status-card settings-collapsible-card" hidden>
+            <summary class="mcp-status-header settings-collapsible-summary">
+              <div class="mcp-title-group">
+                <span class="mcp-header-icon">
+                  <svg class="ui-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-terminal"></use></svg>
+                </span>
+                <strong data-i18n="mcp_tools_section_title">Herramientas locales del servidor</strong>
+              </div>
+              <span id="mcp-local-tools-counter" class="mcp-tools-counter"></span>
+              ${Icons.get('chevron-right', { size: 16, className: 'settings-collapsible-chevron' })}
+            </summary>
+            <div class="settings-collapsible-body">
+              <div id="mcp-tools-container" class="mcp-tools-container"></div>
+            </div>
+          </details>
         </div>
 
         <!-- Sección: Navegador (la pinta ChatUIBrowser) -->

@@ -51,6 +51,10 @@ async function withMcpPanel(mcp, fn) {
           commandSnippet: byId('mcp-terminal-command'),
           btnCopyCmd: byId('btn-mcp-copy-cmd'),
           bootstrapCard: byId('mcp-bootstrap-card'),
+          serversCard: byId('mcp-servers-card'),
+          serversCounter: byId('mcp-servers-counter'),
+          localToolsCard: byId('mcp-local-tools-card'),
+          localToolsCounter: byId('mcp-local-tools-counter'),
           toolsContainer: byId('mcp-tools-container'),
           serversList: byId('mcp-servers-list')
         };
@@ -139,21 +143,32 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
       assert.equal(empty.empty, true);
       assert.match(empty.text, /ejecute localmente/);
 
-      // Conectado, la lista se pinta desde el estado MCP y la configuración activa.
+      // Conectado, la lista de herramientas locales se pinta desde state.tools (excluyendo externalTools) y la configuración activa.
       const listed = await page.evaluate(tools => {
         const container = document.getElementById('mcp-tools-container');
+        const card = document.getElementById('mcp-local-tools-card');
         window.ChatConfig.updateRuntime({ enabledTools: { ...window.ChatConfig.getActive().enabledTools, list_directory: true, read_file: false, run_command: true } });
-        window.ChatState.set('mcp', current => ({ ...current, status: 'connected', tools }));
+        window.ChatState.set('mcp', current => ({
+          ...current,
+          status: 'connected',
+          tools,
+          externalTools: [{ id: 'brave_search', name: 'brave_search', description: 'Externa', metadata: { mcpServerId: 'brave', mcpServerName: 'Brave', originalName: 'search' } }]
+        }));
         return {
-          header: Boolean(container.querySelector('.mcp-tools-header')),
-          text: container.textContent,
+          cardHidden: card.hidden,
+          cardTag: card.tagName,
+          title: card.querySelector('summary').textContent,
+          counter: document.getElementById('mcp-local-tools-counter').textContent,
+          hasExternalInLocal: Boolean(container.querySelector('[data-tool-id="brave_search"]')),
           params: container.querySelector('[data-tool-id="read_file"] .mcp-tool-params').textContent,
           readChecked: container.querySelector('.mcp-tool-checkbox[data-tool-id="read_file"]').checked
         };
       }, TOOLS);
-      assert.equal(listed.header, true);
-      assert.match(listed.text, /Herramientas Disponibles del Sistema/);
-      assert.match(listed.text, /3 detectadas/);
+      assert.equal(listed.cardHidden, false);
+      assert.equal(listed.cardTag, 'DETAILS');
+      assert.match(listed.title, /Herramientas locales del servidor/);
+      assert.match(listed.counter, /3 herramientas/);
+      assert.equal(listed.hasExternalInLocal, false, 'Las herramientas de servidores externos no van en la lista local');
       assert.match(listed.params, /path: string/);
       assert.equal(listed.readChecked, false);
 

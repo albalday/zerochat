@@ -1,5 +1,5 @@
 # Current state
-- Milestone: M88 Ajustes de control de agentes
-- Next task: M88-T8
+- Milestone: M90 Reorganización del panel MCP
+- Next task: M90-T2 Agrupar las herramientas de cada servidor MCP externo dentro de su propia tarjeta plegable (js/ui-mcp.js, js/ui-settings.js, js/i18n.js, css/components/tools.css): (1) diseñar cada tarjeta de servidor externo con una cabecera compacta siempre visible (nombre, insignia de estado, contador de herramientas/activas, botón de confiar y botón Iniciar/Detener) y un cuerpo plegable (<details>) que agrupe descripción, enlaces de ayuda/transporte remoto, banners de error/OAuth, secretos, opciones y una subsección plegable propia con las herramientas de ese servidor (filtradas de state.externalTools por metadata.mcpServerId), mostrando su nombre original corto, política de autorización e interruptor; (2) preservar el estado abierto/cerrado de cada <details> entre re-renders provocados por el latido, cambios de opciones, secretos o políticas (manteniendo abiertos automáticamente los servidores con error o OAuth pendiente); y (3) asegurar que los eventos delegados en #mcp-servers-list gestionan cambios de .mcp-auth-select y .mcp-tool-checkbox de las herramientas anidadas y que gatherSettingsFormConfig recoja también los interruptores dentro de #mcp-servers-list
 - Last closed: M89 Adaptación del bucle agéntico al contexto del modelo (2026-11-25)
 - Last updated: 2026-11-25
