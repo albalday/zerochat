@@ -39,4 +39,5 @@ Done when: el runner de Node no fija ni persiste su User-Agent, con todos los ni
 - [x] M93-T1 Capturar el User-Agent del frontend solo tras autenticar y nunca con el token del runner (py/server/handler.py), con prueba (2026-11-25)
 - [x] M93-T2 Aclarar en la interfaz que Chrome, Edge y Chromium del sistema en modo propio usan un perfil vacío sin las cookies del usuario (js/i18n.js) (2026-11-25)
 - [x] M93-T3 No forzar --user-agent en Chrome, Edge y Chromium del sistema en modo propio: solo los motores de Playwright lo llevan (py/browser/config.py, js/ui-browser.js), con pruebas (2026-11-25)
+- [x] M93-T4 Prueba de launch_run_file sin carrera: el proceso falso escribe en un temporal y lo renombra (os.replace), para que no se lea vacío en Windows (2026-11-25)
 

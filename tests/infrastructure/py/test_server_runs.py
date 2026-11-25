@@ -834,10 +834,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             if "--run-file" not in cmd:
                 return real_popen(cmd, **kwargs)  # Otros procesos (p. ej. ps en macOS para la huella de arranque).
             seen.update(cmd=cmd, **kwargs)
-            # Hace de zerochat --run-file -: guarda lo que recibe por stdin, su carpeta y su entorno.
-            script = ("import json, os, sys; json.dump({'request': json.load(sys.stdin), 'cwd': os.getcwd(), "
-                      "'run_id': os.environ.get('ZEROCHAT_RUN_ID'), 'security': os.environ.get('ZEROCHAT_RUN_SECURITY')}, "
-                      f"open({str(received)!r}, 'w'))")
+            # Hace de zerochat --run-file -: guarda lo que recibe por stdin, su carpeta y su entorno. Escribe en un temporal
+            # y lo renombra: la prueba espera a que exista el fichero y no debe leerlo a medio escribir (Windows).
+            partial = f"{received}.part"
+            script = (f"import json, os, sys; f = open({partial!r}, 'w'); json.dump({{'request': json.load(sys.stdin), "
+                      "'cwd': os.getcwd(), 'run_id': os.environ.get('ZEROCHAT_RUN_ID'), "
+                      "'security': os.environ.get('ZEROCHAT_RUN_SECURITY')}, f); "
+                      f"f.close(); os.replace({partial!r}, {str(received)!r})")
             return real_popen([sys.executable, "-c", script], **kwargs)
 
         request = {"agent": "informes.diario", "prompt": "Hola", "conversation_id": "session_lanzada"}
