@@ -88,22 +88,22 @@
       textOutput = JSON.stringify(result, null, 2);
     }
 
-    if (result?.requiresAuthorization) {
-      return {
-        success: false,
-        requiresAuthorization: true,
-        challengeId: result.challengeId,
-        toolName: result.toolName || name,
-        serverName: result.serverName || serverName,
-        serverId: result.serverId || '',
-        arguments: result.arguments || args,
-        ruleOffer: result.ruleOffer,
-        details: result.details,
-        content: textOutput,
-        rawResult: result,
-        executionTimeMs: elapsed
-      };
-    }
+    // Llamada que el servidor no ejecutó: un reto que responde la interfaz o, en una ejecución desatendida, una pausa
+    // que cierra el turno hasta que la persona la apruebe (AgentCore.ToolExecutor).
+    const pendingCall = () => ({
+      success: false,
+      toolName: result.toolName || name,
+      serverName: result.serverName || serverName,
+      serverId: result.serverId || '',
+      arguments: result.arguments || args,
+      ruleOffer: result.ruleOffer,
+      details: result.details,
+      content: textOutput,
+      rawResult: result,
+      executionTimeMs: elapsed
+    });
+    if (result?.requiresAuthorization) return { ...pendingCall(), requiresAuthorization: true, challengeId: result.challengeId };
+    if (result?.awaitingApproval) return { ...pendingCall(), awaitingApproval: true };
 
     const extractedImage = extractImageFromMcpText(textOutput);
     if (extractedImage) textOutput = extractedImage.content;

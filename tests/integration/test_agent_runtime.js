@@ -39,8 +39,19 @@ test('AgentRuntime - la pausa del servidor en una ejecución desatendida cierra 
   registry.registerTool(makeTool({
     name: 'mcp_test_pause_action',
     category: 'mcp',
-    // El servidor de una ejecución desatendida no emite un reto: responde que la llamada espera a la persona.
-    execute: async () => ({ awaitingApproval: true, toolName: 'mcp_test_pause_action', ruleOffer: { rule: 'RW:/x/**' } })
+    // El servidor de una ejecución desatendida no emite un reto: responde (_awaiting_approval) que la llamada espera a
+    // la persona, y la herramienta MCP lo entrega tal como lo normaliza el cliente (ChatMcpResults.formatToolCallResult).
+    execute: async args => require('../../js/mcp-results.js').formatToolCallResult({
+      awaitingApproval: true,
+      toolName: 'mcp_test_pause_action',
+      serverName: 'mcp-proxy',
+      serverId: '',
+      arguments: args,
+      ruleOffer: { rule: 'RW:/x/**' },
+      details: null,
+      content: [{ type: 'text', text: "This tool needs the user's approval: the run pauses until they answer." }],
+      isError: false
+    }, { name: 'mcp_test_pause_action', args })
   }));
   registry.registerTool(makeTool({ name: 'second_tool', execute: async () => assert.fail('El turno termina con la pausa') }));
 
