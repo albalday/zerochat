@@ -203,32 +203,74 @@
   const WINDOW_HYSTERESIS_TARGET_RATIO = 0.65;      // Objetivo de histéresis al recortar el turno en curso para preservar la caché KV varios pasos
   const CHARS_PER_TOKEN_ESTIMATE = 3;               // Relación conservadora caracteres/token para convertir presupuestos
   const EXCLUDED_STEPS_NOTE_MAX_CHARS = 4000;       // Tope de la nota sintética determinista que resume las llamadas excluidas del turno activo
+  const EXCLUDED_STEPS_NOTE_RESERVE_TOKENS = Math.ceil(EXCLUDED_STEPS_NOTE_MAX_CHARS / CHARS_PER_TOKEN_ESTIMATE);
   const EXCLUDED_CALL_ARG_MAX_CHARS = 160;          // Tope por argumento canónico en la nota sintética de pasos excluidos
 
   const { serializeContent } = Utils;
+
+  /** Extrae `{ name, argsText }` de un `tool_call` (con JSON canónico opcional). */
+  function readToolCallSpec(tc, { canonical = false } = {}) {
+    const name = tc?.function?.name || tc?.name || 'tool';
+    const rawArgs = tc?.function?.arguments ?? tc?.arguments;
+    let argsText = '';
+    if (typeof rawArgs === 'string') {
+      if (canonical) {
+        const trimmed = rawArgs.trim();
+        try { argsText = Utils.canonicalJson(JSON.parse(trimmed)); } catch (_) { argsText = trimmed; }
+      } else {
+        argsText = rawArgs;
+      }
+    } else if (rawArgs && typeof rawArgs === 'object') {
+      if (canonical) {
+        argsText = Utils.canonicalJson(rawArgs);
+      } else {
+        try { argsText = JSON.stringify(rawArgs); } catch (_) { argsText = ''; }
+      }
+    }
+    return { name, argsText };
+  }
+
+  /**
+   * Reparte un presupuesto total de caracteres entre varios elementos: los que caben en la cuota
+   * inicial se conservan íntegros y su sobrante se redistribuye equitativamente entre los demás.
+   */
+  function allocateProportionalLimits(lengths, totalBudget, { minShare = 150, maxPerItem = Infinity } = {}) {
+    const initialShare = Math.floor(totalBudget / lengths.length);
+    let remaining = totalBudget;
+    const limits = new Array(lengths.length);
+    const oversized = [];
+
+    lengths.forEach((len, idx) => {
+      if (len <= initialShare) {
+        limits[idx] = len;
+        remaining -= len;
+      } else {
+        oversized.push(idx);
+      }
+    });
+
+    if (oversized.length > 0) {
+      const share = Math.min(maxPerItem, Math.max(minShare, Math.floor(remaining / oversized.length)));
+      for (const idx of oversized) limits[idx] = share;
+    }
+
+    return { limits, hasOversized: oversized.length > 0 };
+  }
 
   /**
    * Construye una nota sintética determinista (sin llamar al modelo) que lista las llamadas a herramientas
    * de los pasos del turno en curso excluidos por la ventana deslizante, para que el modelo no repita lecturas ya hechas.
    */
-  function buildExcludedStepsNote(excludedActiveBlocks, maxChars = EXCLUDED_STEPS_NOTE_MAX_CHARS) {
+  function buildExcludedStepsNote(excludedActiveBlocks) {
     const entries = [];
     for (const block of excludedActiveBlocks) {
       const assistant = block[0];
       if (!assistant || assistant.role !== 'assistant' || !Array.isArray(assistant.tool_calls)) continue;
       for (const tc of assistant.tool_calls) {
-        const name = tc?.function?.name || tc?.name || 'tool';
-        const rawArgs = tc?.function?.arguments ?? tc?.arguments;
-        let argsText = '';
-        if (typeof rawArgs === 'string') {
-          const trimmed = rawArgs.trim();
-          try { argsText = Utils.canonicalJson(JSON.parse(trimmed)); } catch (_) { argsText = trimmed; }
-        } else if (rawArgs && typeof rawArgs === 'object') {
-          argsText = Utils.canonicalJson(rawArgs);
-        }
-        if (argsText.length > EXCLUDED_CALL_ARG_MAX_CHARS) {
-          argsText = `${argsText.slice(0, EXCLUDED_CALL_ARG_MAX_CHARS)}…`;
-        }
+        const { name, argsText: rawArgs } = readToolCallSpec(tc, { canonical: true });
+        const argsText = rawArgs.length > EXCLUDED_CALL_ARG_MAX_CHARS
+          ? `${rawArgs.slice(0, EXCLUDED_CALL_ARG_MAX_CHARS)}…`
+          : rawArgs;
         entries.push(argsText && argsText !== '{}' ? `- ${name}(${argsText})` : `- ${name}()`);
       }
     }
@@ -237,7 +279,7 @@
     const header = `[Earlier tool calls in this turn omitted from context (${excludedActiveBlocks.length} steps, ${entries.length} calls) to stay within the context window — do not repeat them unless needed]:\n`;
     const body = entries.join('\n');
     const full = header + body;
-    if (full.length <= maxChars) return full;
+    if (full.length <= EXCLUDED_STEPS_NOTE_MAX_CHARS) return full;
 
     // Mantener el máximo número de líneas que quepan dejando sitio al aviso de truncado.
     const suffixTemplate = omitted => `\n[... ${omitted} earlier tool call(s) omitted from this summary due to size limit ...]`;
@@ -247,7 +289,7 @@
       const line = (kept.length > 0 ? '\n' : '') + entries[i];
       const remaining = entries.length - (i + 1);
       const suffixLen = remaining > 0 ? suffixTemplate(remaining).length : 0;
-      if (used + line.length + suffixLen > maxChars) break;
+      if (used + line.length + suffixLen > EXCLUDED_STEPS_NOTE_MAX_CHARS) break;
       kept.push(entries[i]);
       used += line.length;
     }
@@ -274,14 +316,8 @@
     });
     if (toolIndices.length === 0) return block;
 
-    // Primero calcular la longitud tras el techo individual.
-    const cappedLengths = new Map();
-    let totalAfterIndividual = 0;
-    for (const idx of toolIndices) {
-      const len = Math.min(serialized.get(idx).length, maxPerToolChars);
-      cappedLengths.set(idx, len);
-      totalAfterIndividual += len;
-    }
+    const cappedLengths = toolIndices.map(idx => Math.min(serialized.get(idx).length, maxPerToolChars));
+    const totalAfterIndividual = cappedLengths.reduce((acc, len) => acc + len, 0);
 
     // Si el lote completo cabe en maxBatchChars (o solo hay una herramienta), basta el techo individual.
     if (toolIndices.length === 1 || !maxBatchChars || totalAfterIndividual <= maxBatchChars) {
@@ -290,34 +326,12 @@
         : m));
     }
 
-    // Reparto proporcional con redistribución del sobrante (igual que truncateMultiSectionToolContent).
-    const initialShare = Math.floor(maxBatchChars / toolIndices.length);
-    let remainingBudget = maxBatchChars;
-    const oversized = [];
-    const limits = new Map();
+    const { limits } = allocateProportionalLimits(cappedLengths, maxBatchChars, { minShare: 200, maxPerItem: maxPerToolChars });
+    const limitByIdx = new Map(toolIndices.map((idx, pos) => [idx, limits[pos]]));
 
-    for (const idx of toolIndices) {
-      const len = cappedLengths.get(idx);
-      if (len <= initialShare) {
-        limits.set(idx, len);
-        remainingBudget -= len;
-      } else {
-        oversized.push(idx);
-      }
-    }
-
-    if (oversized.length > 0) {
-      const shareForOversized = Math.min(maxPerToolChars, Math.max(200, Math.floor(remainingBudget / oversized.length)));
-      for (const idx of oversized) {
-        limits.set(idx, shareForOversized);
-      }
-    }
-
-    return block.map((m, idx) => {
-      if (!serialized.has(idx)) return m;
-      const limit = limits.get(idx);
-      return { ...m, content: truncateToolContent(serialized.get(idx), limit, m.name) };
-    });
+    return block.map((m, idx) => (serialized.has(idx)
+      ? { ...m, content: truncateToolContent(serialized.get(idx), limitByIdx.get(idx), m.name) }
+      : m));
   }
 
   /**
@@ -331,40 +345,19 @@
     const totalSeparatorsLength = separator.length * (sections.length - 1);
     const availableBudget = Math.max(sections.length * 200, maxChars - totalSeparatorsLength);
 
-    const initialShare = Math.floor(availableBudget / sections.length);
-    let remainingBudget = availableBudget;
-    const finalSections = new Array(sections.length);
-    const oversizedIndices = [];
+    const { limits, hasOversized } = allocateProportionalLimits(sections.map(s => s.length), availableBudget, { minShare: 150 });
+    if (!hasOversized) return sections.join(separator);
 
-    sections.forEach((sec, idx) => {
-      if (sec.length <= initialShare) {
-        finalSections[idx] = sec;
-        remainingBudget -= sec.length;
-      } else {
-        oversizedIndices.push(idx);
-      }
-    });
-
-    if (oversizedIndices.length === 0) {
-      return sections.join(separator);
-    }
-
-    const shareForOversized = Math.max(150, Math.floor(remainingBudget / oversizedIndices.length));
-    oversizedIndices.forEach(idx => {
-      const sec = sections[idx];
-      if (sec.length <= shareForOversized) {
-        finalSections[idx] = sec;
-      } else {
-        const headLen = Math.floor(shareForOversized * 0.7);
-        const tailLen = Math.floor(shareForOversized * 0.2);
-        const head = sec.slice(0, headLen);
-        const tail = sec.slice(-tailLen);
-        const omitted = sec.length - (headLen + tailLen);
-        finalSections[idx] = `${head}\n\n[... Truncado fragmento ${idx + 1}: ${omitted} caracteres omitidos de ${toolName} ...]\n\n${tail}`;
-      }
-    });
-
-    return finalSections.join(separator);
+    return sections.map((sec, idx) => {
+      const share = limits[idx];
+      if (sec.length <= share) return sec;
+      const headLen = Math.floor(share * 0.7);
+      const tailLen = Math.floor(share * 0.2);
+      const head = sec.slice(0, headLen);
+      const tail = sec.slice(-tailLen);
+      const omitted = sec.length - (headLen + tailLen);
+      return `${head}\n\n[... Truncado fragmento ${idx + 1}: ${omitted} caracteres omitidos de ${toolName} ...]\n\n${tail}`;
+    }).join(separator);
   }
 
   /**
@@ -556,9 +549,7 @@
     const effectiveMaxActiveChars = isExplicitActiveToolChars
       ? maxActiveToolChars
       : Math.min(maxActiveToolChars, maxBatchCharsFromBudget);
-    const effectiveMaxBatchChars = typeof options.maxActiveBatchToolChars === 'number'
-      ? Math.max(1, Math.floor(options.maxActiveBatchToolChars))
-      : (isExplicitActiveToolChars ? 0 : maxBatchCharsFromBudget);
+    const effectiveMaxBatchChars = isExplicitActiveToolChars ? 0 : maxBatchCharsFromBudget;
     const capActiveBlock = block => capToolBatchBlock(block, effectiveMaxActiveChars, effectiveMaxBatchChars);
 
     const processedLastBlock = capActiveBlock(lastBlock);
@@ -701,18 +692,22 @@
     // Comprobar si con el corte de exclusión previo ya cabe todo en inputBudget; si no cabe,
     // usar el objetivo de histéresis (~65 % de inputBudget) para abrir margen para varios pasos.
     const minIncludedIdx = currentExcludeEndIdx >= 0 ? currentExcludeEndIdx + 1 : 0;
+    const hasExcludedActiveAlready = !lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1 && currentExcludeEndIdx > lastUserBlockIdx;
+    const noteReserveTokens = hasExcludedActiveAlready ? EXCLUDED_STEPS_NOTE_RESERVE_TOKENS : 0;
     const neededWithPreviousCut = processedHistoricalBlocks.reduce((acc, block, bIdx) => {
       if (bIdx === lastUserBlockIdx) return acc;
       if (bIdx < minIncludedIdx) return acc;
       return acc + estimateHistoryTokens(block, model);
-    }, currentTokens + reservedUserTokens);
+    }, currentTokens + reservedUserTokens + noteReserveTokens);
 
     const needsNewExclusionCut = neededWithPreviousCut > inputBudget;
+    const willNeedNoteReserve = hasExcludedActiveAlready || (needsNewExclusionCut && !lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1);
+    const activeNoteReserve = willNeedNoteReserve ? EXCLUDED_STEPS_NOTE_RESERVE_TOKENS : 0;
     const windowLimit = needsNewExclusionCut
-      ? Math.max(currentTokens + reservedUserTokens, Math.floor(inputBudget * WINDOW_HYSTERESIS_TARGET_RATIO))
+      ? Math.max(currentTokens + reservedUserTokens + activeNoteReserve, Math.floor(inputBudget * WINDOW_HYSTERESIS_TARGET_RATIO))
       : inputBudget;
 
-    let remainingBudget = windowLimit - currentTokens - reservedUserTokens;
+    let remainingBudget = windowLimit - currentTokens - reservedUserTokens - activeNoteReserve;
     let reachedUserBlock = false;
     let newExcludeEndIdx = currentExcludeEndIdx;
 
@@ -753,19 +748,13 @@
       }
     }
 
-    // Nota sintética determinista tras el mensaje user del turno cuando se excluyen pasos del turno activo.
-    const excludedStepsNoteMaxChars = typeof options.excludedStepsNoteMaxChars === 'number'
-      ? Math.max(100, Math.floor(options.excludedStepsNoteMaxChars))
-      : EXCLUDED_STEPS_NOTE_MAX_CHARS;
+    // Nota sintética determinista adjunta al mensaje user del turno cuando se excluyen pasos del turno activo.
     const excludedStepsNoteText = excludedActiveBlocks.length > 0
-      ? buildExcludedStepsNote(excludedActiveBlocks, excludedStepsNoteMaxChars)
+      ? buildExcludedStepsNote(excludedActiveBlocks)
       : null;
 
     if (reservedUserBlock && !reachedUserBlock) {
       if (excludedStepsNoteText) {
-        // Un mensaje `user` tras `user` o un `system` en mitad del diálogo puede ser rechazado por plantillas estrictas:
-        // se antepone como nota en el propio bloque del `user` o se añade al bloque `system` de memoria;
-        // aquí se adjunta al mensaje `user` reservado para no romper alternancia user/assistant ni mover mensajes system.
         const userMsg = reservedUserBlock[0];
         const clonedUser = { ...userMsg };
         if (typeof clonedUser.content === 'string') {
@@ -778,6 +767,7 @@
           clonedUser.content = excludedStepsNoteText;
         }
         includedHistoricalBlocks.unshift([clonedUser, ...reservedUserBlock.slice(1)]);
+        currentTokens += estimateTextTokens(excludedStepsNoteText);
       } else {
         includedHistoricalBlocks.unshift(reservedUserBlock);
       }
@@ -876,14 +866,9 @@
     }
 
     // Evitar gastar una llamada al resumidor e invalidar la caché cuando los turnos cerrados apenas ocupan contexto.
-    const minCompressibleRatio = typeof options.minCompressibleBudgetRatio === 'number'
-      ? options.minCompressibleBudgetRatio
-      : MIN_COMPRESSIBLE_BUDGET_RATIO;
-    if (minCompressibleRatio > 0) {
-      const compressibleTokens = estimateHistoryTokens(messagesSinceCheckpoint, model);
-      if (compressibleTokens < (inputBudget * minCompressibleRatio)) {
-        return false;
-      }
+    const compressibleTokens = estimateHistoryTokens(messagesSinceCheckpoint, model);
+    if (compressibleTokens < (inputBudget * MIN_COMPRESSIBLE_BUDGET_RATIO)) {
+      return false;
     }
 
     return true;
@@ -893,8 +878,7 @@
    * Construye una transcripción neutral en texto plano del historial para el resumidor.
    * Evita enviar turnos conversacionales nativos (role: 'assistant'/'tool') que inducen
    * inercia de rol agéntico o emisión de nuevas llamadas a herramientas.
-   * Si se pasa `maxTranscriptChars` (o `totalContextLimit`/`maxInputTokens`), acota la transcripción
-   * para que quepa holgadamente en el presupuesto de entrada del modelo resumidor.
+   * Acota siempre la transcripción al presupuesto de entrada del modelo resumidor (`calculateInputBudget`).
    */
   function formatHistoryTranscript(messages = [], options = {}) {
     if (!Array.isArray(messages) || messages.length === 0) return '';
@@ -923,16 +907,9 @@
         if (text) parts.push(text);
         if (toolCalls.length > 0) {
           const callDescs = toolCalls.map(tc => {
-            const name = tc?.function?.name || tc?.name || 'tool';
-            const rawArgs = tc?.function?.arguments ?? tc?.arguments;
-            let argsStr = '';
-            if (typeof rawArgs === 'string') {
-              argsStr = rawArgs;
-            } else if (rawArgs && typeof rawArgs === 'object') {
-              try { argsStr = JSON.stringify(rawArgs); } catch (_) { argsStr = ''; }
-            }
+            const { name, argsText } = readToolCallSpec(tc);
             // Los argumentos (p. ej. el contenido de write_file) tienen el mismo tope que los resultados.
-            return argsStr ? `${name}(${truncateToolContent(argsStr, maxToolChars, name)})` : name;
+            return argsText ? `${name}(${truncateToolContent(argsText, maxToolChars, name)})` : name;
           });
           parts.push(`[Called tools: ${callDescs.join(', ')}]`);
         }
@@ -948,9 +925,7 @@
     });
 
     const transcript = lines.join('\n\n');
-    const maxTranscriptChars = typeof options.maxTranscriptChars === 'number' && options.maxTranscriptChars > 0
-      ? Math.floor(options.maxTranscriptChars)
-      : Math.max(2000, Math.floor(calculateInputBudget(options) * 0.8 * 2.5));
+    const maxTranscriptChars = Math.max(2000, Math.floor(calculateInputBudget(options) * 0.8 * 2.5));
     if (transcript.length > maxTranscriptChars) {
       const head = transcript.slice(0, Math.floor(maxTranscriptChars * 0.7));
       const tail = transcript.slice(-Math.floor(maxTranscriptChars * 0.2));
@@ -1058,6 +1033,12 @@
       memoryBlock,
       ...activeTurnMessages
     ];
+
+    // Reiniciar la histéresis del turno activo: el historial previo cambió de tamaño tras compactar.
+    if (activeTurnMessages.length > 0) {
+      const cutKey = activeTurnCutKey(activeTurnMessages[0]);
+      if (cutKey) activeTurnCutState.delete(cutKey);
+    }
 
     const compressedTokens = estimateHistoryTokens(newMessages, options.model);
 

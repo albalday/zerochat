@@ -257,7 +257,7 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
   assert.ok(prefixChanges <= 10, `Demasiados cambios de prefijo para caché KV: ${prefixChanges}`);
 
   // Nota sintética determinista cuando la ventana excluye pasos del turno activo (presupuesto estrecho)
-  // y prueba en borde exacto N / N+1 de excludedStepsNoteMaxChars.
+  // y prueba en borde exacto N / N+1 sobre el tope real (EXCLUDED_STEPS_NOTE_MAX_CHARS = 4000).
   const tightMessages = [
     { role: 'system', content: 'Sys' },
     { id: 'u_tight_note', role: 'user', content: 'Analiza todo.' }
@@ -278,22 +278,23 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
   assert.match(withNote.messages[1].content, /Earlier tool calls in this turn omitted/);
   assert.match(withNote.messages[1].content, /read_file\(\{"path":"f0\.js"\}\)/);
 
-  // Borde exacto N y N+1 sobre el tope de la nota sintética
-  const noteOnly = withNote.messages[1].content.slice('Analiza todo.\n\n'.length);
-  const exactN = ChatContextManager.buildOptimizedContext(tightMessages, {
-    maxInputTokens: 1500,
-    maxHistoricalToolChars: 1200,
-    maxActiveToolChars: 2000,
-    excludedStepsNoteMaxChars: noteOnly.length
-  });
-  assert.doesNotMatch(exactN.messages[1].content, /omitted from this summary due to size limit/);
-  const overN = ChatContextManager.buildOptimizedContext(tightMessages, {
-    maxInputTokens: 1500,
-    maxHistoricalToolChars: 1200,
-    maxActiveToolChars: 2000,
-    excludedStepsNoteMaxChars: noteOnly.length - 1
-  });
-  assert.match(overN.messages[1].content, /omitted from this summary due to size limit/);
+  // Borde exacto N=4000 y N+1=4001 sobre el tope real de la nota sintética (sin opción exclusiva de test).
+  const buildNoteOverflowTurn = (id, count) => {
+    const msgs = [{ role: 'system', content: 'Sys' }, { id, role: 'user', content: 'Analiza.' }];
+    for (let i = 0; i < count; i++) {
+      msgs.push(
+        { role: 'assistant', content: null, tool_calls: [{ id: `ov_${i}`, function: { name: 'read_file', arguments: JSON.stringify({ path: `src/module_${String(i).padStart(2, '0')}_${'a'.repeat(110)}.js` }) } }] },
+        { role: 'tool', tool_call_id: `ov_${i}`, name: 'read_file', content: 'Z'.repeat(3000) }
+      );
+    }
+    return ChatContextManager.buildOptimizedContext(msgs, { maxInputTokens: 2000, maxHistoricalToolChars: 1200, maxActiveToolChars: 2000 });
+  };
+  const under4000 = buildNoteOverflowTurn('u_note_under', 25);
+  assert.doesNotMatch(under4000.messages[1].content, /omitted from this summary due to size limit/);
+  const over4000 = buildNoteOverflowTurn('u_note_over', 35);
+  assert.match(over4000.messages[1].content, /omitted from this summary due to size limit/);
+  const noteTextOver = over4000.messages[1].content.slice('Analiza.\n\n'.length);
+  assert.ok(noteTextOver.length <= 4000, `La nota sintética no debe superar 4000 chars (obtenido: ${noteTextOver.length})`);
 });
 
 test('ContextManager - recorta evidencia visual (image_url) de turnos cerrados y pasos podados conservando la del turno activo', () => {
@@ -552,17 +553,16 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   assert.match(callWithArgs(101), /Truncado por ChatContextManager: 1 caracteres omitidos de la salida de write_file/);
 
   // La transcripción para el resumidor se acota siempre (incluso con totalContextLimit: null usando el respaldo 128K)
-  // con aviso propio y en borde exacto N / N+1.
+  // con aviso propio y en borde exacto N / N+1 (maxInputTokens=1000 -> tope exacto 2000 chars).
   const hugeTranscript = ChatContextManager.formatHistoryTranscript(
     Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `Mensaje ${i}: ${'x'.repeat(500)}` })),
     { maxInputTokens: 1500 }
   );
   assert.match(hugeTranscript, /Transcript truncated: \d+ characters omitted to fit the summarizer budget/);
 
-  const baseForEdge = [{ role: 'user', content: 'A'.repeat(2500) }];
-  const exactEdge = ChatContextManager.formatHistoryTranscript(baseForEdge, { maxTranscriptChars: 2506 });
-  assert.equal(exactEdge, `User: ${'A'.repeat(2500)}`);
-  const overEdge = ChatContextManager.formatHistoryTranscript(baseForEdge, { maxTranscriptChars: 2505 });
+  const exactEdge = ChatContextManager.formatHistoryTranscript([{ role: 'user', content: 'A'.repeat(1994) }], { maxInputTokens: 1000 });
+  assert.equal(exactEdge, `User: ${'A'.repeat(1994)}`);
+  const overEdge = ChatContextManager.formatHistoryTranscript([{ role: 'user', content: 'A'.repeat(1995) }], { maxInputTokens: 1000 });
   assert.match(overEdge, /Transcript truncated: 1 characters omitted to fit the summarizer budget/);
 
   // Con totalContextLimit: null también aplica el respaldo de 128K (calculateInputBudget -> 111104 * 2 = 222208 chars).
