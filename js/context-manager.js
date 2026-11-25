@@ -84,6 +84,10 @@
   // 2. Abstracción de Estimación de Tokens (Token Estimator)
   // ==========================================================================
 
+  // Caracteres por token que asume el estimador para código o JSON y para texto.
+  const CODE_CHARS_PER_TOKEN = 2.9;
+  const TEXT_CHARS_PER_TOKEN = 3.6;
+
   /**
    * Estimador genérico y tolerante para cadenas de texto.
    * Aplica coeficientes según naturaleza del contenido (texto vs código/JSON).
@@ -95,7 +99,7 @@
 
     // Código o JSON (densidad de caracteres de puntuación alta)
     const isCodeOrJson = text.includes('{') || text.includes('function') || text.includes('const ') || text.includes('```');
-    const ratio = isCodeOrJson ? 2.9 : 3.6;
+    const ratio = isCodeOrJson ? CODE_CHARS_PER_TOKEN : TEXT_CHARS_PER_TOKEN;
 
     return Math.max(1, Math.ceil(len / ratio));
   }
@@ -200,29 +204,24 @@
   const WINDOW_HYSTERESIS_TARGET_RATIO = 0.65;      // Objetivo de histéresis al recortar el turno en curso para preservar la caché KV varios pasos
   const CHARS_PER_TOKEN_ESTIMATE = 3;               // Relación conservadora caracteres/token para convertir presupuestos
   const EXCLUDED_STEPS_NOTE_MAX_CHARS = 4000;       // Tope de la nota sintética determinista que resume las llamadas excluidas del turno activo
-  const EXCLUDED_STEPS_NOTE_RESERVE_TOKENS = Math.ceil(EXCLUDED_STEPS_NOTE_MAX_CHARS / CHARS_PER_TOKEN_ESTIMATE);
+  // La nota lleva argumentos JSON: se reserva lo que el estimador cuenta para una nota del tope con su separador.
+  const EXCLUDED_STEPS_NOTE_RESERVE_TOKENS = Math.ceil((EXCLUDED_STEPS_NOTE_MAX_CHARS + 2) / CODE_CHARS_PER_TOKEN);
   const EXCLUDED_CALL_ARG_MAX_CHARS = 160;          // Tope por argumento canónico en la nota sintética de pasos excluidos
 
   const { serializeContent } = Utils;
 
-  /** Extrae `{ name, argsText }` de un `tool_call` (con JSON canónico opcional). */
+  /**
+   * Extrae `{ name, argsText }` de un `tool_call`: los argumentos tal como llegaron o, con `canonical`, en el texto
+   * canónico que también usa el control de bucles (Utils.canonicalToolArguments).
+   */
   function readToolCallSpec(tc, { canonical = false } = {}) {
     const name = tc?.function?.name || tc?.name || 'tool';
     const rawArgs = tc?.function?.arguments ?? tc?.arguments;
+    if (canonical) return { name, argsText: Utils.canonicalToolArguments(rawArgs) };
+    if (typeof rawArgs === 'string') return { name, argsText: rawArgs };
     let argsText = '';
-    if (typeof rawArgs === 'string') {
-      if (canonical) {
-        const trimmed = rawArgs.trim();
-        try { argsText = Utils.canonicalJson(JSON.parse(trimmed)); } catch (_) { argsText = trimmed; }
-      } else {
-        argsText = rawArgs;
-      }
-    } else if (rawArgs && typeof rawArgs === 'object') {
-      if (canonical) {
-        argsText = Utils.canonicalJson(rawArgs);
-      } else {
-        try { argsText = JSON.stringify(rawArgs); } catch (_) { argsText = ''; }
-      }
+    if (rawArgs && typeof rawArgs === 'object') {
+      try { argsText = JSON.stringify(rawArgs); } catch (_) { argsText = ''; }
     }
     return { name, argsText };
   }
@@ -339,21 +338,12 @@
     const { limits, hasOversized } = allocateProportionalLimits(sections.map(s => s.length), availableBudget, { minShare: 150 });
     if (!hasOversized) return sections.join(separator);
 
-    return sections.map((sec, idx) => {
-      const share = limits[idx];
-      if (sec.length <= share) return sec;
-      const headLen = Math.floor(share * 0.7);
-      const tailLen = Math.floor(share * 0.2);
-      const head = sec.slice(0, headLen);
-      const tail = sec.slice(-tailLen);
-      const omitted = sec.length - (headLen + tailLen);
-      return `${head}\n\n[... Truncado fragmento ${idx + 1}: ${omitted} caracteres omitidos de ${toolName} ...]\n\n${tail}`;
-    }).join(separator);
+    return sections.map((sec, idx) => (sec.length <= limits[idx]
+      ? sec
+      : truncateMiddle(sec, limits[idx], omitted => `[... Truncado fragmento ${idx + 1}: ${omitted} caracteres omitidos de ${toolName} ...]`)
+    )).join(separator);
   }
 
-  /**
-   * Trunca de forma segura el contenido de un resultado de herramienta.
-   */
   /**
    * Recorta un texto a `maxChars` conservando el 70 % inicial y el 20 % final, con el aviso que devuelve
    * `notice(caracteresOmitidos)` en medio.
@@ -364,6 +354,10 @@
     return `${head}\n\n${notice(str.length - head.length - tail.length)}\n\n${tail}`;
   }
 
+  /**
+   * Trunca de forma segura el contenido de un resultado de herramienta; una salida en secciones `---` (fragmentos de
+   * read_knowledge_chunk) reparte el tope entre ellas para no perder fragmentos enteros.
+   */
   function truncateToolContent(content, maxChars = DEFAULT_MAX_ACTIVE_TOOL_CHARS, toolName = 'tool') {
     const str = serializeContent(content);
     if (str.length <= maxChars) {
@@ -472,6 +466,125 @@
     return block => capToolBatchBlock(block, perToolChars, batchChars);
   }
 
+  /** Añade `text` al final del contenido (texto o partes multimodales) de una copia de `message`. */
+  function appendTextToMessage(message, text) {
+    if (Array.isArray(message.content)) return { ...message, content: [...message.content, { type: 'text', text }] };
+    return { ...message, content: message.content ? `${message.content}\n\n${text}` : text };
+  }
+
+  /**
+   * Poda los pasos del turno en curso (`blocks` desde `lastUserBlockIdx + 1`) cuando no caben en el presupuesto:
+   * reaplica el corte recordado, reserva ACTIVE_RECENT_BUDGET_RATIO para los pasos recientes completos y, si aun así
+   * se supera, poda también los recientes hasta el objetivo de histéresis. Modifica `blocks` y devuelve el nuevo
+   * corte de poda y si la ventana debe avanzar también el de exclusión porque la poda no bajó al objetivo.
+   */
+  function pruneActiveTurn(blocks, { lastUserBlockIdx, pruneEndIdx: previousPruneEndIdx, excludeEndIdx, fixedTokens, lastBlockTokens, inputBudget, model, pruneBlock }) {
+    const tokensOf = block => estimateHistoryTokens(block, model);
+    let pruneEndIdx = previousPruneEndIdx;
+    for (let bIdx = lastUserBlockIdx + 1; bIdx <= pruneEndIdx; bIdx++) blocks[bIdx] = pruneBlock(blocks[bIdx]);
+
+    const firstKeptIdx = Math.max(lastUserBlockIdx + 1, excludeEndIdx + 1);
+    const userBlockTokens = tokensOf(blocks[lastUserBlockIdx]);
+    const activeTurnTokens = () => fixedTokens + userBlockTokens
+      + blocks.slice(firstKeptIdx).reduce((acc, block) => acc + tokensOf(block), 0);
+    if (activeTurnTokens() <= inputBudget) return { pruneEndIdx, exclusionCutDue: false };
+
+    // Pasos recientes completos hasta la reserva (contando el último bloque); los anteriores se podan.
+    const recentCapTokens = Math.max(lastBlockTokens, Math.floor(inputBudget * ACTIVE_RECENT_BUDGET_RATIO));
+    let recentUsed = lastBlockTokens;
+    let newPruneEndIdx = lastUserBlockIdx;
+    for (let bIdx = blocks.length - 1; bIdx > lastUserBlockIdx; bIdx--) {
+      if (bIdx <= pruneEndIdx) {
+        newPruneEndIdx = Math.max(newPruneEndIdx, bIdx);
+        break;
+      }
+      const blockTokens = tokensOf(blocks[bIdx]);
+      if (recentUsed + blockTokens > recentCapTokens) {
+        newPruneEndIdx = bIdx;
+        break;
+      }
+      recentUsed += blockTokens;
+    }
+    for (let bIdx = pruneEndIdx + 1; bIdx <= newPruneEndIdx; bIdx++) blocks[bIdx] = pruneBlock(blocks[bIdx]);
+    pruneEndIdx = Math.max(pruneEndIdx, newPruneEndIdx);
+
+    // Si sigue sin caber, se podan también los recientes (nunca el último bloque) hasta el objetivo de histéresis.
+    const targetTokens = Math.floor(inputBudget * WINDOW_HYSTERESIS_TARGET_RATIO);
+    let total = activeTurnTokens();
+    if (total > inputBudget) {
+      for (let bIdx = pruneEndIdx + 1; bIdx < blocks.length; bIdx++) {
+        const before = tokensOf(blocks[bIdx]);
+        blocks[bIdx] = pruneBlock(blocks[bIdx]);
+        total -= before - tokensOf(blocks[bIdx]);
+        pruneEndIdx = bIdx;
+        if (total <= targetTokens) break;
+      }
+    }
+    return { pruneEndIdx, exclusionCutDue: total > targetTokens };
+  }
+
+  /**
+   * Ventana deslizante contigua de más reciente a más antiguo: se detiene en el primer bloque que no cabe (sin huecos),
+   * respeta el corte de exclusión recordado y conserva siempre el `user` del turno en curso, al que adjunta la nota de
+   * los pasos del turno que quedan fuera. Si hace falta un corte nuevo, abre margen hasta el objetivo de histéresis.
+   */
+  function slideWindow(blocks, { lastUserBlockIdx, excludeEndIdx, exclusionCutDue, fixedTokens, inputBudget, model }) {
+    const tokensOf = block => estimateHistoryTokens(block, model);
+    const hasActiveTurn = lastUserBlockIdx !== -1;
+    const userBlock = hasActiveTurn ? blocks[lastUserBlockIdx] : null;
+    const userTokens = userBlock ? tokensOf(userBlock) : 0;
+    const hadExcludedActive = hasActiveTurn && excludeEndIdx > lastUserBlockIdx;
+
+    const keptWithPreviousCut = blocks.reduce((acc, block, bIdx) => (
+      bIdx === lastUserBlockIdx || bIdx <= excludeEndIdx ? acc : acc + tokensOf(block)
+    ), 0);
+    const needsNewCut = exclusionCutDue
+      || fixedTokens + userTokens + (hadExcludedActive ? EXCLUDED_STEPS_NOTE_RESERVE_TOKENS : 0) + keptWithPreviousCut > inputBudget;
+    const noteReserve = hadExcludedActive || (needsNewCut && hasActiveTurn) ? EXCLUDED_STEPS_NOTE_RESERVE_TOKENS : 0;
+    const reservedTokens = fixedTokens + userTokens + noteReserve;
+    const windowLimit = needsNewCut
+      ? Math.max(reservedTokens, Math.floor(inputBudget * WINDOW_HYSTERESIS_TARGET_RATIO))
+      : inputBudget;
+
+    const included = [];
+    let remaining = windowLimit - reservedTokens;
+    let reachedUser = false;
+    let cutIdx = -1;
+    let newExcludeEndIdx = excludeEndIdx;
+    for (let bIdx = blocks.length - 1; bIdx >= 0; bIdx--) {
+      if (bIdx === lastUserBlockIdx) {
+        included.unshift(userBlock);
+        reachedUser = true;
+        continue;
+      }
+      if (bIdx <= excludeEndIdx) {
+        cutIdx = bIdx;
+        break;
+      }
+      const blockTokens = tokensOf(blocks[bIdx]);
+      if (blockTokens > remaining) {
+        newExcludeEndIdx = Math.max(newExcludeEndIdx, bIdx);
+        cutIdx = bIdx;
+        break;
+      }
+      included.unshift(blocks[bIdx]);
+      remaining -= blockTokens;
+    }
+
+    // Queda fuera todo lo anterior al corte salvo el `user` del turno en curso.
+    const excluded = blocks.slice(0, cutIdx + 1).filter((_, bIdx) => bIdx !== lastUserBlockIdx);
+    if (userBlock && !reachedUser) {
+      const excludedActive = blocks.slice(lastUserBlockIdx + 1, cutIdx + 1);
+      const note = excludedActive.length > 0 ? buildExcludedStepsNote(excludedActive) : null;
+      included.unshift(note ? [appendTextToMessage(userBlock[0], note), ...userBlock.slice(1)] : userBlock);
+    }
+    return {
+      included,
+      excludedCount: excluded.reduce((acc, block) => acc + block.length, 0),
+      excludeEndIdx: newExcludeEndIdx
+    };
+  }
+
   /**
    * Construye el contexto optimizado aplicando presupuesto, poda y ventana deslizante.
    * `options.activeTurnCut` (`{ cut: null }`, uno por ejecución del bucle) guarda entre pasos el corte de poda y
@@ -479,7 +592,6 @@
    */
   function buildOptimizedContext(rawMessages = [], options = {}) {
     const model = options.model || '';
-    const providerType = options.providerType || 'openai';
     const inputBudget = calculateInputBudget(options);
 
     if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
@@ -523,53 +635,29 @@
       };
     }
 
-    // 3. Separar el Último Turno (Footer crítico que jamás se elimina)
-    // El último turno incluye el último bloque atómico (ej: último user prompt o tool en curso)
+    // 3. El último bloque atómico (último user o paso en curso) se envía siempre, con el techo activo.
     const atomicBlocks = groupIntoAtomicBlocks(conversationMessages);
-    const lastBlock = atomicBlocks.pop(); // Último bloque indispensable
-
-    // Aplicar techo de seguridad individual y agregado por lote a herramientas del turno en curso (acotado al inputBudget)
+    const lastBlock = atomicBlocks.pop();
     const capActiveBlock = createActiveBlockCap(inputBudget);
-
     const processedLastBlock = capActiveBlock(lastBlock);
 
     const systemTokens = estimateHistoryTokens(systemMessages, model);
-    const toolDefsTokens = estimateToolDefinitionsTokens(options.toolDefinitions);
     const extraInputTokens = Number.isFinite(options.extraInputTokens) && options.extraInputTokens > 0
       ? Math.round(options.extraInputTokens)
       : 0;
     const lastBlockTokens = estimateHistoryTokens(processedLastBlock, model);
+    // Lo que se envía siempre: sistema, definiciones de herramientas, calibración y último bloque.
+    const fixedTokens = systemTokens + estimateToolDefinitionsTokens(options.toolDefinitions) + extraInputTokens + lastBlockTokens;
 
-    let currentTokens = systemTokens + toolDefsTokens + extraInputTokens + lastBlockTokens;
-
-    // 4. Poda para turnos pasados cerrados (anteriores al último mensaje user) y poda progresiva intra-turno si el
-    // turno en curso supera el presupuesto por sí solo: mantiene a techo activo solo los pasos más recientes que quepan
-    // en el presupuesto activo, conservando siempre el mensaje user del turno.
+    // 4. Los turnos cerrados (antes del último user) se podan; los pasos del turno en curso llevan el techo activo y
+    // solo se podan si el turno no cabe. Sin un user en curso (el último bloque es el user) no hay turno activo.
     const lastTurnStartsAtLastBlock = lastBlock[0]?.role === 'user';
-    let lastUserBlockIdx = -1;
-    if (!lastTurnStartsAtLastBlock) {
-      for (let i = atomicBlocks.length - 1; i >= 0; i--) {
-        if (atomicBlocks[i][0]?.role === 'user') {
-          lastUserBlockIdx = i;
-          break;
-        }
-      }
-    }
+    const lastUserBlockIdx = lastTurnStartsAtLastBlock ? -1 : atomicBlocks.findLastIndex(block => block[0]?.role === 'user');
+    const hasActiveTurn = lastUserBlockIdx !== -1;
 
-    // Histéresis: cuando el turno supera inputBudget, el punto de poda/exclusión avanza de una vez hasta el objetivo
-    // (~65 % de inputBudget) y se conserva fijo mientras los pasos nuevos sigan cabiendo, preservando el prefijo de la
-    // caché KV. El corte pertenece a la ejecución que lo guarda y solo vale para el mismo presupuesto y turno.
-    const activeTurnCut = options.activeTurnCut || null;
-    const hasActiveTurn = !lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1;
-    let hysteresisState = hasActiveTurn ? activeTurnCut?.cut || null : null;
-    if (hysteresisState && (hysteresisState.budget !== inputBudget || hysteresisState.userBlockIdx !== lastUserBlockIdx)) {
-      hysteresisState = null;
-    }
-
-    const pruneBlockTools = block => block
-      // Al podar un bloque (turno cerrado o paso antiguo del turno activo), retirar también su mensaje de evidencia
-      // visual (TOOL_EVIDENCE_FLAG): el resultado textual del mensaje `tool` ya describe la imagen/captura y así
-      // las imágenes antiguas dejan de consumir ~1200 tokens cada una.
+    let prunedToolsCount = 0;
+    const pruneBlock = block => block
+      // Al podar un bloque se retira también su evidencia visual: el resultado textual ya describe la imagen.
       .filter(m => !m?.[TOOL_EVIDENCE_FLAG])
       .map(m => {
         if (m.role !== 'tool') return m;
@@ -577,209 +665,51 @@
         if (pruned._prunedByContextManager) prunedToolsCount++;
         return pruned;
       });
+    const blocks = atomicBlocks.map((block, bIdx) => (
+      lastTurnStartsAtLastBlock || bIdx < lastUserBlockIdx ? pruneBlock(block) : capActiveBlock(block)
+    ));
 
-    let prunedToolsCount = 0;
-    let processedHistoricalBlocks = atomicBlocks.map((block, bIdx) => {
-      const isClosedTurn = lastTurnStartsAtLastBlock || bIdx < lastUserBlockIdx;
-      if (!isClosedTurn) return capActiveBlock(block);
-      return pruneBlockTools(block);
-    });
-
-    // Aplicar primero el corte de poda recordado por la histéresis (mantiene el prefijo estable entre pasos).
-    let currentPruneEndIdx = hysteresisState ? Math.min(hysteresisState.pruneEndIdx, processedHistoricalBlocks.length - 1) : lastUserBlockIdx;
-    let currentExcludeEndIdx = hysteresisState ? Math.min(hysteresisState.excludeEndIdx, processedHistoricalBlocks.length - 1) : -1;
-
-    if (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1 && currentPruneEndIdx > lastUserBlockIdx) {
-      for (let bIdx = lastUserBlockIdx + 1; bIdx <= currentPruneEndIdx; bIdx++) {
-        processedHistoricalBlocks[bIdx] = pruneBlockTools(processedHistoricalBlocks[bIdx]);
-      }
-    }
-
-    // Si la poda de este paso no baja el turno al objetivo de histéresis, el corte de exclusión avanza también ahora:
-    // si no, cada paso nuevo volvería a superar inputBudget y a mover el corte de poda, cambiando el prefijo en cada paso.
+    // Histéresis: el corte de poda y exclusión de la ejecución avanza de una vez y se mantiene mientras los pasos
+    // nuevos quepan, preservando el prefijo de la caché KV. Solo vale para el mismo presupuesto y turno.
+    const activeTurnCut = options.activeTurnCut || null;
+    let previousCut = hasActiveTurn ? activeTurnCut?.cut || null : null;
+    if (previousCut && (previousCut.budget !== inputBudget || previousCut.userBlockIdx !== lastUserBlockIdx)) previousCut = null;
+    const lastIdx = blocks.length - 1;
+    const excludeEndIdx = previousCut ? Math.min(previousCut.excludeEndIdx, lastIdx) : -1;
+    let pruneEndIdx = previousCut ? Math.min(previousCut.pruneEndIdx, lastIdx) : lastUserBlockIdx;
     let exclusionCutDue = false;
-
-    // Evaluar si el turno en curso (desde el último user en adelante, respetando currentExcludeEndIdx) cabe en inputBudget.
-    if (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1) {
-      const firstActiveKept = Math.max(lastUserBlockIdx + 1, currentExcludeEndIdx + 1);
-      const userBlockTokens = estimateHistoryTokens(processedHistoricalBlocks[lastUserBlockIdx], model);
-      const activeKeptTokens = processedHistoricalBlocks
-        .slice(firstActiveKept)
-        .reduce((acc, block) => acc + estimateHistoryTokens(block, model), 0);
-
-      if (currentTokens + userBlockTokens + activeKeptTokens > inputBudget) {
-        // 4a. Reservar como máximo ACTIVE_RECENT_BUDGET_RATIO del inputBudget para pasos recientes completos
-        // del turno en curso (contando lastBlock), dejando el resto del presupuesto para pasos antiguos podados.
-        const recentCapTokens = Math.max(lastBlockTokens, Math.floor(inputBudget * ACTIVE_RECENT_BUDGET_RATIO));
-        let recentUsed = lastBlockTokens;
-        let newPruneEndIdx = lastUserBlockIdx;
-
-        for (let bIdx = processedHistoricalBlocks.length - 1; bIdx > lastUserBlockIdx; bIdx--) {
-          if (bIdx <= currentPruneEndIdx) {
-            newPruneEndIdx = Math.max(newPruneEndIdx, bIdx);
-            break;
-          }
-          const block = processedHistoricalBlocks[bIdx];
-          const blockTokens = estimateHistoryTokens(block, model);
-          if (recentUsed + blockTokens <= recentCapTokens) {
-            recentUsed += blockTokens;
-          } else {
-            newPruneEndIdx = bIdx;
-            break;
-          }
-        }
-
-        // Podar hasta newPruneEndIdx y, si aun así se supera el objetivo de histéresis, seguir podando pasos
-        // recientes hacia atrás mientras haya alguno sin podar (dejando siempre lastBlock intacto).
-        const targetBudget = Math.floor(inputBudget * WINDOW_HYSTERESIS_TARGET_RATIO);
-        for (let bIdx = currentPruneEndIdx + 1; bIdx <= newPruneEndIdx; bIdx++) {
-          processedHistoricalBlocks[bIdx] = pruneBlockTools(processedHistoricalBlocks[bIdx]);
-        }
-        currentPruneEndIdx = Math.max(currentPruneEndIdx, newPruneEndIdx);
-
-        // Comprobar si tras la poda del turno activo sigue superando inputBudget; si es así, podar también
-        // bloques más recientes que superen el objetivo de histéresis (salvo lastBlock).
-        let totalActiveAfterPrune = currentTokens + userBlockTokens + processedHistoricalBlocks
-          .slice(firstActiveKept)
-          .reduce((acc, block) => acc + estimateHistoryTokens(block, model), 0);
-        if (totalActiveAfterPrune > inputBudget) {
-          for (let bIdx = currentPruneEndIdx + 1; bIdx < processedHistoricalBlocks.length; bIdx++) {
-            const beforeTokens = estimateHistoryTokens(processedHistoricalBlocks[bIdx], model);
-            const prunedBlock = pruneBlockTools(processedHistoricalBlocks[bIdx]);
-            const afterTokens = estimateHistoryTokens(prunedBlock, model);
-            processedHistoricalBlocks[bIdx] = prunedBlock;
-            currentPruneEndIdx = bIdx;
-            totalActiveAfterPrune -= (beforeTokens - afterTokens);
-            if (totalActiveAfterPrune <= targetBudget) break;
-          }
-        }
-        exclusionCutDue = totalActiveAfterPrune > targetBudget;
-      }
+    if (hasActiveTurn) {
+      ({ pruneEndIdx, exclusionCutDue } = pruneActiveTurn(blocks, {
+        lastUserBlockIdx, pruneEndIdx, excludeEndIdx, fixedTokens, lastBlockTokens, inputBudget, model, pruneBlock
+      }));
     }
 
-    // 5. Ventana deslizante contigua hacia atrás (de más reciente a más antiguo) con histéresis:
-    // - Se detiene al primer bloque que no cabe (`break`) para no dejar huecos intermedios.
-    // - Preserva siempre el mensaje `user` del turno en curso.
-    // - Si se excluyen bloques del turno en curso, añade una nota sintética determinista tras el `user`
-    //   y avanza el corte hasta WINDOW_HYSTERESIS_TARGET_RATIO para mantener estable la caché KV.
-    const includedHistoricalBlocks = [];
-    const excludedActiveBlocks = [];
-    let excludedMessagesCount = 0;
-    const reservedUserBlock = (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1)
-      ? processedHistoricalBlocks[lastUserBlockIdx]
-      : null;
-    const reservedUserTokens = reservedUserBlock ? estimateHistoryTokens(reservedUserBlock, model) : 0;
-
-    // Comprobar si con el corte de exclusión previo ya cabe todo en inputBudget; si no cabe,
-    // usar el objetivo de histéresis (~65 % de inputBudget) para abrir margen para varios pasos.
-    const minIncludedIdx = currentExcludeEndIdx >= 0 ? currentExcludeEndIdx + 1 : 0;
-    const hasExcludedActiveAlready = !lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1 && currentExcludeEndIdx > lastUserBlockIdx;
-    const noteReserveTokens = hasExcludedActiveAlready ? EXCLUDED_STEPS_NOTE_RESERVE_TOKENS : 0;
-    const neededWithPreviousCut = processedHistoricalBlocks.reduce((acc, block, bIdx) => {
-      if (bIdx === lastUserBlockIdx) return acc;
-      if (bIdx < minIncludedIdx) return acc;
-      return acc + estimateHistoryTokens(block, model);
-    }, currentTokens + reservedUserTokens + noteReserveTokens);
-
-    const needsNewExclusionCut = exclusionCutDue || neededWithPreviousCut > inputBudget;
-    const willNeedNoteReserve = hasExcludedActiveAlready || (needsNewExclusionCut && !lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1);
-    const activeNoteReserve = willNeedNoteReserve ? EXCLUDED_STEPS_NOTE_RESERVE_TOKENS : 0;
-    const windowLimit = needsNewExclusionCut
-      ? Math.max(currentTokens + reservedUserTokens + activeNoteReserve, Math.floor(inputBudget * WINDOW_HYSTERESIS_TARGET_RATIO))
-      : inputBudget;
-
-    let remainingBudget = windowLimit - currentTokens - reservedUserTokens - activeNoteReserve;
-    let reachedUserBlock = false;
-    let newExcludeEndIdx = currentExcludeEndIdx;
-
-    for (let bIdx = processedHistoricalBlocks.length - 1; bIdx >= 0; bIdx--) {
-      if (bIdx === lastUserBlockIdx) {
-        includedHistoricalBlocks.unshift(reservedUserBlock);
-        currentTokens += reservedUserTokens;
-        reachedUserBlock = true;
-        continue;
-      }
-      if (bIdx <= currentExcludeEndIdx) {
-        for (let skipped = bIdx; skipped >= 0; skipped--) {
-          if (skipped === lastUserBlockIdx) continue;
-          if (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1 && skipped > lastUserBlockIdx) {
-            excludedActiveBlocks.unshift(processedHistoricalBlocks[skipped]);
-          }
-          excludedMessagesCount += processedHistoricalBlocks[skipped].length;
-        }
-        break;
-      }
-      const block = processedHistoricalBlocks[bIdx];
-      const blockTokens = estimateHistoryTokens(block, model);
-
-      if (blockTokens <= remainingBudget) {
-        includedHistoricalBlocks.unshift(block);
-        currentTokens += blockTokens;
-        remainingBudget -= blockTokens;
-      } else {
-        newExcludeEndIdx = Math.max(newExcludeEndIdx, bIdx);
-        for (let skipped = bIdx; skipped >= 0; skipped--) {
-          if (skipped === lastUserBlockIdx) continue;
-          if (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1 && skipped > lastUserBlockIdx) {
-            excludedActiveBlocks.unshift(processedHistoricalBlocks[skipped]);
-          }
-          excludedMessagesCount += processedHistoricalBlocks[skipped].length;
-        }
-        break;
-      }
-    }
-
-    // Nota sintética determinista adjunta al mensaje user del turno cuando se excluyen pasos del turno activo.
-    const excludedStepsNoteText = excludedActiveBlocks.length > 0
-      ? buildExcludedStepsNote(excludedActiveBlocks)
-      : null;
-
-    if (reservedUserBlock && !reachedUserBlock) {
-      if (excludedStepsNoteText) {
-        const userMsg = reservedUserBlock[0];
-        const clonedUser = { ...userMsg };
-        if (typeof clonedUser.content === 'string') {
-          clonedUser.content = clonedUser.content
-            ? `${clonedUser.content}\n\n${excludedStepsNoteText}`
-            : excludedStepsNoteText;
-        } else if (Array.isArray(clonedUser.content)) {
-          clonedUser.content = [...clonedUser.content, { type: 'text', text: excludedStepsNoteText }];
-        } else {
-          clonedUser.content = excludedStepsNoteText;
-        }
-        includedHistoricalBlocks.unshift([clonedUser, ...reservedUserBlock.slice(1)]);
-        currentTokens += estimateTextTokens(excludedStepsNoteText);
-      } else {
-        includedHistoricalBlocks.unshift(reservedUserBlock);
-      }
-      currentTokens += reservedUserTokens;
-    }
+    // 5. Ventana deslizante contigua
+    const window = slideWindow(blocks, { lastUserBlockIdx, excludeEndIdx, exclusionCutDue, fixedTokens, inputBudget, model });
 
     if (activeTurnCut) {
-      activeTurnCut.cut = hasActiveTurn && (currentPruneEndIdx > lastUserBlockIdx || newExcludeEndIdx >= 0)
-        ? { budget: inputBudget, userBlockIdx: lastUserBlockIdx, pruneEndIdx: currentPruneEndIdx, excludeEndIdx: newExcludeEndIdx }
+      activeTurnCut.cut = hasActiveTurn && (pruneEndIdx > lastUserBlockIdx || window.excludeEndIdx >= 0)
+        ? { budget: inputBudget, userBlockIdx: lastUserBlockIdx, pruneEndIdx, excludeEndIdx: window.excludeEndIdx }
         : null;
     }
 
     // 6. Ensamblado final de la lista de mensajes, sin la marca interna de la evidencia visual
     const finalMessages = [
       ...systemMessages,
-      ...includedHistoricalBlocks.flat(),
+      ...window.included.flat(),
       ...processedLastBlock
     ].map(stripToolEvidenceFlag);
-
-    const totalFinalTokens = estimateHistoryTokens(finalMessages, model);
 
     return {
       messages: finalMessages,
       diagnostics: {
         budget: inputBudget,
-        totalTokens: totalFinalTokens,
-        systemTokens: systemTokens,
+        totalTokens: estimateHistoryTokens(finalMessages, model),
+        systemTokens,
         includedCount: finalMessages.length,
-        excludedCount: excludedMessagesCount,
-        prunedToolsCount: prunedToolsCount,
-        strategy: excludedMessagesCount > 0 ? 'sliding_window_truncated' : 'full_history'
+        excludedCount: window.excludedCount,
+        prunedToolsCount,
+        strategy: window.excludedCount > 0 ? 'sliding_window_truncated' : 'full_history'
       }
     };
   }

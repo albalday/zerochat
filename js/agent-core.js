@@ -455,7 +455,7 @@
     try { parsed = JSON.parse(resultText); } catch (_) { return null; }
     if (!parsed || typeof parsed !== 'object' || parsed.success === false) return null;
     if (toolName === 'check_command') {
-      const waitedSeconds = Number(args?.wait_seconds ?? parsed.wait_seconds ?? 0);
+      const waitedSeconds = Number(args?.wait_seconds ?? 0);
       const silentWait = parsed.status === 'running'
         && !parsed.new_output
         && parsed.returned_because === 'wait_elapsed'
@@ -515,14 +515,7 @@
 
     /** Huella de una llamada (nombre y argumentos con las claves ordenadas) para detectar bucles. */
     getToolCallFingerprint(toolCall) {
-      const rawArgs = toolCall.function?.arguments;
-      let args = rawArgs;
-      if (typeof rawArgs === 'string') {
-        const trimmed = rawArgs.trim();
-        try { args = JSON.parse(trimmed); } catch (_) { args = trimmed; }
-      }
-      args = typeof args === 'string' ? args : Utils.canonicalJson(args);
-      return `${toolCall.function?.name || ''}:${args}`;
+      return `${toolCall.function?.name || ''}:${Utils.canonicalToolArguments(toolCall.function?.arguments)}`;
     }
 
     getToolBatchFingerprint(toolCalls) {
@@ -555,7 +548,7 @@
       const lastActivity = new Map();
       const silentWaitCounts = new Map();
       let progressMarks = 0;
-      const track = (_text, toolCalls) => {
+      const track = toolCalls => {
         history.push(this.getToolBatchFingerprint(toolCalls));
         if (history.length > LOOP_HISTORY_SIZE) history.shift();
         return this.detectLoop(history);
@@ -789,7 +782,6 @@
           const compactionOptions = {
             ...connection.contextOptions,
             model: connection.model,
-            providerType: connection.apiType,
             toolDefinitions: stepToolDefinitions,
             extraInputTokens: calibratedInputOffset + extraSystemTokens
           };
@@ -861,7 +853,7 @@
           }
           if (this.isToolCallText(text)) text = '';
 
-          if (trackToolBatch(text, toolCalls) > 0) {
+          if (trackToolBatch(toolCalls) > 0) {
             status = 'loop_detected';
             finish('loop_detected', [text, loopNotice].filter(Boolean).join('\n\n'));
             break;

@@ -102,6 +102,18 @@
   }
 
   /**
+   * Argumentos de una llamada a herramienta como texto canónico: JSON con las claves ordenadas o, si el texto no es
+   * JSON, el texto recortado; '' si no hay argumentos.
+   */
+  function canonicalToolArguments(rawArgs) {
+    if (typeof rawArgs === 'string') {
+      const trimmed = rawArgs.trim();
+      try { return canonicalJson(JSON.parse(trimmed)); } catch (_) { return trimmed; }
+    }
+    return rawArgs === undefined || rawArgs === null ? '' : canonicalJson(rawArgs);
+  }
+
+  /**
    * La decisión de una tarjeta pausada (`{ toolName, args, decision }`) vale solo para la misma llamada:
    * mismo nombre y mismos argumentos, con las claves ordenadas. Al reanudar, el modelo vuelve a generar
    * el paso, y si pide otra cosa se pregunta de nuevo.
@@ -761,6 +773,7 @@
     normalizeBackendUrl,
     normalizeConnectionSettings,
     canonicalJson,
+    canonicalToolArguments,
     matchesToolDecision,
     openImageInNewTab,
     isPreviewable,
