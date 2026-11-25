@@ -112,6 +112,7 @@ test('ContextManager - preserva salidas intactas entre pasos del turno activo y 
     { role: 'tool', tool_call_id: 'c2', name: 'check_agents', content: step2Output },
     { role: 'assistant', content: null, tool_calls: [{ id: 'c3', function: { name: 'check_agents', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'c3', name: 'check_agents', content: step3Exact },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c4', function: { name: 'check_agents', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'c4', name: 'check_agents', content: step3Over }
   ], { totalContextLimit: 150000 });
 
@@ -135,6 +136,56 @@ test('ContextManager - preserva salidas intactas entre pasos del turno activo y 
   ], { maxInputTokens: 3000 });
   const smallTool = smallModel.messages.find(m => m.role === 'tool');
   assert.match(smallTool.content, /Truncado por ChatContextManager/);
+});
+
+test('ContextManager - ventana deslizante contigua sin huecos y tope agregado por lote en borde exacto N y N+1', () => {
+  // 1. Ventana deslizante contigua: si un bloque grande no cabe, detiene el recorrido sin meter bloques más antiguos
+  //    y conserva siempre el mensaje user del turno en curso.
+  const contiguous = ChatContextManager.buildOptimizedContext([
+    { role: 'system', content: 'Sys' },
+    { role: 'user', content: 'Antiguo pequeño' },
+    { role: 'assistant', content: 'Respuesta antigua pequeña' },
+    { role: 'user', content: 'Petición actual' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'big', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'big', name: 'read_file', content: 'B'.repeat(4000) },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'small', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'small', name: 'read_file', content: 'reciente' }
+  ], { maxInputTokens: 600, maxHistoricalToolChars: 4000, maxActiveToolChars: 4000 });
+  const contents = contiguous.messages.map(m => m.content);
+  assert.equal(contents.includes('Antiguo pequeño'), false, 'No debe saltar el bloque grande para colar turnos más antiguos');
+  assert.equal(contents.includes('Petición actual'), true, 'Debe preservar siempre el mensaje user del turno en curso');
+  assert.equal(contiguous.messages.at(-1).content, 'reciente');
+
+  // 2. Tope agregado por lote de herramientas paralelas en borde exacto N y N+1 (en 150K: inputBudget=130904 -> batchMax=117813)
+  const makeBatch = (len1, len2) => ChatContextManager.buildOptimizedContext([
+    { role: 'system', content: 'Sys' },
+    { role: 'user', content: 'Lee dos archivos en paralelo' },
+    { role: 'assistant', content: null, tool_calls: [
+      { id: 'b1', function: { name: 'read_file', arguments: '{"p":"1"}' } },
+      { id: 'b2', function: { name: 'read_file', arguments: '{"p":"2"}' } }
+    ] },
+    { role: 'tool', tool_call_id: 'b1', name: 'read_file', content: 'A'.repeat(len1) },
+    { role: 'tool', tool_call_id: 'b2', name: 'read_file', content: 'B'.repeat(len2) }
+  ], { totalContextLimit: 150000 });
+
+  // Presupuesto de lote para 150K: floor(130904 * 0.30 * 3) = 117813 chars.
+  // Borde exacto N = 58906 + 58907 = 117813 -> ambos intactos.
+  const atLimit = makeBatch(58906, 58907);
+  const atLimitTools = atLimit.messages.filter(m => m.role === 'tool');
+  assert.equal(atLimitTools[0].content.length, 58906);
+  assert.equal(atLimitTools[1].content.length, 58907);
+
+  // Borde N+1 = 58907 + 58907 = 117814 -> ambos se truncan al reparto proporcional (58906) con aviso.
+  const overLimit = makeBatch(58907, 58907);
+  const overLimitTools = overLimit.messages.filter(m => m.role === 'tool');
+  assert.match(overLimitTools[0].content, /Truncado por ChatContextManager/);
+  assert.match(overLimitTools[1].content, /Truncado por ChatContextManager/);
+
+  // Un resultado corto en el mismo lote se conserva entero y cede su cuota al grande.
+  const uneven = makeBatch(1000, 64000);
+  const unevenTools = uneven.messages.filter(m => m.role === 'tool');
+  assert.equal(unevenTools[0].content.length, 1000);
+  assert.equal(unevenTools[1].content.length, 64000);
 });
 
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {

@@ -162,8 +162,72 @@
 
   const DEFAULT_MAX_ACTIVE_TOOL_CHARS = 64000;      // Red de seguridad del turno en curso (por encima de los 60.000 de web, MCP y read_file)
   const DEFAULT_MAX_HISTORICAL_TOOL_CHARS = 4000;   // Poda para herramientas de turnos pasados ya cerrados
+  const ACTIVE_BATCH_BUDGET_RATIO = 0.30;           // Fracción máxima de inputBudget para la suma de resultados tool de un mismo paso
+  const CHARS_PER_TOKEN_ESTIMATE = 3;               // Relación conservadora caracteres/token para convertir presupuestos
 
   const { serializeContent } = Utils;
+
+  /**
+   * Reparte un presupuesto agregado de caracteres entre los mensajes `tool` de un mismo bloque atómico
+   * (lote de llamadas paralelas), respetando también el techo individual `maxPerToolChars`.
+   * Los resultados cortos se conservan íntegros y su sobrante se reparte entre los más largos.
+   */
+  function capToolBatchBlock(block, maxPerToolChars, maxBatchChars) {
+    const toolIndices = [];
+    const serialized = new Map();
+    block.forEach((m, idx) => {
+      if (m && m.role === 'tool') {
+        toolIndices.push(idx);
+        serialized.set(idx, serializeContent(m.content));
+      }
+    });
+    if (toolIndices.length === 0) return block;
+
+    // Primero calcular la longitud tras el techo individual.
+    const cappedLengths = new Map();
+    let totalAfterIndividual = 0;
+    for (const idx of toolIndices) {
+      const len = Math.min(serialized.get(idx).length, maxPerToolChars);
+      cappedLengths.set(idx, len);
+      totalAfterIndividual += len;
+    }
+
+    // Si el lote completo cabe en maxBatchChars (o solo hay una herramienta), basta el techo individual.
+    if (toolIndices.length === 1 || !maxBatchChars || totalAfterIndividual <= maxBatchChars) {
+      return block.map((m, idx) => (serialized.has(idx)
+        ? { ...m, content: truncateToolContent(serialized.get(idx), maxPerToolChars, m.name) }
+        : m));
+    }
+
+    // Reparto proporcional con redistribución del sobrante (igual que truncateMultiSectionToolContent).
+    const initialShare = Math.floor(maxBatchChars / toolIndices.length);
+    let remainingBudget = maxBatchChars;
+    const oversized = [];
+    const limits = new Map();
+
+    for (const idx of toolIndices) {
+      const len = cappedLengths.get(idx);
+      if (len <= initialShare) {
+        limits.set(idx, len);
+        remainingBudget -= len;
+      } else {
+        oversized.push(idx);
+      }
+    }
+
+    if (oversized.length > 0) {
+      const shareForOversized = Math.min(maxPerToolChars, Math.max(200, Math.floor(remainingBudget / oversized.length)));
+      for (const idx of oversized) {
+        limits.set(idx, shareForOversized);
+      }
+    }
+
+    return block.map((m, idx) => {
+      if (!serialized.has(idx)) return m;
+      const limit = limits.get(idx);
+      return { ...m, content: truncateToolContent(serialized.get(idx), limit, m.name) };
+    });
+  }
 
   /**
    * Trunca de forma equilibrada una salida multisección (como múltiples fragmentos devueltos por read_knowledge_chunk).
@@ -369,16 +433,21 @@
     const atomicBlocks = groupIntoAtomicBlocks(conversationMessages);
     const lastBlock = atomicBlocks.pop(); // Último bloque indispensable
 
-    // Aplicar techo de seguridad a herramientas del turno en curso (acotado al presupuesto del modelo)
+    // Aplicar techo de seguridad individual y agregado por lote a herramientas del turno en curso (acotado al inputBudget)
     const isExplicitActiveToolChars = typeof options.maxActiveToolChars === 'number';
+    const maxBatchCharsFromBudget = Math.max(
+      maxHistoricalToolChars,
+      Math.floor(inputBudget * ACTIVE_BATCH_BUDGET_RATIO * CHARS_PER_TOKEN_ESTIMATE)
+    );
     const effectiveMaxActiveChars = isExplicitActiveToolChars
       ? maxActiveToolChars
-      : Math.min(maxActiveToolChars, Math.max(maxHistoricalToolChars, Math.floor(inputBudget * 1.5)));
-    const capActiveTool = m => (m.role === 'tool'
-      ? { ...m, content: truncateToolContent(m.content, effectiveMaxActiveChars, m.name) }
-      : m);
+      : Math.min(maxActiveToolChars, maxBatchCharsFromBudget);
+    const effectiveMaxBatchChars = typeof options.maxActiveBatchToolChars === 'number'
+      ? Math.max(1, Math.floor(options.maxActiveBatchToolChars))
+      : (isExplicitActiveToolChars ? 0 : maxBatchCharsFromBudget);
+    const capActiveBlock = block => capToolBatchBlock(block, effectiveMaxActiveChars, effectiveMaxBatchChars);
 
-    const processedLastBlock = lastBlock.map(capActiveTool);
+    const processedLastBlock = capActiveBlock(lastBlock);
 
     const systemTokens = estimateHistoryTokens(systemMessages, model);
     const lastBlockTokens = estimateHistoryTokens(processedLastBlock, model);
@@ -402,9 +471,9 @@
     let prunedToolsCount = 0;
     let processedHistoricalBlocks = atomicBlocks.map((block, bIdx) => {
       const isClosedTurn = lastTurnStartsAtLastBlock || bIdx < lastUserBlockIdx;
+      if (!isClosedTurn) return capActiveBlock(block);
       return block.map(m => {
         if (m.role !== 'tool') return m;
-        if (!isClosedTurn) return capActiveTool(m);
         const pruned = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
         if (pruned._prunedByContextManager) prunedToolsCount++;
         return pruned;
@@ -439,21 +508,43 @@
       }
     }
 
-    // 5. Ventana deslizante hacia atrás (de más reciente a más antiguo)
+    // 5. Ventana deslizante contigua hacia atrás (de más reciente a más antiguo): se detiene al primer
+    // bloque que no cabe para no dejar huecos intermedios ni invalidar la caché KV de prefijo.
+    // Si el turno en curso se cortó antes de llegar a su mensaje `user`, ese `user` se preserva siempre.
     const includedHistoricalBlocks = [];
     let excludedMessagesCount = 0;
+    const reservedUserBlock = (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1)
+      ? processedHistoricalBlocks[lastUserBlockIdx]
+      : null;
+    const reservedUserTokens = reservedUserBlock ? estimateHistoryTokens(reservedUserBlock, model) : 0;
+    let remainingBudget = inputBudget - currentTokens - reservedUserTokens;
+    let reachedUserBlock = false;
 
     for (let bIdx = processedHistoricalBlocks.length - 1; bIdx >= 0; bIdx--) {
+      if (bIdx === lastUserBlockIdx) {
+        includedHistoricalBlocks.unshift(reservedUserBlock);
+        currentTokens += reservedUserTokens;
+        reachedUserBlock = true;
+        continue;
+      }
       const block = processedHistoricalBlocks[bIdx];
       const blockTokens = estimateHistoryTokens(block, model);
 
-      if (currentTokens + blockTokens <= inputBudget) {
+      if (blockTokens <= remainingBudget) {
         includedHistoricalBlocks.unshift(block);
         currentTokens += blockTokens;
+        remainingBudget -= blockTokens;
       } else {
-        // Bloque no cabe en el presupuesto: se excluye completo
-        excludedMessagesCount += block.length;
+        for (let skipped = bIdx; skipped >= 0; skipped--) {
+          if (skipped === lastUserBlockIdx) continue;
+          excludedMessagesCount += processedHistoricalBlocks[skipped].length;
+        }
+        break;
       }
+    }
+    if (reservedUserBlock && !reachedUserBlock) {
+      includedHistoricalBlocks.unshift(reservedUserBlock);
+      currentTokens += reservedUserTokens;
     }
 
     // 6. Ensamblado final de la lista de mensajes, sin la marca interna de la evidencia visual
