@@ -316,23 +316,40 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
   assert.match(withNote.messages[1].content, /Earlier tool calls in this turn omitted/);
   assert.match(withNote.messages[1].content, /read_file\(\{"path":"f0\.js"\}\)/);
 
-  // Borde exacto N=4000 y N+1=4001 sobre el tope real de la nota sintética (sin opción exclusiva de test).
-  const buildNoteOverflowTurn = (id, count) => {
-    const msgs = [{ role: 'system', content: 'Sys' }, { id, role: 'user', content: 'Analiza.' }];
-    for (let i = 0; i < count; i++) {
+  // Borde exacto N=4000 y N+1=4001 sobre el tope real de la nota sintética (EXCLUDED_STEPS_NOTE_MAX_CHARS).
+  // Los argumentos de las primeras llamadas (siempre excluidas) se alargan hasta que la nota mide justo el tope.
+  const pathOf = (i, pad) => `src/module_${String(i).padStart(2, '0')}_${'a'.repeat(40 + pad)}.js`;
+  const buildNoteTurn = pads => {
+    const msgs = [{ role: 'system', content: 'Sys' }, { role: 'user', content: 'Analiza.' }];
+    for (let i = 0; i < 40; i++) {
       msgs.push(
-        { role: 'assistant', content: null, tool_calls: [{ id: `ov_${i}`, function: { name: 'read_file', arguments: JSON.stringify({ path: `src/module_${String(i).padStart(2, '0')}_${'a'.repeat(110)}.js` }) } }] },
+        { role: 'assistant', content: null, tool_calls: [{ id: `ov_${i}`, function: { name: 'read_file', arguments: JSON.stringify({ path: pathOf(i, pads[i] || 0) }) } }] },
         { role: 'tool', tool_call_id: `ov_${i}`, name: 'read_file', content: 'Z'.repeat(3000) }
       );
     }
-    return ChatContextManager.buildOptimizedContext(msgs, { maxInputTokens: 2000, maxHistoricalToolChars: 1200, maxActiveToolChars: 2000 });
+    const out = ChatContextManager.buildOptimizedContext(msgs, { maxInputTokens: 6000, maxHistoricalToolChars: 1200, maxActiveToolChars: 2000 });
+    return out.messages[1].content.slice('Analiza.\n\n'.length);
   };
-  const under4000 = buildNoteOverflowTurn('u_note_under', 25);
-  assert.doesNotMatch(under4000.messages[1].content, /omitted from this summary due to size limit/);
-  const over4000 = buildNoteOverflowTurn('u_note_over', 35);
-  assert.match(over4000.messages[1].content, /omitted from this summary due to size limit/);
-  const noteTextOver = over4000.messages[1].content.slice('Analiza.\n\n'.length);
-  assert.ok(noteTextOver.length <= 4000, `La nota sintética no debe superar 4000 chars (obtenido: ${noteTextOver.length})`);
+  const padsFor = extra => {
+    const pads = [];
+    for (let i = 0; extra > 0; i++) {
+      pads[i] = Math.min(extra, 80);
+      extra -= pads[i];
+    }
+    return pads;
+  };
+  const baseNote = buildNoteTurn([]);
+  assert.ok(baseNote.length < 4000, `La nota base debe quedar bajo el tope (obtenido: ${baseNote.length})`);
+  const exactNote = buildNoteTurn(padsFor(4000 - baseNote.length));
+  assert.equal(exactNote.length, 4000);
+  assert.doesNotMatch(exactNote, /omitted from this summary due to size limit/);
+  const overNote = buildNoteTurn(padsFor(4001 - baseNote.length));
+  assert.equal(overNote.split('\n')[0], exactNote.split('\n')[0], 'Mismos pasos excluidos en N y N+1');
+  assert.ok(overNote.length <= 4000, `La nota sintética no debe superar 4000 chars (obtenido: ${overNote.length})`);
+  // N+1: se omite la llamada más antigua (con el aviso delante) y se conservan las más recientes.
+  assert.match(overNote.split('\n')[1], /^\[\.\.\. 1 earlier tool call\(s\) omitted from this summary due to size limit \.\.\.\]$/);
+  assert.equal(overNote.includes('module_00_'), false);
+  assert.equal(overNote.split('\n').at(-1), exactNote.split('\n').at(-1));
 });
 
 test('ContextManager - recorta evidencia visual (image_url) de turnos cerrados y pasos podados conservando la del turno activo', () => {

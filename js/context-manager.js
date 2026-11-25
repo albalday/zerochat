@@ -277,27 +277,21 @@
     if (entries.length === 0) return null;
 
     const header = `[Earlier tool calls in this turn omitted from context (${excludedActiveBlocks.length} steps, ${entries.length} calls) to stay within the context window — do not repeat them unless needed]:\n`;
-    const body = entries.join('\n');
-    const full = header + body;
+    const full = header + entries.join('\n');
     if (full.length <= EXCLUDED_STEPS_NOTE_MAX_CHARS) return full;
 
-    // Mantener el máximo número de líneas que quepan dejando sitio al aviso de truncado.
-    const suffixTemplate = omitted => `\n[... ${omitted} earlier tool call(s) omitted from this summary due to size limit ...]`;
-    const kept = [];
+    // Conservar las llamadas más recientes que quepan (las que el modelo más probablemente repetiría), con el aviso de
+    // las más antiguas omitidas delante de ellas: la nota mide `used` más ese aviso.
+    const omittedNotice = omitted => `[... ${omitted} earlier tool call(s) omitted from this summary due to size limit ...]`;
     let used = header.length;
-    for (let i = 0; i < entries.length; i++) {
-      const line = (kept.length > 0 ? '\n' : '') + entries[i];
-      const remaining = entries.length - (i + 1);
-      const suffixLen = remaining > 0 ? suffixTemplate(remaining).length : 0;
-      if (used + line.length + suffixLen > EXCLUDED_STEPS_NOTE_MAX_CHARS) break;
-      kept.push(entries[i]);
-      used += line.length;
+    let first = entries.length;
+    while (first > 1) {
+      const next = used + 1 + entries[first - 1].length;
+      if (next + omittedNotice(first - 1).length > EXCLUDED_STEPS_NOTE_MAX_CHARS) break;
+      used = next;
+      first--;
     }
-    const omitted = entries.length - kept.length;
-    if (kept.length === 0) {
-      return `${header.trimEnd()}${suffixTemplate(entries.length)}`;
-    }
-    return `${header}${kept.join('\n')}${suffixTemplate(omitted)}`;
+    return `${header}${[omittedNotice(first), ...entries.slice(first)].join('\n')}`;
   }
 
   /**
@@ -363,6 +357,16 @@
   /**
    * Trunca de forma segura el contenido de un resultado de herramienta.
    */
+  /**
+   * Recorta un texto a `maxChars` conservando el 70 % inicial y el 20 % final, con el aviso que devuelve
+   * `notice(caracteresOmitidos)` en medio.
+   */
+  function truncateMiddle(str, maxChars, notice) {
+    const head = str.slice(0, Math.floor(maxChars * 0.7));
+    const tail = str.slice(-Math.floor(maxChars * 0.2));
+    return `${head}\n\n${notice(str.length - maxChars)}\n\n${tail}`;
+  }
+
   function truncateToolContent(content, maxChars = DEFAULT_MAX_ACTIVE_TOOL_CHARS, toolName = 'tool') {
     const str = serializeContent(content);
     if (str.length <= maxChars) {
@@ -377,9 +381,7 @@
       }
     }
 
-    const head = str.slice(0, Math.floor(maxChars * 0.7));
-    const tail = str.slice(-Math.floor(maxChars * 0.2));
-    return `${head}\n\n[... Truncado por ChatContextManager: ${str.length - maxChars} caracteres omitidos de la salida de ${toolName} ...]\n\n${tail}`;
+    return truncateMiddle(str, maxChars, omitted => `[... Truncado por ChatContextManager: ${omitted} caracteres omitidos de la salida de ${toolName} ...]`);
   }
 
   /**
@@ -919,13 +921,9 @@
 
     const transcript = lines.join('\n\n');
     const maxTranscriptChars = Math.max(2000, Math.floor(calculateInputBudget(options) * 0.8 * 2.5));
-    if (transcript.length > maxTranscriptChars) {
-      const head = transcript.slice(0, Math.floor(maxTranscriptChars * 0.7));
-      const tail = transcript.slice(-Math.floor(maxTranscriptChars * 0.2));
-      const omitted = transcript.length - maxTranscriptChars;
-      return `${head}\n\n[... Transcript truncated: ${omitted} characters omitted to fit the summarizer budget ...]\n\n${tail}`;
-    }
-    return transcript;
+    // Corte simple, sin el reparto por secciones de truncateToolContent: un `---` dentro de un resultado no divide la transcripción.
+    if (transcript.length <= maxTranscriptChars) return transcript;
+    return truncateMiddle(transcript, maxTranscriptChars, omitted => `[... Transcript truncated: ${omitted} characters omitted to fit the summarizer budget ...]`);
   }
 
   /**
