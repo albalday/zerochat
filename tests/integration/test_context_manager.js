@@ -168,7 +168,7 @@ test('ContextManager - shouldCompress evalúa umbrales y evita recomponer checkp
   }), false);
 });
 
-test('ContextManager - compressHistory encadena checkpoints acumulativos y conserva system + checkpoint al preparar contexto', async () => {
+test('ContextManager - compressHistory encadena checkpoints acumulativos conservando el turno en curso', async () => {
   const history = [
     { role: 'system', content: 'Eres un tutor de programación.' },
     { role: 'user', content: 'Quiero crear una API REST con Node.js y SQLite.' },
@@ -184,20 +184,25 @@ test('ContextManager - compressHistory encadena checkpoints acumulativos y conse
   assert.equal(firstRes.compressed, true);
   assert.ok(firstInput.systemPrompt.includes('cumulative'));
   assert.equal(firstInput.checkpoint, null);
-  assert.equal(firstInput.dialogue.length, 3);
+  assert.equal(firstInput.dialogue.length, 2);
   assert.deepEqual(firstInput.messages, firstInput.dialogue);
-  assert.equal(firstRes.messages.length, 2);
+  assert.equal(firstRes.messages.length, 3);
   assert.equal(firstRes.messages[1]._isSummaryBlock, true);
+  assert.equal(firstRes.messages[2].role, 'user');
+  assert.equal(firstRes.messages[2].content, 'Añadamos autenticación con JWT.');
 
   const toolResult = 'resultado completo '.repeat(500);
   const checkpoint = firstRes.messages[1];
   const nextHistory = [
     { role: 'system', content: 'Sistema permanente' },
     checkpoint,
-    { role: 'user', content: 'Consulta nueva' },
+    { role: 'user', content: 'Consulta anterior' },
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_1', function: { name: 'any_tool', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'call_1', name: 'any_tool', content: toolResult },
-    { role: 'assistant', content: 'Resultado analizado' }
+    { role: 'assistant', content: 'Resultado analizado' },
+    { role: 'user', content: 'Consulta en curso' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'call_2', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'call_2', name: 'read_file', content: 'datos recientes del turno activo' }
   ];
   let secondInput;
   const secondRes = await ChatContextManager.compressHistory({
@@ -205,10 +210,20 @@ test('ContextManager - compressHistory encadena checkpoints acumulativos y conse
     summarizeFn: async input => { secondInput = input; return 'Checkpoint 2'; }
   });
   assert.equal(secondInput.checkpoint, checkpoint);
-  assert.deepEqual(secondInput.dialogue, nextHistory.slice(2));
+  assert.deepEqual(secondInput.dialogue, nextHistory.slice(2, 6));
   assert.equal(secondInput.dialogue[2].content, toolResult);
-  assert.deepEqual(secondInput.messages, [checkpoint, ...nextHistory.slice(2)]);
+  assert.deepEqual(secondInput.messages, [checkpoint, ...nextHistory.slice(2, 6)]);
   assert.equal(secondRes.messages[1].content, 'Checkpoint 2');
+  assert.deepEqual(secondRes.messages.slice(2), nextHistory.slice(6));
+
+  // keepActiveTurn: false (usado en ramas resumidas) comprime todo el historial suministrado
+  const fullRes = await ChatContextManager.compressHistory({
+    messages: history,
+    summarizeFn: async () => 'Checkpoint rama',
+    options: { keepActiveTurn: false }
+  });
+  assert.equal(fullRes.compressed, true);
+  assert.equal(fullRes.messages.length, 2);
 
   const prepared = ChatEngine.buildEffectiveMessages(
     [{ role: 'system', content: 'Checkpoint acumulativo', _isSummaryBlock: true }],
@@ -220,7 +235,11 @@ test('ContextManager - compressHistory encadena checkpoints acumulativos y conse
 });
 
 test('ContextManager - compressHistory rechaza summarizeFn nulo, vacíos o llamadas JSON a herramientas', async () => {
-  const messages = [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'mundo' }];
+  const messages = [
+    { role: 'user', content: 'hola' },
+    { role: 'assistant', content: 'mundo' },
+    { role: 'user', content: 'turno actual' }
+  ];
 
   const noFn = await ChatContextManager.compressHistory({ messages, summarizeFn: null });
   assert.equal(noFn.compressed, false);
@@ -247,6 +266,24 @@ test('ContextManager - compressHistory rechaza summarizeFn nulo, vacíos o llama
   });
   assert.equal(okResult.compressed, true);
   assert.equal(okResult.memoryBlock.content, 'Resumen consolidado válido.');
+  assert.equal(okResult.messages.at(-1).content, 'turno actual');
+
+  // Poda progresiva intra-turno: cuando el turno activo supera inputBudget por sí solo, poda pasos antiguos del turno
+  // conservando el mensaje user y el paso más reciente intacto.
+  const activeOverflow = ChatContextManager.buildOptimizedContext([
+    { role: 'system', content: 'Sistema' },
+    { role: 'user', content: 'Analiza los tres archivos.' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 't1', function: { name: 'read_file', arguments: '{"p":"1"}' } }] },
+    { role: 'tool', tool_call_id: 't1', name: 'read_file', content: 'A'.repeat(12000) },
+    { role: 'assistant', content: null, tool_calls: [{ id: 't2', function: { name: 'read_file', arguments: '{"p":"2"}' } }] },
+    { role: 'tool', tool_call_id: 't2', name: 'read_file', content: 'B'.repeat(12000) },
+    { role: 'assistant', content: null, tool_calls: [{ id: 't3', function: { name: 'read_file', arguments: '{"p":"3"}' } }] },
+    { role: 'tool', tool_call_id: 't3', name: 'read_file', content: 'C'.repeat(6000) }
+  ], { maxInputTokens: 6000, maxHistoricalToolChars: 1000, maxActiveToolChars: 20000 });
+  const overflowById = Object.fromEntries(activeOverflow.messages.filter(m => m.role === 'tool').map(m => [m.tool_call_id, m.content]));
+  assert.equal(activeOverflow.messages[1].role, 'user');
+  assert.match(overflowById.t1, /Truncado por ChatContextManager/);
+  assert.equal(overflowById.t3, 'C'.repeat(6000));
 });
 
 test('ContextManager - truncateToolContent preserva todos los fragmentos en salidas multisección de RAG', () => {
@@ -312,4 +349,11 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   }], { maxHistoricalToolChars: 100 });
   assert.equal(callWithArgs(100), `Assistant: [Called tools: write_file(${'a'.repeat(100)})]`);
   assert.match(callWithArgs(101), /Truncado por ChatContextManager: 1 caracteres omitidos de la salida de write_file/);
+
+  // La transcripción para el resumidor se acota al presupuesto de entrada del modelo.
+  const hugeTranscript = ChatContextManager.formatHistoryTranscript(
+    Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `Mensaje ${i}: ${'x'.repeat(500)}` })),
+    { maxInputTokens: 1500 }
+  );
+  assert.match(hugeTranscript, /Truncado por ChatContextManager.*conversation_history/);
 });

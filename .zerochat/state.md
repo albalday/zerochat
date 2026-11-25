@@ -1,5 +1,5 @@
 # Current state
-- Milestone: M88 Ajustes de control de agentes
-- Next task: M88-T8 Evaluar soporte OAuth2 (XOAUTH2) para el MCP de correo (services/mail) frente a proveedores como Google (Gmail) sin contraseña de aplicación
+- Milestone: M89 Adaptación del bucle agéntico al contexto del modelo
+- Next task: M89-T2 Ventana deslizante contigua y presupuesto agregado por lote de herramientas proporcional a inputBudget (js/context-manager.js): (1) detener el recorrido hacia atrás de buildOptimizedContext en el primer bloque histórico que no quepa en inputBudget (break) para no dejar huecos intermedios en el turno ni invalidar la caché KV de prefijo, garantizando que el mensaje user del turno en curso se incluya siempre antes que los pasos anteriores al corte; (2) corregir effectiveMaxActiveChars usando la relación real caracteres/token (~3 chars/token en vez de inputBudget * 1.5 que mezclaba unidades); y (3) aplicar un tope agregado por bloque atómico (lote de llamadas a herramientas de un mismo paso) proporcional a inputBudget (repartiendo el presupuesto del lote entre los mensajes tool del bloque sin superar DEFAULT_MAX_ACTIVE_TOOL_CHARS individual, de modo que 5–6 lecturas paralelas en 150K no desborden lastBlock ni disparen compactación de golpe), con aviso de truncado y pruebas en borde exacto N y N+1
 - Last closed: M87 Mejoras sistema de agentes (2026-11-24)
-- Last updated: 2026-11-24
+- Last updated: 2026-11-25

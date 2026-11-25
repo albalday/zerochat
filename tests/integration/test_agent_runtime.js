@@ -69,7 +69,7 @@ test('AgentRuntime - la pausa del servidor en una ejecución desatendida cierra 
   assert.deepEqual(toolPayload, { success: false, error: 'Execution paused waiting for user authorization.', awaitingApproval: true, ruleOffer: { rule: 'RW:/x/**' } });
 });
 
-test('AgentRuntime - compacta con el límite de contexto configurado, conserva el checkpoint y no reintenta si falla en el mismo ciclo', async t => {
+test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso y no reintenta si falla en el mismo ciclo', async t => {
   const history = [];
   for (let index = 0; index < 4; index++) {
     history.push(
@@ -77,6 +77,7 @@ test('AgentRuntime - compacta con el límite de contexto configurado, conserva e
       { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(30)}` }
     );
   }
+  history.push({ role: 'user', content: 'Petición actual que debe conservarse.' });
 
   let summaryCalls = 0;
   const events = [];
@@ -84,8 +85,10 @@ test('AgentRuntime - compacta con el límite de contexto configurado, conserva e
   const result = await runAgent(t, registry, {
     api: {
       streamChatCompletion: async params => {
-        assert.equal(params.messages.length, 1);
+        assert.equal(params.messages.length, 2);
         assert.equal(params.messages[0]._isSummaryBlock, true);
+        assert.equal(params.messages[1].role, 'user');
+        assert.equal(params.messages[1].content, 'Petición actual que debe conservarse.');
         return { accumulatedText: 'Respuesta final.', toolCalls: [], stats: { tokens: 12 } };
       }
     },
@@ -94,7 +97,7 @@ test('AgentRuntime - compacta con el límite de contexto configurado, conserva e
     summarizeHistory: async ({ messages }) => {
       summaryCalls++;
       events.push('summarize');
-      assert.equal(messages.length, history.length);
+      assert.equal(messages.length, history.length - 1);
       return 'Checkpoint acumulativo.';
     },
     callbacks: {
@@ -105,7 +108,8 @@ test('AgentRuntime - compacta con el límite de contexto configurado, conserva e
   assert.equal(summaryCalls, 1);
   assert.deepEqual(events, ['start:0', 'summarize']);
   assert.equal(result.history[0]._isSummaryBlock, true);
-  assert.equal(result.history[1].content, 'Respuesta final.');
+  assert.equal(result.history[1].role, 'user');
+  assert.equal(result.history[2].content, 'Respuesta final.');
 
   // Si la compactación devuelve vacío, no la repite en el siguiente paso del mismo turno
   registry.registerTool(makeTool({ name: 'lookup', execute: async () => 'dato' }));
@@ -123,6 +127,29 @@ test('AgentRuntime - compacta con el límite de contexto configurado, conserva e
   });
   assert.equal(failedRes.status, 'completed');
   assert.equal(failedSummaryCalls, 1);
+
+  // Un turno largo sin turnos cerrados previos no dispara compactación destructiva que borre el user
+  let singleTurnSummaryCalls = 0;
+  const singleTurnHistory = [
+    { role: 'user', content: 'Investiga varios archivos.' },
+    ...Array.from({ length: 4 }, (_, i) => ([
+      { role: 'assistant', content: null, tool_calls: [{ id: `c_${i}`, function: { name: 'lookup', arguments: `{"i":${i}}` } }] },
+      { role: 'tool', tool_call_id: `c_${i}`, name: 'lookup', content: 'datos '.repeat(200) }
+    ])).flat()
+  ];
+  const singleTurnRes = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async params => {
+        assert.equal(params.messages[0].role, 'user');
+        return { accumulatedText: 'Resumen listo.', toolCalls: [] };
+      }
+    },
+    messages: singleTurnHistory,
+    contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
+    summarizeHistory: async () => { singleTurnSummaryCalls++; return 'No debería llamarse'; }
+  });
+  assert.equal(singleTurnRes.status, 'completed');
+  assert.equal(singleTurnSummaryCalls, 0);
 });
 
 test('AgentRuntime - la conexión del agente solo llega a las herramientas de categoría agent', async t => {

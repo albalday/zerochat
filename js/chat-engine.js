@@ -453,9 +453,9 @@
    * al historial, sin herramientas ni razonamiento. Lo usan la compactación y las ramas resumidas.
    */
   function createHistorySummarizer({ apiUrl, apiType, apiKey = '', model, signal, onBeforeRequest } = {}) {
-    return async ({ systemPrompt, messages }) => {
+    return async ({ systemPrompt, messages, options }) => {
       const transcript = Array.isArray(messages)
-        ? getContextManager().formatHistoryTranscript(messages)
+        ? getContextManager().formatHistoryTranscript(messages, options)
         : String(messages || '');
       const userPrompt = [
         'Here is the conversation history to consolidate into a checkpoint:',

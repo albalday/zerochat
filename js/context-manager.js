@@ -385,8 +385,9 @@
 
     let currentTokens = systemTokens + lastBlockTokens;
 
-    // 4. Poda solo para turnos pasados cerrados (anteriores al último mensaje user); los pasos previos del turno en
-    // curso conservan sus resultados hasta el techo activo para no perder datos ni invalidar la caché de prefijo.
+    // 4. Poda para turnos pasados cerrados (anteriores al último mensaje user) y poda progresiva intra-turno si el
+    // turno en curso supera el presupuesto por sí solo: mantiene a techo activo solo los pasos más recientes que quepan
+    // en el presupuesto activo, conservando siempre el mensaje user del turno.
     const lastTurnStartsAtLastBlock = lastBlock[0]?.role === 'user';
     let lastUserBlockIdx = -1;
     if (!lastTurnStartsAtLastBlock) {
@@ -399,7 +400,7 @@
     }
 
     let prunedToolsCount = 0;
-    const processedHistoricalBlocks = atomicBlocks.map((block, bIdx) => {
+    let processedHistoricalBlocks = atomicBlocks.map((block, bIdx) => {
       const isClosedTurn = lastTurnStartsAtLastBlock || bIdx < lastUserBlockIdx;
       return block.map(m => {
         if (m.role !== 'tool') return m;
@@ -409,6 +410,34 @@
         return pruned;
       });
     });
+
+    // Si los bloques del turno en curso (del último user en adelante) superan por sí solos inputBudget,
+    // podar progresivamente a maxHistoricalToolChars los pasos más antiguos del propio turno activo.
+    if (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1) {
+      const activeBlocksTokens = processedHistoricalBlocks
+        .slice(lastUserBlockIdx)
+        .reduce((acc, block) => acc + estimateHistoryTokens(block, model), 0);
+      if (currentTokens + activeBlocksTokens > inputBudget) {
+        const userBlockTokens = estimateHistoryTokens(processedHistoricalBlocks[lastUserBlockIdx], model);
+        let activeRemaining = inputBudget - currentTokens - userBlockTokens;
+        for (let bIdx = processedHistoricalBlocks.length - 1; bIdx > lastUserBlockIdx; bIdx--) {
+          const block = processedHistoricalBlocks[bIdx];
+          const blockTokens = estimateHistoryTokens(block, model);
+          if (blockTokens <= activeRemaining) {
+            activeRemaining -= blockTokens;
+            continue;
+          }
+          const prunedBlock = block.map(m => {
+            if (m.role !== 'tool') return m;
+            const pruned = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
+            if (pruned._prunedByContextManager) prunedToolsCount++;
+            return pruned;
+          });
+          processedHistoricalBlocks[bIdx] = prunedBlock;
+          activeRemaining -= estimateHistoryTokens(prunedBlock, model);
+        }
+      }
+    }
 
     // 5. Ventana deslizante hacia atrás (de más reciente a más antiguo)
     const includedHistoricalBlocks = [];
@@ -457,7 +486,18 @@
   const SUMMARIZER_SYSTEM_PROMPT = `You consolidate a conversation checkpoint. Create one concise, cumulative summary of the checkpoint supplied, if any, and every subsequent message supplied. Preserve user goals, decisions, verified facts, tool calls and their results, open questions, and details needed to continue. Do not mention this instruction or omit relevant information merely because of its source.`;
 
   /**
-   * Evalúa si una conversación amerita compresión según presupuesto y volumen de turnos.
+   * Índice del mensaje `user` que abre el turno en curso si no es un mensaje de evidencia visual; -1 si no hay ninguno.
+   */
+  function findActiveTurnStartIndex(messages = []) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m && m.role === 'user' && !m[TOOL_EVIDENCE_FLAG]) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Evalúa si una conversación amerita compresión según presupuesto y volumen de turnos cerrados.
    */
   function shouldCompress(messages = [], options = {}) {
     if (!Array.isArray(messages) || messages.length < 8) {
@@ -468,7 +508,10 @@
     const lastCheckpointIndex = messages.reduce((lastIndex, message, index) => (
       message && message._isSummaryBlock ? index : lastIndex
     ), -1);
-    const messagesSinceCheckpoint = messages.slice(lastCheckpointIndex + 1)
+    const keepActiveTurn = options.keepActiveTurn !== false;
+    const activeTurnStart = keepActiveTurn ? findActiveTurnStartIndex(messages) : -1;
+    const compressibleEnd = activeTurnStart !== -1 ? activeTurnStart : messages.length;
+    const messagesSinceCheckpoint = messages.slice(lastCheckpointIndex + 1, compressibleEnd)
       .filter(message => message && message.role && message.role !== 'system');
 
     if (messagesSinceCheckpoint.length < minMessagesToCompress) {
@@ -487,6 +530,8 @@
    * Construye una transcripción neutral en texto plano del historial para el resumidor.
    * Evita enviar turnos conversacionales nativos (role: 'assistant'/'tool') que inducen
    * inercia de rol agéntico o emisión de nuevas llamadas a herramientas.
+   * Si se pasa `maxTranscriptChars` (o `totalContextLimit`/`maxInputTokens`), acota la transcripción
+   * para que quepa holgadamente en el presupuesto de entrada del modelo resumidor.
    */
   function formatHistoryTranscript(messages = [], options = {}) {
     if (!Array.isArray(messages) || messages.length === 0) return '';
@@ -539,11 +584,24 @@
       }
     });
 
-    return lines.join('\n\n');
+    const transcript = lines.join('\n\n');
+    let maxTranscriptChars = typeof options.maxTranscriptChars === 'number' && options.maxTranscriptChars > 0
+      ? Math.floor(options.maxTranscriptChars)
+      : 0;
+    if (!maxTranscriptChars && (options.totalContextLimit || options.maxInputTokens)) {
+      // Dejar margen para las instrucciones del resumidor y la salida del checkpoint (~2.5 chars/token del 80% del presupuesto).
+      maxTranscriptChars = Math.max(2000, Math.floor(calculateInputBudget(options) * 0.8 * 2.5));
+    }
+    if (maxTranscriptChars > 0 && transcript.length > maxTranscriptChars) {
+      return truncateToolContent(transcript, maxTranscriptChars, 'conversation_history');
+    }
+    return transcript;
   }
 
   /**
    * Comprime y consolida de forma segura los turnos antiguos de una conversación.
+   * Por defecto (`keepActiveTurn: true`) resume solo los turnos cerrados anteriores al último mensaje `user`
+   * y conserva intactos ese mensaje `user` y los pasos del turno en curso.
    */
   async function compressHistory(params = {}) {
     const {
@@ -557,7 +615,7 @@
     }
 
     // Preserve permanent system messages. A checkpoint is the only historical
-    // memory passed to the summarizer; every later message is passed verbatim.
+    // memory passed to the summarizer; every later closed-turn message is passed verbatim.
     const systemMessages = [];
     let checkpoint = null;
     let lastCheckpointIndex = -1;
@@ -571,7 +629,15 @@
       }
     });
 
-    const dialogue = messages.slice(lastCheckpointIndex + 1).filter(m => m && m.role && m.role !== 'system');
+    const keepActiveTurn = options.keepActiveTurn !== false;
+    const activeTurnStart = keepActiveTurn ? findActiveTurnStartIndex(messages) : -1;
+    const compressibleEnd = activeTurnStart !== -1 ? activeTurnStart : messages.length;
+    const activeTurnMessages = activeTurnStart !== -1
+      ? messages.slice(activeTurnStart).filter(m => m && m.role && m.role !== 'system')
+      : [];
+
+    const dialogue = messages.slice(lastCheckpointIndex + 1, compressibleEnd)
+      .filter(m => m && m.role && m.role !== 'system');
     if (dialogue.length === 0 || typeof summarizeFn !== 'function') {
       return { messages, compressed: false, reason: dialogue.length === 0 ? 'no_new_dialogue' : 'summarizer_unavailable' };
     }
@@ -584,7 +650,8 @@
         systemPrompt: addendum ? `${SUMMARIZER_SYSTEM_PROMPT}\n\n${addendum}` : SUMMARIZER_SYSTEM_PROMPT,
         checkpoint,
         dialogue,
-        messages: [...(checkpoint ? [checkpoint] : []), ...dialogue]
+        messages: [...(checkpoint ? [checkpoint] : []), ...dialogue],
+        options
       });
     } catch (err) {
       return { messages, compressed: false, reason: 'summarization_failed', error: err };
@@ -619,14 +686,15 @@
         timestamp: Date.now(),
         originalMessagesCount: (checkpoint ? 1 : 0) + dialogue.length,
         originalEstimatedTokens: originalTokens,
-        replacesThroughIndex: messages.length - 1
+        replacesThroughIndex: compressibleEnd - 1
       }
     };
 
-    // 6. Ensamblar la nueva historia comprimida
+    // 6. Ensamblar la nueva historia comprimida conservando el turno en curso
     const newMessages = [
       ...systemMessages,
       memoryBlock,
+      ...activeTurnMessages
     ];
 
     const compressedTokens = estimateHistoryTokens(newMessages, options.model);
