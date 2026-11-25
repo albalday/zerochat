@@ -1104,22 +1104,74 @@
 }
 
 .mcp-server-item {
+  background: var(--bg-surface-subtle);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.mcp-server-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  padding: 0.65rem 0.85rem;
-  background: var(--bg-surface-subtle);
-  border-radius: var(--radius-md);
+  padding: 0.6rem 0.85rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
 }
 
-.mcp-server-info {
+.mcp-server-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mcp-server-summary:hover {
+  background: var(--bg-hover);
+}
+
+.mcp-server-item[open] > .mcp-server-summary .mcp-server-chevron {
+  transform: rotate(90deg);
+}
+
+.mcp-server-body {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-  flex: 1;
+  gap: 0.35rem;
+  padding: 0 0.85rem 0.75rem;
+  border-top: 1px solid var(--border-color);
+  padding-top: 0.65rem;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.mcp-server-tools-details {
+  margin-top: 0.45rem;
+  border-top: 1px solid var(--border-color);
+  padding-top: 0.45rem;
+}
+
+.mcp-server-tools-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.mcp-server-tools-summary::-webkit-details-marker {
+  display: none;
+}
+
+.mcp-server-tools-details[open] > .mcp-server-tools-summary .settings-collapsible-chevron {
+  transform: rotate(90deg);
+}
+
+.mcp-server-tools-list {
+  margin-top: 0.45rem;
 }
 
 .mcp-server-title-row {
@@ -1127,6 +1179,8 @@
   align-items: center;
   gap: 0.5rem;
   flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .mcp-server-name {
@@ -1254,7 +1308,7 @@
 
 /* En móvil las acciones no deben reducir la descripción a una columna estrecha. */
 @media (max-width: 640px) {
-  .mcp-server-item {
+  .mcp-server-summary {
     flex-direction: column;
     align-items: stretch;
     gap: 0.5rem;
@@ -1303,9 +1357,9 @@
 }
 
 @media (max-width: 640px) {
-  #settings-mcp .mcp-server-item,
+  #settings-mcp .mcp-server-summary,
   #settings-mcp .mcp-tool-card {
-    padding: 0.75rem;
+    padding: 0.65rem 0.75rem;
   }
 
   #settings-mcp .btn-mcp-server-trust,

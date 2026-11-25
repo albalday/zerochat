@@ -91,7 +91,8 @@
       enabledTools: {
         ...appConfig.enabledTools,
         ...gatherEnabledToolsFromUI(elements.agentToolsContainer),
-        ...gatherEnabledToolsFromUI(elements.mcpToolsContainer)
+        ...gatherEnabledToolsFromUI(elements.mcpToolsContainer),
+        ...gatherEnabledToolsFromUI(elements.mcpServersList)
       }
     };
   }
