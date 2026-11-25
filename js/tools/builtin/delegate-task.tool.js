@@ -147,6 +147,16 @@
     const missing = ['apiUrl', 'apiType', 'model'].filter(key => !settings[key]);
     if (missing.length > 0) return { error: `The "${match.name}" profile is incomplete: missing ${missing.join(', ')}.` };
 
+    let subagentContextLimit = null;
+    try {
+      const api = resolveDep('ChatAPI', './api.js');
+      const contextManager = resolveDep('ChatContextManager', './context-manager.js');
+      const listing = await api.fetchServerModels(settings.apiUrl, settings.apiKey || '', settings.apiType);
+      if (listing?.success && Array.isArray(listing.models)) {
+        subagentContextLimit = contextManager.getModelContextLimit(settings.model, listing.models);
+      }
+    } catch (_) { /* sin listado de modelos: el gestor de contexto usa el respaldo */ }
+
     const connection = {
       profileName: match.name,
       apiUrl: settings.apiUrl,
@@ -155,8 +165,7 @@
       model: settings.model,
       temperature: settings.temperature,
       reasoningEffort: settings.reasoningEffort || 'medium',
-      // El límite comprobado es el del perfil activo: el subagente usa el que calcula el gestor de contexto.
-      contextOptions: { ...inherited.contextOptions, totalContextLimit: null },
+      contextOptions: { ...inherited.contextOptions, totalContextLimit: subagentContextLimit },
       summarizeHistory: null
     };
     connection.summarizeHistory = context.services.engine.createHistorySummarizer({
@@ -212,8 +221,14 @@
       reasoningEffort: connection.reasoningEffort,
       messages: [{ role: 'user', content: buildSubagentPrompt(normalized.task) }],
       signal: context.signal || null,
-      // Mismo prompt de sistema y proyecto que el agente principal; la compactación usa su propia conexión.
-      prepareMessages: agent.prepareMessages || null,
+      // Mismo prompt de sistema y proyecto que el agente principal, con el límite de contexto del subagente.
+      prepareMessages: agent.prepareMessages
+        ? (msgs, extraOptions = {}) => agent.prepareMessages(msgs, {
+          ...extraOptions,
+          model: connection.model,
+          totalContextLimit: connection.contextOptions?.totalContextLimit ?? null
+        })
+        : null,
       contextOptions: connection.contextOptions,
       summarizeHistory: connection.summarizeHistory,
       onBeforeRequest: agent.onBeforeRequest || null,

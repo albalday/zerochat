@@ -325,6 +325,8 @@
           const profile = await getProfiles().loadUnlocked(profileId);
           if (!profile) throw new Error('The profile no longer exists.');
           await activateProfile(profileId, profile);
+          // Esperar a que ProfileCheck publique el modelContextLimit real del nuevo perfil antes del siguiente paso.
+          await resolveDep('ChatProfileCheck', './profile-check.js').settled();
           apiKey = profile.settings?.apiKey || '';
         }
         if (reasoningEffort) Config.updateRuntime({ reasoningEffort });

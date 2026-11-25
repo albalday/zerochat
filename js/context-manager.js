@@ -17,8 +17,8 @@
   // 1. Presupuestos y Ventanas de Contexto
   // ==========================================================================
 
-  // Only a fallback. The authoritative value must come from the provider.
-  const DEFAULT_CONTEXT_LIMIT = 1000000;
+  // Respaldo prudente cuando el proveedor no publica el límite de contexto del modelo.
+  const DEFAULT_CONTEXT_LIMIT = 128000;
   // Contexto que se asume para un modelo WebLLM sin dato propio.
   const WEBLLM_DEFAULT_CONTEXT = 4096;
 

@@ -183,6 +183,11 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
   };
   services.engine = { createHistorySummarizer: options => { summarizers.push(options); return async () => 'summary'; } };
   const requests = [];
+  const prepareCalls = [];
+  t.mock.method(ChatAPI, 'fetchServerModels', async () => ({
+    success: true,
+    models: [{ id: 'sub-model', details: { context_length: 65536 } }]
+  }));
   stubApi(t, async params => { requests.push(params); return { accumulatedText: 'Informe', toolCalls: [] }; });
 
   const mainContext = {
@@ -190,7 +195,8 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
     agent: {
       ...context.agent,
       apiUrl: 'http://main/v1', apiType: 'anthropic', apiKey: 'main-key', model: 'main-model', temperature: '0.9',
-      contextOptions: { totalContextLimit: 200000, summarizerAddendum: 'addendum' }
+      contextOptions: { totalContextLimit: 200000, summarizerAddendum: 'addendum' },
+      prepareMessages: (msgs, extra) => { prepareCalls.push(extra); return msgs; }
     }
   };
   assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
@@ -199,6 +205,7 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
   assert.equal(requests[0].apiKey, 'sub-key');
   assert.equal(summarizers.length, 1);
   assert.equal(summarizers[0].model, 'sub-model');
+  assert.equal(prepareCalls[0].totalContextLimit, 65536, 'El subagente resuelve y propaga su límite de contexto real');
 
   // Sin perfil Subagente recurre al principal
   services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }], loadUnlocked: async () => assert.fail('No debe cargar') };

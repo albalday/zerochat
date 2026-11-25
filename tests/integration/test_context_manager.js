@@ -214,7 +214,7 @@ test('ContextManager - ventana deslizante contigua sin huecos y tope agregado po
 });
 
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
-  assert.equal(ChatContextManager.calculateInputBudget({ model: 'gpt-4o-mini' }), 1000000 - 4096 - 100000);
+  assert.equal(ChatContextManager.calculateInputBudget({ model: 'gpt-4o-mini' }), 128000 - 4096 - 12800);
   const budget = ChatContextManager.calculateInputBudget({ totalContextLimit: 90112 });
   assert.ok(budget > 75000 && budget < 80000);
 });
