@@ -67,8 +67,10 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
             threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
         deadline = None if session.timeout_seconds is None else session.started_at / 1000 + session.timeout_seconds
         woken = wake.wait(None if deadline is None else max(0.0, deadline - time.time()))
-        # El latido o una señal ya detienen el servidor: el resultado queda vacío.
+        # El latido o una señal ya detienen el servidor: el resultado queda vacío y el runner no sigue por su cuenta.
         if _SERVER_SHUTTING_DOWN.is_set():
+            if runner_proc is not None:
+                _kill_process_tree(runner_proc, grace_seconds=1.0)
             return
         if not woken and session.reach_limit(f"Límite de {session.timeout_seconds} s alcanzado."):
             if runner_proc is not None:
@@ -127,7 +129,7 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
         stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
         proc = subprocess.Popen(
             cmd,
-            stdin=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,  # Nunca se escribe: al cerrarse porque este proceso muere, el runner termina.
             stdout=subprocess.DEVNULL,
             stderr=stderr_log,
             start_new_session=True,

@@ -1,6 +1,7 @@
 """Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
 
-El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz> <política>`. Desde la
+El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz> <política>` y una
+tubería como stdin: cuando se cierra (muere el proceso que lo lanzó), el runner termina. Desde la
 carpeta de la interfaz (GitHub Pages en producción, este servidor en desarrollo) descarga `js/run-node.js` y,
 siguiendo sus `require('./…')`, los módulos que usa, en paralelo; los ejecuta con un `require` mínimo que los
 busca en lo descargado (los de Node, como `node:crypto`, van al `require` real). Lo que se ejecuta es lo que se
@@ -35,6 +36,16 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 
 const [cacheFile, uiUrl, cachePolicy] = process.argv.slice(1);
+
+// El proceso zerochat que lanza el runner le da como stdin una tubería en la que nunca escribe: el sistema la cierra
+// cuando ese proceso muere, también con SIGKILL, y el runner termina en vez de seguir llamando al modelo por su cuenta.
+process.stdin.on('end', () => {
+  console.error('[RunnerLoader] The zerochat process that launched the runner is gone; stopping.');
+  process.exit(1);
+});
+process.stdin.resume();
+// Solo vigila: no mantiene vivo el proceso cuando el runner ya terminó su trabajo.
+process.stdin.unref?.();
 const pageUrl = uiUrl.split('#')[0];
 const base = new URL('.', pageUrl).href;
 const ENTRY = 'js/run-node.js';

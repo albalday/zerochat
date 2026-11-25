@@ -74,7 +74,34 @@ class RunnerLoaderTest(unittest.TestCase):
                "-e", zerochat.RUNNER_LOADER_SCRIPT, str(self.cache_dir / "modules.json"), self.url,
                policy or zerochat.RUNNER_CACHE_BY_VERSION]
         RecordingSite.requests.clear()
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        # Con su stdin abierto mientras corre, como lo lanza launch_node_runner: cerrarlo es que murió quien lo lanzó.
+        with tempfile.TemporaryFile("w+", encoding="utf-8") as out, tempfile.TemporaryFile("w+", encoding="utf-8") as err:
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=out, stderr=err)
+            try:
+                proc.wait(timeout=30)
+            finally:
+                proc.stdin.close()
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait()
+            out.seek(0)
+            err.seek(0)
+            return subprocess.CompletedProcess(cmd, proc.returncode, out.read(), err.read())
+
+    def test_el_runner_termina_cuando_se_cierra_su_stdin_al_morir_quien_lo_lanzo(self):
+        # Una interfaz que acepta la conexión y nunca responde: el runner seguiría esperando por su cuenta.
+        silent = socket.create_server(("127.0.0.1", 0))
+        self.addCleanup(silent.close)
+        url = f"http://127.0.0.1:{silent.getsockname()[1]}/zerochat.html#run=r1"
+        with mock.patch.object(zerochat, "_runner_cache_file", return_value=self.cache_dir / "modules.json"):
+            proc, stderr_log = zerochat.launch_node_runner(url)
+        self.addCleanup(stderr_log.close)
+        self.addCleanup(lambda: proc.poll() is None and proc.kill())
+        # Al morir quien lo lanzó, aunque sea con SIGKILL, el sistema cierra su extremo de la tubería: igual que esto.
+        proc.stdin.close()
+        self.assertEqual(proc.wait(timeout=10), 1)
+        stderr_log.seek(0)
+        self.assertIn(b"The zerochat process that launched the runner is gone", stderr_log.read())
 
     def publish(self, version=None, c_value="c"):
         """Publica la interfaz con esa versión en el título (sin título si es None) y el valor de js/c.js."""

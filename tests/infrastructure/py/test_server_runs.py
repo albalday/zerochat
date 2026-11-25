@@ -965,6 +965,15 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(data["status"], "error")
         self.assertEqual(data["error"], "El runner de Node.js terminó con el código 3 sin resultado: Error fatal en runner")
 
+        # Una señal o el latido detienen el servidor: el runner no sigue llamando al modelo por su cuenta.
+        stopping = threading.Event()
+        stopping.set()
+        runner = mock.Mock()
+        with mock.patch.object(zerochat, "_SERVER_SHUTTING_DOWN", stopping), mock.patch.object(zerochat, "stop_zerochat_server"), \
+                mock.patch.object(zerochat, "_kill_process_tree") as kill:
+            zerochat.run_supervisor(mock.Mock(), zerochat.RunSession(conversation_id=conv_id), runner_proc=runner)
+        kill.assert_called_once_with(runner, grace_seconds=1.0)
+
     def test_los_limites_de_pasos_y_tiempo_terminan_con_estado_limit_y_codigo_6(self):
         # El runner solo puede declarar el límite de pasos, y solo en una ejecución que lo tiene.
         sin_tope = zerochat.RunSession("Hola", new_conversation_id="session_sin_tope")
