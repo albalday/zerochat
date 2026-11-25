@@ -707,6 +707,9 @@
       let lastStats = null;
       // Desfase calibrado entre los promptTokens reales del servidor y el estimador local en el paso anterior.
       let calibratedInputOffset = 0;
+      // Corte de poda y exclusión del turno en curso que ContextManager conserva entre pasos (histéresis de la caché
+      // KV); es de esta ejecución y se descarta al compactar o cambiar de modelo.
+      const activeTurnCut = { cut: null };
       // Consumo acumulado de todas las llamadas al modelo del turno (callbacks.onUsage tras cada una).
       const usage = { modelCalls: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, reasoningTokens: 0, estimated: false };
       let toolCallCount = 0;
@@ -736,6 +739,7 @@
           workingMessages = workingMessages.map(withoutReasoningReplay);
           compressionUnavailable = false;
           calibratedInputOffset = 0;
+          activeTurnCut.cut = null;
           // Para el modelo nuevo, lo anterior es un turno cerrado (como al cambiar en el selector): un
           // proveedor que valida las llamadas del turno en curso (las firmas de Gemini 3) no recibe como
           // suyas las del otro modelo.
@@ -766,7 +770,7 @@
 
           const stepToolDefinitions = resolveToolDefinitions ? await resolveToolDefinitions() : [];
           const prepareStepMessages = msgs => (prepareMessages
-            ? prepareMessages(withSwitchBoundaries(msgs), { toolDefinitions: stepToolDefinitions, extraInputTokens: calibratedInputOffset })
+            ? prepareMessages(withSwitchBoundaries(msgs), { toolDefinitions: stepToolDefinitions, extraInputTokens: calibratedInputOffset, activeTurnCut })
             : withSwitchBoundaries(msgs));
 
           // Evaluar shouldCompress sobre workingMessages (sin evidencia visual desmarcada) sumando el coste real
@@ -798,6 +802,8 @@
             });
             if (compacted.compressed) {
               workingMessages = compacted.messages;
+              // Los índices del corte eran del historial anterior a la compactación.
+              activeTurnCut.cut = null;
               preparedMessages = await prepareStepMessages(workingMessages);
             } else {
               // Un resumen que falla no avanzará en esta ejecución: repetirlo en cada paso solo añade llamadas.

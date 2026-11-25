@@ -237,12 +237,13 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
   let prefixChanges = 0;
   let prevPrefix = null;
   let step14Result = null;
+  const activeTurnCut = { cut: null };
   for (let step = 0; step < 25; step++) {
     messages.push(
       { role: 'assistant', content: null, tool_calls: [{ id: `c_${step}`, function: { name: 'read_file', arguments: JSON.stringify({ path: `src/file_${step}.js` }) } }] },
       { role: 'tool', tool_call_id: `c_${step}`, name: 'read_file', content: `// file ${step}\n` + 'x'.repeat(59980) }
     );
-    const out = ChatContextManager.buildOptimizedContext(messages, { totalContextLimit: 150000 });
+    const out = ChatContextManager.buildOptimizedContext(messages, { totalContextLimit: 150000, activeTurnCut });
     const currentPrefix = JSON.stringify(out.messages.slice(0, -2));
     if (prevPrefix !== null && !currentPrefix.startsWith(prevPrefix.slice(0, -1))) {
       prefixChanges++;
@@ -255,6 +256,13 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
   assert.ok(step14Result.diagnostics.prunedToolsCount >= 10);
   // Con histéresis, el prefijo cambia en menos de la mitad de los pasos (en lugar de casi todos).
   assert.ok(prefixChanges <= 10, `Demasiados cambios de prefijo para caché KV: ${prefixChanges}`);
+  assert.ok(activeTurnCut.cut, 'El corte del turno queda en el estado de la ejecución');
+
+  // El corte es de la ejecución que lo guardó: otra con el mismo mensaje y sus primeros pasos no lo hereda.
+  const retry = messages.slice(0, 2 + 3 * 2);
+  const retryOut = ChatContextManager.buildOptimizedContext(retry, { totalContextLimit: 150000, activeTurnCut: { cut: null } });
+  assert.equal(retryOut.diagnostics.excludedCount, 0);
+  assert.equal(retryOut.diagnostics.prunedToolsCount, 0);
 
   // Nota sintética determinista cuando la ventana excluye pasos del turno activo (presupuesto estrecho)
   // y prueba en borde exacto N / N+1 sobre el tope real (EXCLUDED_STEPS_NOTE_MAX_CHARS = 4000).

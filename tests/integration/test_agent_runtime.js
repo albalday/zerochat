@@ -206,6 +206,30 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
   assert.deepEqual(visualCompactions, []);
 });
 
+test('AgentRuntime - cada ejecución tiene su propio corte de contexto y lo conserva entre sus pasos', async t => {
+  const registry = new ToolRegistry();
+  registry.registerTool(makeTool({ name: 'lookup', execute: async () => 'dato' }));
+  const runWithSameMessage = async () => {
+    const cuts = [];
+    let calls = 0;
+    await runAgent(t, registry, {
+      api: {
+        streamChatCompletion: async () => (++calls < 3
+          ? { accumulatedText: '', toolCalls: [{ id: `c${calls}`, function: { name: 'lookup', arguments: JSON.stringify({ n: calls }) } }] }
+          : { accumulatedText: 'Hecho.', toolCalls: [] })
+      },
+      messages: [{ role: 'user', content: 'Mismo mensaje' }],
+      prepareMessages: (msgs, extra) => { cuts.push(extra.activeTurnCut); return msgs; }
+    });
+    return cuts;
+  };
+  const first = await runWithSameMessage();
+  const second = await runWithSameMessage();
+  assert.equal(first.length, 3);
+  assert.ok(first.every(cut => cut === first[0]), 'Los pasos de una ejecución comparten su corte');
+  assert.notEqual(second[0], first[0], 'Otra ejecución con el mismo mensaje no hereda el corte');
+});
+
 test('AgentRuntime - la conexión del agente solo llega a las herramientas de categoría agent', async t => {
   const registry = new ToolRegistry();
   registry.unregisterProvider('builtin');

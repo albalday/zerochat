@@ -407,30 +407,6 @@
 
   // Marca del mensaje user con la evidencia visual de una racha de resultados (ChatEngine); no viaja al proveedor.
   const TOOL_EVIDENCE_FLAG = '_toolEvidence';
-  // Histéresis del corte intra-turno por clave del turno (primer mensaje `user`, estable aunque buildEffectiveMessages
-  // cree copias nuevas en cada paso): mapa LRU acotado en memoria.
-  const activeTurnCutState = new Map();
-  const MAX_CUT_STATE_ENTRIES = 64;
-
-  function activeTurnCutKey(userMsg) {
-    if (!userMsg || typeof userMsg !== 'object') return null;
-    if (userMsg.id) return `id:${userMsg.id}`;
-    const raw = typeof userMsg.content === 'string'
-      ? userMsg.content
-      : (Array.isArray(userMsg.content) ? userMsg.content.filter(p => p?.type === 'text').map(p => p.text).join('\n') : '');
-    return raw ? `txt:${raw.length}:${raw.slice(0, 120)}` : null;
-  }
-
-  function rememberCutState(key, state) {
-    if (!key) return;
-    if (activeTurnCutState.has(key)) activeTurnCutState.delete(key);
-    activeTurnCutState.set(key, state);
-    if (activeTurnCutState.size > MAX_CUT_STATE_ENTRIES) {
-      const oldest = activeTurnCutState.keys().next().value;
-      activeTurnCutState.delete(oldest);
-    }
-  }
-
   function stripToolEvidenceFlag(message) {
     if (!message[TOOL_EVIDENCE_FLAG]) return message;
     const { [TOOL_EVIDENCE_FLAG]: _flag, ...rest } = message;
@@ -486,6 +462,8 @@
 
   /**
    * Construye el contexto optimizado aplicando presupuesto, poda y ventana deslizante.
+   * `options.activeTurnCut` (`{ cut: null }`, uno por ejecución del bucle) guarda entre pasos el corte de poda y
+   * exclusión del turno en curso para que el prefijo enviado no cambie en cada paso; sin él no hay histéresis.
    */
   function buildOptimizedContext(rawMessages = [], options = {}) {
     const model = options.model || '';
@@ -577,15 +555,12 @@
       }
     }
 
-    // Estado de histéresis por conversación (anclado al objeto del primer mensaje user del turno en curso):
-    // cuando el turno supera inputBudget, el punto de poda/exclusión avanza de una vez hasta el objetivo
-    // de histéresis (~65 % de inputBudget) y se conserva fijo mientras los pasos nuevos sigan cabiendo,
-    // preservando el prefijo de la caché KV en servidores locales.
-    const activeTurnUserMsg = (!lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1)
-      ? atomicBlocks[lastUserBlockIdx]?.[0]
-      : null;
-    const cutKey = activeTurnCutKey(activeTurnUserMsg);
-    let hysteresisState = cutKey ? activeTurnCutState.get(cutKey) : null;
+    // Histéresis: cuando el turno supera inputBudget, el punto de poda/exclusión avanza de una vez hasta el objetivo
+    // (~65 % de inputBudget) y se conserva fijo mientras los pasos nuevos sigan cabiendo, preservando el prefijo de la
+    // caché KV. El corte pertenece a la ejecución que lo guarda y solo vale para el mismo presupuesto y turno.
+    const activeTurnCut = options.activeTurnCut || null;
+    const hasActiveTurn = !lastTurnStartsAtLastBlock && lastUserBlockIdx !== -1;
+    let hysteresisState = hasActiveTurn ? activeTurnCut?.cut || null : null;
     if (hysteresisState && (hysteresisState.budget !== inputBudget || hysteresisState.userBlockIdx !== lastUserBlockIdx)) {
       hysteresisState = null;
     }
@@ -774,17 +749,10 @@
       currentTokens += reservedUserTokens;
     }
 
-    if (cutKey) {
-      if (currentPruneEndIdx > lastUserBlockIdx || newExcludeEndIdx >= 0) {
-        rememberCutState(cutKey, {
-          budget: inputBudget,
-          userBlockIdx: lastUserBlockIdx,
-          pruneEndIdx: currentPruneEndIdx,
-          excludeEndIdx: newExcludeEndIdx
-        });
-      } else {
-        activeTurnCutState.delete(cutKey);
-      }
+    if (activeTurnCut) {
+      activeTurnCut.cut = hasActiveTurn && (currentPruneEndIdx > lastUserBlockIdx || newExcludeEndIdx >= 0)
+        ? { budget: inputBudget, userBlockIdx: lastUserBlockIdx, pruneEndIdx: currentPruneEndIdx, excludeEndIdx: newExcludeEndIdx }
+        : null;
     }
 
     // 6. Ensamblado final de la lista de mensajes, sin la marca interna de la evidencia visual
@@ -1033,12 +1001,6 @@
       memoryBlock,
       ...activeTurnMessages
     ];
-
-    // Reiniciar la histéresis del turno activo: el historial previo cambió de tamaño tras compactar.
-    if (activeTurnMessages.length > 0) {
-      const cutKey = activeTurnCutKey(activeTurnMessages[0]);
-      if (cutKey) activeTurnCutState.delete(cutKey);
-    }
 
     const compressedTokens = estimateHistoryTokens(newMessages, options.model);
 
