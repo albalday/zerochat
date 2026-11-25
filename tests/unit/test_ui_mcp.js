@@ -103,7 +103,7 @@ test('ChatUIMcp - concilia servicios del proyecto en silencio, detiene los sobra
 
 test('ChatUIMcp - renderExternalServers pinta opciones de texto (y secretos) escapando valores', () => {
   let html = '';
-  const container = { set innerHTML(v) { html = v; }, get innerHTML() { return html; } };
+  const container = { set innerHTML(v) { html = v; }, get innerHTML() { return html; }, querySelectorAll: () => [] };
   ChatUIMcp.renderExternalServers(container, [{
     id: 'mail',
     status: 'stopped',
