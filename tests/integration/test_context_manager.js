@@ -178,7 +178,7 @@ test('ContextManager - ventana deslizante contigua sin huecos y tope agregado po
   ], { maxInputTokens: 600, maxHistoricalToolChars: 4000, maxActiveToolChars: 4000 });
   const contents = contiguous.messages.map(m => m.content);
   assert.equal(contents.includes('Antiguo pequeño'), false, 'No debe saltar el bloque grande para colar turnos más antiguos');
-  assert.equal(contents.includes('Petición actual'), true, 'Debe preservar siempre el mensaje user del turno en curso');
+  assert.equal(contents.some(c => typeof c === 'string' && c.startsWith('Petición actual')), true, 'Debe preservar siempre el mensaje user del turno en curso');
   assert.equal(contiguous.messages.at(-1).content, 'reciente');
 
   // 2. Tope agregado por lote de herramientas paralelas en borde exacto N y N+1 (en 150K: inputBudget=130904 -> batchMax=117813)
@@ -211,6 +211,78 @@ test('ContextManager - ventana deslizante contigua sin huecos y tope agregado po
   const unevenTools = uneven.messages.filter(m => m.role === 'tool');
   assert.equal(unevenTools[0].content.length, 1000);
   assert.equal(unevenTools[1].content.length, 64000);
+});
+
+test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos recientes y nota sintética en borde exacto N/N+1', () => {
+  // Simulación de un turno largo (1 user + 25 pasos de read_file de 60.000 chars en modelo de 150K):
+  // 1. La reserva de pasos recientes (~45% de inputBudget) deja espacio para decenas de pasos antiguos podados
+  //    (no se excluyen pasos en el paso 11).
+  // 2. La histéresis mantiene estable el prefijo (caché KV) en la mayoría de los pasos tras superar el presupuesto.
+  // 3. Si aun así se excluyen pasos, aparece la nota sintética determinista tras el user con las llamadas omitidas.
+  const messages = [
+    { role: 'system', content: 'Sistema de agente' },
+    { id: 'u_long_turn', role: 'user', content: 'Revisa los 25 ficheros del proyecto.' }
+  ];
+  let prefixChanges = 0;
+  let prevPrefix = null;
+  let step14Result = null;
+  for (let step = 0; step < 25; step++) {
+    messages.push(
+      { role: 'assistant', content: null, tool_calls: [{ id: `c_${step}`, function: { name: 'read_file', arguments: JSON.stringify({ path: `src/file_${step}.js` }) } }] },
+      { role: 'tool', tool_call_id: `c_${step}`, name: 'read_file', content: `// file ${step}\n` + 'x'.repeat(59980) }
+    );
+    const out = ChatContextManager.buildOptimizedContext(messages, { totalContextLimit: 150000 });
+    const currentPrefix = JSON.stringify(out.messages.slice(0, -2));
+    if (prevPrefix !== null && !currentPrefix.startsWith(prevPrefix.slice(0, -1))) {
+      prefixChanges++;
+    }
+    prevPrefix = currentPrefix;
+    if (step === 14) step14Result = out;
+  }
+  // En el paso 14 (~15 pasos de 60 KB), todos los pasos siguen presentes gracias a la poda (0 excluidos).
+  assert.equal(step14Result.diagnostics.excludedCount, 0);
+  assert.ok(step14Result.diagnostics.prunedToolsCount >= 10);
+  // Con histéresis, el prefijo cambia en menos de la mitad de los pasos (en lugar de casi todos).
+  assert.ok(prefixChanges <= 10, `Demasiados cambios de prefijo para caché KV: ${prefixChanges}`);
+
+  // Nota sintética determinista cuando la ventana excluye pasos del turno activo (presupuesto estrecho)
+  // y prueba en borde exacto N / N+1 de excludedStepsNoteMaxChars.
+  const tightMessages = [
+    { role: 'system', content: 'Sys' },
+    { id: 'u_tight_note', role: 'user', content: 'Analiza todo.' }
+  ];
+  for (let i = 0; i < 6; i++) {
+    tightMessages.push(
+      { role: 'assistant', content: null, tool_calls: [{ id: `tc_${i}`, function: { name: 'read_file', arguments: JSON.stringify({ path: `f${i}.js` }) } }] },
+      { role: 'tool', tool_call_id: `tc_${i}`, name: 'read_file', content: 'Z'.repeat(2000) }
+    );
+  }
+  const withNote = ChatContextManager.buildOptimizedContext(tightMessages, {
+    maxInputTokens: 1500,
+    maxHistoricalToolChars: 1200,
+    maxActiveToolChars: 2000
+  });
+  assert.ok(withNote.diagnostics.excludedCount > 0);
+  assert.equal(withNote.messages[1].role, 'user');
+  assert.match(withNote.messages[1].content, /Earlier tool calls in this turn omitted/);
+  assert.match(withNote.messages[1].content, /read_file\(\{"path":"f0\.js"\}\)/);
+
+  // Borde exacto N y N+1 sobre el tope de la nota sintética
+  const noteOnly = withNote.messages[1].content.slice('Analiza todo.\n\n'.length);
+  const exactN = ChatContextManager.buildOptimizedContext(tightMessages, {
+    maxInputTokens: 1500,
+    maxHistoricalToolChars: 1200,
+    maxActiveToolChars: 2000,
+    excludedStepsNoteMaxChars: noteOnly.length
+  });
+  assert.doesNotMatch(exactN.messages[1].content, /omitted from this summary due to size limit/);
+  const overN = ChatContextManager.buildOptimizedContext(tightMessages, {
+    maxInputTokens: 1500,
+    maxHistoricalToolChars: 1200,
+    maxActiveToolChars: 2000,
+    excludedStepsNoteMaxChars: noteOnly.length - 1
+  });
+  assert.match(overN.messages[1].content, /omitted from this summary due to size limit/);
 });
 
 test('ContextManager - usa metadatos explícitos y no heurísticas por nombre', () => {
