@@ -73,11 +73,10 @@
     }
     const candidateEndpoints = adapter.getModelEndpoints(cleanUrl);
 
-    const headers = { ...adapter.buildHeaders(resolvedApiKey), Accept: 'application/json' };
-
     let lastError = null;
 
     for (const endpoint of candidateEndpoints) {
+      const headers = { ...adapter.buildModelHeaders(endpoint, resolvedApiKey), Accept: 'application/json' };
       let timeoutId = null;
       try {
         const controller = new AbortController();

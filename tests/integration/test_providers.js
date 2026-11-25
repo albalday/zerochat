@@ -344,16 +344,31 @@ test('Reasoning intensity - ninguno envía el apagado explícito de cada protoco
 test('GeminiAdapter - Normalización de endpoints, stripping de prefijo models/ y formatMessages con llamadas paralelas', () => {
   const adapter = new GeminiProviderAdapter();
   assert.equal(adapter.normalizeEndpoint('https://generativelanguage.googleapis.com/v1beta/openai'), 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions');
+  assert.deepEqual(
+    adapter.getModelEndpoints('https://generativelanguage.googleapis.com/v1beta/openai'),
+    [
+      'https://generativelanguage.googleapis.com/v1beta/models',
+      'https://generativelanguage.googleapis.com/v1beta/openai/v1/models',
+      'https://generativelanguage.googleapis.com/v1beta/openai/models'
+    ]
+  );
+  assert.deepEqual(
+    adapter.getModelEndpoints('http://localhost:8080/v1'),
+    ['http://localhost:8080/v1/models']
+  );
+  assert.equal(adapter.buildModelHeaders('https://generativelanguage.googleapis.com/v1beta/models', 'k-gem')['x-goog-api-key'], 'k-gem');
+  assert.equal(adapter.buildModelHeaders('https://generativelanguage.googleapis.com/v1beta/models', 'k-gem').Authorization, undefined);
 
   const parsedModels = adapter.parseModelsResponse({
     models: [
-      { name: 'models/gemini-1.5-flash', displayName: 'Gemini 1.5 Flash' },
+      { name: 'models/gemini-1.5-flash', displayName: 'Gemini 1.5 Flash', inputTokenLimit: 1048576 },
       { name: 'models/gemini-2.0-flash', displayName: 'Gemini 2.0 Flash' },
       { name: 'models/embedding-001', displayName: 'Embedding' }
     ]
   });
   assert.equal(parsedModels.length, 2);
   assert.equal(parsedModels[0].id, 'gemini-1.5-flash');
+  assert.equal(parsedModels[0].details.inputTokenLimit, 1048576);
   assert.equal(parsedModels[1].id, 'gemini-2.0-flash');
 
   const payload = adapter.buildPayload({

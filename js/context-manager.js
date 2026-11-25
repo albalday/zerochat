@@ -63,7 +63,8 @@
       meta.n_ctx_train,
       details.context_length ?? entry?.context_length,
       details.context_window ?? entry?.context_window,
-      details.max_model_len ?? entry?.max_model_len
+      details.max_model_len ?? entry?.max_model_len,
+      details.inputTokenLimit ?? entry?.inputTokenLimit
     ]);
     if (nominal) return nominal;
     const declared = smallest([details.max_context_tokens ?? details.max_tokens]);

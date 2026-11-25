@@ -152,6 +152,13 @@
     }
 
     /**
+     * Construye las cabeceras HTTP necesarias para consultar el listado de modelos.
+     */
+    buildModelHeaders(endpoint, apiKey) {
+      return this.buildHeaders(apiKey);
+    }
+
+    /**
      * Adapta y formatea la lista de mensajes (filtrando imágenes si vision está deshabilitado).
      */
     formatMessages(messages, capabilities) {
@@ -469,9 +476,9 @@
       let lastHttpStatus = null;
 
       /** Petición de una sonda; un 401/403 se recuerda como error de autenticación. */
-      const request = async (url, init) => {
+      const request = async (url, init, requestHeaders = headers) => {
         try {
-          const res = await fetchWithTimeout(url, { ...init, headers: { ...init.headers, ...headers } }, timeoutMs);
+          const res = await fetchWithTimeout(url, { ...init, headers: { ...init.headers, ...requestHeaders } }, timeoutMs);
           if (res.status !== 404) lastHttpStatus = res.status;
           if (res.status === 401 || res.status === 403) authError = `Authentication error (HTTP ${res.status}): invalid API key or access denied.`;
           return res;
@@ -483,7 +490,7 @@
 
       if (runProbes) {
         for (const endpoint of this.getModelEndpoints(cleanBase)) {
-          const res = await request(endpoint, { method: 'GET', headers: { Accept: 'application/json' } });
+          const res = await request(endpoint, { method: 'GET', headers: { Accept: 'application/json' } }, this.buildModelHeaders(endpoint, apiKey));
           if (!res?.ok) continue;
           connectionSuccess = true;
           const parsed = this.parseModelsResponse(await res.json());
@@ -975,7 +982,24 @@
 
     getModelEndpoints(cleanUrl) {
       const v1Url = cleanUrl.endsWith('/v1') ? cleanUrl : `${cleanUrl}/v1`;
-      return [`${v1Url}/models`, `${cleanUrl}/models`];
+      const endpoints = [];
+      if (/googleapis\.com/i.test(cleanUrl)) {
+        const nativeBase = cleanUrl.replace(/\/openai\/?$/i, '').replace(/\/v1beta\/?$/i, '');
+        endpoints.push(`${nativeBase}/v1beta/models`);
+      }
+      for (const url of [`${v1Url}/models`, `${cleanUrl}/models`]) {
+        if (!endpoints.includes(url)) endpoints.push(url);
+      }
+      return endpoints;
+    }
+
+    buildModelHeaders(endpoint, apiKey) {
+      if (/\/v1beta\/models$/i.test(endpoint)) {
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey && apiKey.trim() !== '') headers['x-goog-api-key'] = apiKey.trim();
+        return headers;
+      }
+      return this.buildHeaders(apiKey);
     }
 
     parseModelsResponse(data) {
@@ -994,7 +1018,8 @@
           return {
             id: id,
             name: m.displayName || id,
-            description: m.description || ''
+            description: m.description || '',
+            details: m
           };
         })
         .filter(m => m.id && (m.id.includes('gemini') || m.id.includes('gemma')));
