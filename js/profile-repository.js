@@ -15,7 +15,7 @@
   const SCHEMA_VERSION = 1;
   const READONLY_PROFILE_ID = 'profile:mirror';
   const PROFILE_FIELDS = Object.freeze([
-    'apiUrl', 'apiType', 'model', 'systemPrompt', 'temperature',
+    'apiUrl', 'apiType', 'model', 'contextWindow', 'systemPrompt', 'temperature',
     'reasoningEffort', 'modelReasoningConfig',
     'enableRawLogs', 'enableContextCache', 'webllmConfig', 'apiKeyLocked'
   ]);
@@ -28,7 +28,7 @@
   }
 
   const NEW_PROFILE_SETTINGS = Object.freeze({
-    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', systemPrompt: '',
+    apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: '', contextWindow: null, systemPrompt: '',
     temperature: '0.7', reasoningEffort: 'medium', modelReasoningConfig: null,
     enableRawLogs: false, enableContextCache: true, apiKeyLocked: false,
     webllmConfig: {
@@ -65,6 +65,15 @@
           return;
         }
         Backup.validateApiKeySecret(source[key]);
+      }
+      if (key === 'contextWindow') {
+        if (source[key] === '' || source[key] === null || source[key] === undefined) {
+          settings.contextWindow = null;
+          return;
+        }
+        const num = Number(source[key]);
+        settings.contextWindow = Number.isFinite(num) && num > 0 ? Math.floor(num) : null;
+        return;
       }
       if (source[key] !== undefined) settings[key] = clone(source[key]);
     });

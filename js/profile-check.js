@@ -30,7 +30,7 @@
   /** Lo que decide la comprobación: cambia al activar otro perfil, al guardarlo de nuevo o al cambiar su conexión. */
   const checkKey = config => JSON.stringify([
     config.activeProfile?.id || '', config.activeProfile?.version || 0, config.activeProfile?.updatedAt || 0,
-    config.apiType, config.apiUrl, config.model, config.webllmConfig?.context_window_size || ''
+    config.apiType, config.apiUrl, config.model, config.contextWindow || '', config.webllmConfig?.context_window_size || ''
   ]);
 
   /** Motivo de un listado fallido: la clave rechazada, otro error HTTP del servidor o el servidor que no responde. */
@@ -45,11 +45,13 @@
    * comprobar por red (WebLLM, que da su ventana de contexto; un proveedor sin listado, o la clave sin desbloquear).
    */
   async function evaluate(config) {
+    const manualNum = Number(config.contextWindow);
+    const manualLimit = Number.isFinite(manualNum) && manualNum > 0 ? Math.floor(manualNum) : null;
     if (config.apiType === 'webllm') {
-      const size = Number(config.webllmConfig?.context_window_size) || getContextManager().WEBLLM_DEFAULT_CONTEXT;
+      const size = manualLimit || Number(config.webllmConfig?.context_window_size) || getContextManager().WEBLLM_DEFAULT_CONTEXT;
       return { status: 'unchecked', reason: '', message: '', contextLimit: size };
     }
-    const unchecked = reason => ({ status: 'unchecked', reason, message: '', contextLimit: null });
+    const unchecked = reason => ({ status: 'unchecked', reason, message: '', contextLimit: manualLimit });
     if (getProviders().registry.resolve(config.apiUrl, config.apiType).getCapabilities().modelListing === false) return unchecked('');
     let apiKey = '';
     try {
@@ -65,14 +67,14 @@
     }
     if (!listing.success) {
       const message = String(listing.error || '');
-      return { status: 'error', reason: failureReason(message), message, contextLimit: null };
+      return { status: 'error', reason: failureReason(message), message, contextLimit: manualLimit };
     }
     const models = Array.isArray(listing.models) ? listing.models : [];
     const ContextManager = getContextManager();
     if (!ContextManager.findModelInCatalog(models, config.model)) {
-      return { status: 'error', reason: 'model_not_found', message: config.model, contextLimit: null };
+      return { status: 'error', reason: 'model_not_found', message: config.model, contextLimit: manualLimit };
     }
-    return { status: 'ready', reason: '', message: '', contextLimit: ContextManager.getModelContextLimit(config.model, models) };
+    return { status: 'ready', reason: '', message: '', contextLimit: manualLimit || ContextManager.getModelContextLimit(config.model, models) };
   }
 
   /** Comprueba la configuración dada y publica el resultado, salvo que otra comprobación posterior la haya relevado. */

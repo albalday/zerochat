@@ -68,7 +68,8 @@ test('UIProfiles - los ajustes guardados parten del perfil editado y completan l
     webllmConfig: { context_window_size: '8192', prefill_chunk_size: 'default' }
   });
   // Sin URL guardada se usa la del proveedor elegido, y el formulario manda sobre lo guardado.
-  const ollama = UIProfiles.buildProfileSettings({ ...base, apiUrl: '' }, { ...form, apiType: 'ollama', temperature: '1.2', webllmPrefillChunk: '1024' });
-  assert.deepEqual({ apiType: ollama.apiType, apiUrl: ollama.apiUrl, temperature: ollama.temperature, prefill: ollama.webllmConfig.prefill_chunk_size },
-    { apiType: 'ollama', apiUrl: 'http://localhost:11434', temperature: '1.2', prefill: '1024' });
+  const ollama = UIProfiles.buildProfileSettings({ ...base, apiUrl: '' }, { ...form, apiType: 'ollama', temperature: '1.2', webllmPrefillChunk: '1024', contextWindow: ' 262144 ' });
+  assert.deepEqual({ apiType: ollama.apiType, apiUrl: ollama.apiUrl, temperature: ollama.temperature, prefill: ollama.webllmConfig.prefill_chunk_size, contextWindow: ollama.contextWindow },
+    { apiType: 'ollama', apiUrl: 'http://localhost:11434', temperature: '1.2', prefill: '1024', contextWindow: 262144 });
+  assert.equal(UIProfiles.buildProfileSettings(ollama, { ...form, contextWindow: '' }).contextWindow, null);
 });

@@ -74,6 +74,11 @@ test('ChatConfig - el límite detectado es volátil y se descarta al activar per
 
   ChatConfig.updateRuntime({ modelContextLimit: 90112 });
   assert.equal(ChatConfig.updateRuntime({ apiUrl: 'https://api.example.test/v1' }).modelContextLimit, null);
+
+  Profiles.save({ id: 'manual', name: 'Manual', settings: { ...OFFICE.settings, contextWindow: 196608 } });
+  const manualCfg = ChatConfig.activateProfile('manual');
+  assert.equal(manualCfg.contextWindow, 196608);
+  assert.equal(manualCfg.modelContextLimit, 196608);
 });
 
 test('ChatConfig - migración y borrado vuelven a Espejo sin conservar credenciales del perfil anterior', () => {

@@ -97,11 +97,17 @@
   function buildProfileSettings(base, form) {
     const apiType = form.apiType || base.apiType;
     const selectOr = (value, fallback) => value.trim() || fallback || 'default';
+    let contextWindow = base.contextWindow ?? null;
+    if (form.contextWindow !== undefined) {
+      const parsed = Number(String(form.contextWindow).trim());
+      contextWindow = Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : null;
+    }
     return {
       ...base,
       apiType,
       apiUrl: form.apiUrl.trim() || base.apiUrl || getProviders().registry.get(apiType).getConnectionConfig().endpoint,
       model: form.model.trim(),
+      contextWindow,
       systemPrompt: form.systemPrompt.trim(),
       temperature: form.temperature || base.temperature,
       webllmConfig: {
@@ -164,6 +170,7 @@
       els.settingModel.value = profileData.model;
       els.modelSelectHelper.value = profileData.model;
     }
+    els.settingContextWindow.value = profileData.contextWindow ? String(profileData.contextWindow) : '';
     if (profileData.systemPrompt !== undefined) els.settingSystemPrompt.value = profileData.systemPrompt;
     if (profileData.temperature !== undefined) {
       els.settingTemperature.value = profileData.temperature;
@@ -340,6 +347,7 @@
             <div class="form-field"><label for="setting-api-url"><strong data-i18n="field_api_url">URL del Servidor / Endpoint de Chat</strong></label><div class="input-with-button-wrapper"><input type="url" id="setting-api-url" placeholder="http://localhost:1234/v1" required><button type="button" id="btn-query-server" class="btn-query-server" data-i18n-title="btn_query_title" title="Consultar modelos disponibles y capacidades de la API en el servidor"><svg class="ui-icon query-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-search"></use></svg><span class="query-btn-text" data-i18n="btn_query_text">Query</span></button></div><div class="webllm-info-bar"><span id="webllm-local-hint" class="label-hint webllm-local-hint" hidden data-i18n="webllm_local_hint">Ejecución local en este navegador.</span><a id="webllm-help-link" class="webllm-help-link" href="help/webllm.html" target="_blank" rel="noopener noreferrer" hidden><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-help-circle"></use></svg><span data-i18n="webllm_help_link">Guía de configuración WebLLM</span><svg class="ui-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg></a></div><div id="server-query-status" class="server-query-status" hidden></div><span id="profile-save-query-hint" class="label-hint" data-i18n="profile_save_changes_required">Realiza algún cambio en el perfil para habilitar el guardado.</span></div>
             <div class="form-field api-key-field"><label for="setting-api-key"><strong data-i18n="field_api_key">Clave de API (API Key)</strong><span class="label-hint"><span id="api-key-hint-text" data-i18n="field_api_key_hint">Opcional si usas un servidor local (LM Studio / Ollama / LocalAI).</span> <a id="api-key-free-help-link" href="" target="_blank" rel="noopener noreferrer" data-i18n="field_api_key_free_help" hidden>Cómo obtener una API key gratuita</a></span></label><div class="input-password-wrapper"><input type="password" id="setting-api-key" placeholder="sk-..." autocomplete="new-password"><button type="button" class="btn-toggle-visibility" aria-pressed="false" data-i18n-title="btn_toggle_key_title" title="Mostrar/Ocultar clave"><svg class="ui-icon icon-reveal" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-eye"></use></svg><svg class="ui-icon icon-conceal" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><use href="#icon-eye-off"></use></svg></button></div></div>
             <div class="form-field"><label for="setting-model"><strong data-i18n="field_model">Nombre del Modelo</strong><span class="label-hint" data-i18n="field_model_hint">Selecciona de la lista del servidor o escribe cualquier nombre personalizado.</span></label><div class="combobox-wrapper"><input type="text" id="setting-model" list="model-datalist" data-i18n-placeholder="field_model_placeholder" placeholder="Escribe o pulsa Query para consultar modelos..." autocomplete="off"><select id="model-select-helper" class="combobox-select-helper" title="Seleccionar modelo de la lista"><option value="" disabled selected data-i18n="model_select_default">▾ Elegir modelo detectado...</option></select><datalist id="model-datalist"></datalist></div></div>
+            <div class="form-field"><label for="setting-context-window"><strong data-i18n="field_context_window">Ventana de contexto (Opcional)</strong><span class="label-hint" data-i18n="field_context_window_hint">Tokens máximos del modelo si el servidor no los publica o quieres fijarlos manualmente.</span></label><input type="number" id="setting-context-window" min="1024" step="1" data-i18n-placeholder="field_context_window_placeholder" placeholder="Automático (según servidor o 128000)"></div>
         `)}
         ${profileChapter('webllm-params-panel', 'profile-summary-webllm', 'webllm_params_title', `
             <div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option><option value="65536">65536 (64K)</option><option value="131072">131072 (128K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div>
@@ -470,6 +478,7 @@
       apiKey: els.settingApiKey.value,
       apiKeyLocked: els.settingApiKeyLocked.checked,
       model: els.settingModel.value,
+      contextWindow: els.settingContextWindow.value,
       systemPrompt: els.settingSystemPrompt.value,
       temperature: els.settingTemperature.value,
       webllmContextWindow: els.settingWebllmContextWindow.value,

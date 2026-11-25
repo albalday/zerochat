@@ -18,9 +18,9 @@ async function checkWith(t, connection, listing) {
     calls.push(args);
     return typeof listing === 'function' ? listing(calls.length) : listing;
   });
-  ChatConfig.updateRuntime({ ...connection, model: '' });
+  ChatConfig.updateRuntime({ ...connection, contextWindow: connection.contextWindow ?? null, model: '' });
   ProfileCheck.start();
-  ChatConfig.updateRuntime(connection);
+  ChatConfig.updateRuntime({ ...connection, contextWindow: connection.contextWindow ?? null });
   await ProfileCheck.settled();
   return calls;
 }
@@ -35,6 +35,10 @@ test('ProfileCheck - modelo listo con el límite que publica el servidor o, si n
   await checkWith(t, OPENAI, { success: true, models: [{ id: 'gemma' }] });
   assert.equal(checkState().status, 'ready');
   assert.equal(limit(), null);
+
+  await checkWith(t, { ...OPENAI, contextWindow: 200000 }, { success: true, models: [{ id: 'gemma', details: { loaded_context_length: 90112 } }] });
+  assert.equal(checkState().status, 'ready');
+  assert.equal(limit(), 200000, 'La ventana manual del perfil prevalece sobre el catálogo');
 });
 
 test('ProfileCheck - servidor caído, clave rechazada, error del servidor o modelo inexistente: no listo y límite calculado', async t => {

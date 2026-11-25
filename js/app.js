@@ -194,6 +194,7 @@
     settingWebllmContextWindow: 'setting-webllm-context-window',
     settingWebllmPrefillChunk: 'setting-webllm-prefill-chunk',
     settingSystemPrompt: 'setting-system-prompt',
+    settingContextWindow: 'setting-context-window',
     settingSystemDataPrompt: 'setting-system-data-prompt',
     settingTemperature: 'setting-temperature',
     temperatureVal: 'temperature-val',

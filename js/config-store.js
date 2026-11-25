@@ -98,6 +98,8 @@
     next.model = String(next.model || '').trim();
     const contextLimit = Number(next.modelContextLimit);
     next.modelContextLimit = Number.isFinite(contextLimit) && contextLimit > 0 ? Math.floor(contextLimit) : null;
+    const contextWindow = Number(next.contextWindow);
+    next.contextWindow = Number.isFinite(contextWindow) && contextWindow > 0 ? Math.floor(contextWindow) : null;
     next.systemPrompt = String(next.systemPrompt || '').trim();
     next.systemDataPrompt = String(next.systemDataPrompt || '').trim();
     next.temperature = String(next.temperature ?? DEFAULTS.temperature);
@@ -208,7 +210,9 @@
     const connectionChanged = ['apiUrl', 'apiType', 'model'].some(key => Object.prototype.hasOwnProperty.call(safePatch, key)
       && safePatch[key] !== current[key]);
     if (connectionChanged && !Object.prototype.hasOwnProperty.call(safePatch, 'modelContextLimit')) {
-      safePatch.modelContextLimit = null;
+      const nextWindow = Object.prototype.hasOwnProperty.call(safePatch, 'contextWindow') ? safePatch.contextWindow : current.contextWindow;
+      const num = Number(nextWindow);
+      safePatch.modelContextLimit = Number.isFinite(num) && num > 0 ? Math.floor(num) : null;
     }
     return commit({ ...current, ...safePatch });
   }
@@ -226,10 +230,11 @@
     PROFILE_FIELDS.forEach(field => {
       patch[field] = clone(profile.settings[field] !== undefined ? profile.settings[field] : DEFAULTS[field]);
     });
+    const manualWindow = Number(patch.contextWindow);
     return {
       ...config,
       ...patch,
-      modelContextLimit: null,
+      modelContextLimit: Number.isFinite(manualWindow) && manualWindow > 0 ? Math.floor(manualWindow) : null,
       activeProfile: profileMetadata(profile)
     };
   }
