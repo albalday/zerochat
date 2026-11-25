@@ -551,8 +551,9 @@
    * Cabeceras de las conversaciones, de la más reciente a la más antigua, sin sus mensajes.
    * Con el backend conectado se sincroniza en los dos sentidos y gana la copia más reciente: guarda en
    * IndexedDB las cabeceras remotas nuevas o más recientes, pendientes de descargar sus mensajes al
-   * abrirlas, y sube las locales sin sincronizar (hechas sin conexión) que el servidor no tiene más recientes.
-   * Los borrados no se recuerdan: una conversación borrada sin conexión vuelve a bajar del servidor.
+   * abrirlas, borra las locales ya sincronizadas que desaparecieron del servidor y sube las locales sin
+   * sincronizar (hechas sin conexión) que el servidor no tiene más recientes.
+   * Los borrados sin conexión no se recuerdan: una conversación borrada sin conexión vuelve a bajar del servidor.
    */
   async function getConversationsList() {
     const localRecords = await readLocalConversationRecords();
@@ -565,13 +566,17 @@
       const local = localMap.get(remote.id);
       return !local || (local.updatedAt !== remote.updatedAt && !localWins(local, remote));
     });
+    const deletedLocally = localRecords.filter(local => !remoteMap.has(local.id) && (local.synced || local.messagesPending));
     const unsynced = localRecords.filter(local => {
       const remote = remoteMap.get(local.id);
       return remote ? localWins(local, remote) : !local.synced && !local.messagesPending;
     });
     if (stale.length > 0) await writePendingHeaders(stale);
+    if (deletedLocally.length > 0) {
+      await deleteLocalConversations('prune deleted conversations', deletedLocally.map(item => item.id));
+    }
     await uploadUnsynced(unsynced);
-    return stale.length > 0 ? readLocalConversationsList() : localRecords.map(toConversationHeader);
+    return stale.length > 0 || deletedLocally.length > 0 ? readLocalConversationsList() : localRecords.map(toConversationHeader);
   }
 
   /**
@@ -724,13 +729,10 @@
   }
 
   /**
-   * Borra las conversaciones `ids` de IndexedDB con sus mensajes y los blobs que solo ellas usaban. Con el
-   * backend conectado, primero borra en el servidor las que selecciona `params` de zerochat/conversations/delete:
-   * si lo rechaza, la copia local se conserva.
+   * Borra las conversaciones `ids` de IndexedDB con sus mensajes y los blobs que solo ellas usaban.
    */
-  async function removeConversations(action, ids, params) {
-    if (isBackendConnected()) await requestBackend('zerochat/conversations/delete', params);
-    await attempt(action, async db => {
+  function deleteLocalConversations(action, ids) {
+    return attempt(action, async db => {
       const tx = db.transaction([STORES.conversations, STORES.messages, STORES.blobs], 'readwrite');
       const conversations = tx.objectStore(STORES.conversations);
       const messages = tx.objectStore(STORES.messages);
@@ -743,6 +745,16 @@
       await deleteOrphanBlobs(tx, candidates);
       await transactionDone(tx);
     });
+  }
+
+  /**
+   * Borra las conversaciones `ids` de IndexedDB con sus mensajes y los blobs que solo ellas usaban. Con el
+   * backend conectado, primero borra en el servidor las que selecciona `params` de zerochat/conversations/delete:
+   * si lo rechaza, la copia local se conserva.
+   */
+  async function removeConversations(action, ids, params) {
+    if (isBackendConnected()) await requestBackend('zerochat/conversations/delete', params);
+    await deleteLocalConversations(action, ids);
   }
 
   async function deleteConversation(sessionId) {

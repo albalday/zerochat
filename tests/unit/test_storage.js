@@ -283,6 +283,14 @@ test('Storage Backend - sincroniza en los dos sentidos con la copia más recient
   assert.equal((await Storage.getConversation('b_conv')).history[0].content, 'Reloj atrasado', 'Y se guarda aquí');
   connected = true;
 
+  // Una copia ya sincronizada que desaparece del servidor (p. ej. purgada por check_agents) se elimina también en IndexedDB
+  backendStore.delete('b_conv');
+  const afterServerPrune = await Storage.getConversationsList();
+  assert.equal(afterServerPrune.some(c => c.id === 'b_conv'), false);
+  connected = false;
+  assert.equal(await Storage.getConversation('b_conv'), null);
+  connected = true;
+
   // Si el servidor rechaza subir una (ejecución en marcha), sigue sin sincronizar y se reintenta
   connected = false;
   await Storage.saveConversation({ id: 'run_conv', title: 'Run', createdAt: 800, updatedAt: 800 }, [{ id: 'm_r1', role: 'user', content: 'r' }]);
