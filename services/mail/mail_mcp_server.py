@@ -12,10 +12,13 @@ import email.utils
 from html.parser import HTMLParser
 import imaplib
 import json
+import mimetypes
 import os
+from pathlib import Path
 import re
 import smtplib
 import ssl
+import stat
 import sys
 import time
 
@@ -28,6 +31,11 @@ DEFAULT_SEARCH_LIMIT = 20
 MAX_SEARCH_LIMIT = 50
 MAX_BODY_CHARS = 16_000
 MAX_ATTACHMENTS = 50
+# Carpeta de salida fija: el servicio solo adjunta ficheros de aquí, por nombre, y los borra tras enviar o guardar.
+OUTBOX_DIR = Path(__file__).resolve().parent / "outbox"
+MAX_OUTGOING_ATTACHMENTS = 10
+# Total sin codificar: en base64 crece un tercio y así queda por debajo de los 25 MB de Gmail.
+MAX_OUTGOING_ATTACHMENT_BYTES = 18 * 1024 * 1024
 _HOST_PORT_RE = re.compile(r"^([A-Za-z0-9._-]+)(?::(\d{1,5}))?$")
 _UID_RE = re.compile(r"^\d+$")
 _LIST_LINE_RE = re.compile(r'^\(([^)]*)\)\s+(?:"[^"]*"|NIL)\s+(.+)$')
@@ -297,7 +305,84 @@ def _normalize_recipients(raw, field_name: str) -> str:
     return joined
 
 
-def _build_email_message(conn: imaplib.IMAP4_SSL | None, cfg: dict, args: dict) -> email.message.EmailMessage:
+def ensure_outbox() -> Path:
+    """Crea la carpeta de salida (solo para el usuario) y comprueba que no es un enlace a otra parte."""
+    OUTBOX_DIR.mkdir(mode=0o700, exist_ok=True)
+    if OUTBOX_DIR.is_symlink() or not OUTBOX_DIR.is_dir():
+        raise ValueError(f"La carpeta de salida {OUTBOX_DIR} no es un directorio normal.")
+    return OUTBOX_DIR
+
+
+def _outbox_file_name(raw) -> str:
+    name = raw.strip() if isinstance(raw, str) else ""
+    if (not name or name in (".", "..") or len(name) > 255
+            or any(ch in name for ch in ("/", "\\", ":", "\0"))):
+        raise ValueError(f"Adjunto no válido: {raw!r}. Indica solo el nombre de un fichero de {OUTBOX_DIR}, sin ruta.")
+    return name
+
+
+def _read_outbox_file(path: Path, max_bytes: int) -> bytes:
+    """Lee un fichero normal de la carpeta de salida sin seguir enlaces; falla si supera max_bytes."""
+    try:
+        info = path.lstat()
+    except FileNotFoundError:
+        raise ValueError(f"No existe '{path.name}' en {OUTBOX_DIR}: cópialo antes allí.") from None
+    if not stat.S_ISREG(info.st_mode):
+        raise ValueError(f"'{path.name}' no es un fichero normal (no se admiten enlaces ni carpetas).")
+    fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0))
+    with os.fdopen(fd, "rb") as handle:
+        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+            raise ValueError(f"'{path.name}' no es un fichero normal.")
+        data = handle.read(max_bytes + 1)
+    if len(data) > max_bytes:
+        raise ValueError(f"Los adjuntos superan el máximo de {MAX_OUTGOING_ATTACHMENT_BYTES} bytes en total.")
+    return data
+
+
+def _load_outbox_attachments(raw) -> list[tuple[Path, bytes]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        raise ValueError("'attachments' debe ser una lista de nombres de fichero.")
+    if len(raw) > MAX_OUTGOING_ATTACHMENTS:
+        raise ValueError(f"Como máximo {MAX_OUTGOING_ATTACHMENTS} adjuntos por mensaje.")
+    names = [_outbox_file_name(item) for item in raw]
+    if len(set(names)) != len(names):
+        raise ValueError("Hay adjuntos repetidos en 'attachments'.")
+    outbox = ensure_outbox()
+    loaded: list[tuple[Path, bytes]] = []
+    remaining = MAX_OUTGOING_ATTACHMENT_BYTES
+    for name in names:
+        data = _read_outbox_file(outbox / name, remaining)
+        remaining -= len(data)
+        loaded.append((outbox / name, data))
+    return loaded
+
+
+def _remove_attachments(paths: list[Path]) -> list[str]:
+    """Borra los adjuntos ya enviados o guardados; devuelve los nombres que no se pudieron borrar."""
+    not_removed = []
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            not_removed.append(path.name)
+    return not_removed
+
+
+def _attachment_result(paths: list[Path]) -> dict:
+    if not paths:
+        return {}
+    result: dict = {"attachments": [path.name for path in paths]}
+    not_removed = _remove_attachments(paths)
+    if not_removed:
+        result["attachments_not_removed"] = not_removed
+    return result
+
+
+def _build_email_message(conn: imaplib.IMAP4_SSL | None, cfg: dict,
+                         args: dict) -> tuple[email.message.EmailMessage, list[Path]]:
+    """Compone el mensaje con sus adjuntos de la carpeta de salida; devuelve también sus rutas para borrarlas."""
     to_header = _normalize_recipients(args.get("to"), "to")
     cc_header = _normalize_recipients(args.get("cc"), "cc") if args.get("cc") else ""
     subject = _header_value_safe(args.get("subject") or "", "subject")
@@ -306,6 +391,7 @@ def _build_email_message(conn: imaplib.IMAP4_SSL | None, cfg: dict, args: dict) 
     body = args.get("body")
     if not isinstance(body, str) or not body.strip():
         raise ValueError("El cuerpo ('body') no puede estar vacío.")
+    attachments = _load_outbox_attachments(args.get("attachments"))
 
     msg = email.message.EmailMessage()
     msg["From"] = cfg["user"]
@@ -340,7 +426,11 @@ def _build_email_message(conn: imaplib.IMAP4_SSL | None, cfg: dict, args: dict) 
                 conn.logout()
 
     msg.set_content(body)
-    return msg
+    for path, data in attachments:
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        maintype, _, subtype = content_type.partition("/")
+        msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=path.name)
+    return msg, [path for path, _ in attachments]
 
 
 def _find_drafts_folder(conn: imaplib.IMAP4_SSL) -> str:
@@ -438,7 +528,7 @@ def tool_read_message(cfg: dict, args: dict) -> dict:
 def tool_create_draft(cfg: dict, args: dict) -> dict:
     conn = _open_imap(cfg)
     try:
-        msg = _build_email_message(conn, cfg, args)
+        msg, attachment_paths = _build_email_message(conn, cfg, args)
         drafts_folder = _find_drafts_folder(conn)
         internal_date = imaplib.Time2Internaldate(time.time())
         status, _ = conn.append(_quote_imap(drafts_folder), "\\Draft \\Seen", internal_date, msg.as_bytes())
@@ -450,13 +540,14 @@ def tool_create_draft(cfg: dict, args: dict) -> dict:
             "to": msg["To"],
             "subject": msg["Subject"],
             "message_id": msg["Message-ID"],
+            **_attachment_result(attachment_paths),
         }
     finally:
         conn.logout()
 
 
 def tool_send_email(cfg: dict, args: dict) -> dict:
-    msg = _build_email_message(None, cfg, args)
+    msg, attachment_paths = _build_email_message(None, cfg, args)
     ctx = ssl.create_default_context()
     port = cfg["smtp_port"]
     if port == 587:
@@ -476,6 +567,7 @@ def tool_send_email(cfg: dict, args: dict) -> dict:
         "cc": msg.get("Cc", ""),
         "subject": msg["Subject"],
         "message_id": msg["Message-ID"],
+        **_attachment_result(attachment_paths),
     }
 
 
@@ -488,6 +580,12 @@ _COMPOSE_SCHEMA = {
         "cc": {"type": "string", "description": "Optional CC recipients"},
         "reply_to_uid": {"type": "string", "description": "Optional UID of the message being replied to (sets threading headers)"},
         "reply_folder": {"type": "string", "description": "Folder containing reply_to_uid (defaults to 'INBOX')", "default": "INBOX"},
+        "attachments": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (f"Optional file names (no path) to attach, taken from the outbox folder {OUTBOX_DIR}. "
+                            f"Up to {MAX_OUTGOING_ATTACHMENTS} files and {MAX_OUTGOING_ATTACHMENT_BYTES // (1024 * 1024)} MB in total."),
+        },
     },
     "required": ["to", "subject", "body"],
 }
@@ -532,12 +630,16 @@ TOOLS_DEFINITIONS = [
     },
     {
         "name": "create_draft",
-        "description": "Save an email draft in the IMAP Drafts folder without sending it.",
+        "description": ("Save an email draft in the IMAP Drafts folder without sending it. "
+                        f"To attach files, first copy them into {OUTBOX_DIR} (for example with run_command) and pass "
+                        "their file names in 'attachments'; they are deleted from that folder once the draft is saved."),
         "inputSchema": _COMPOSE_SCHEMA,
     },
     {
         "name": "send_email",
-        "description": "Send an email immediately via SMTP.",
+        "description": ("Send an email immediately via SMTP. "
+                        f"To attach files, first copy them into {OUTBOX_DIR} (for example with run_command) and pass "
+                        "their file names in 'attachments'; they are deleted from that folder once the email is sent."),
         "inputSchema": _COMPOSE_SCHEMA,
     },
 ]
@@ -602,6 +704,7 @@ def handle_request(req: dict):
 
 
 def main():
+    ensure_outbox()
     for raw in sys.stdin:
         line = raw.strip()
         if not line:

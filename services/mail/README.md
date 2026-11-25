@@ -19,3 +19,11 @@ Configura los dos campos de texto del servicio (se guardan en las preferencias d
 - `read_message` (`mail_read_message`): lee un mensaje por UID (cuerpo en texto acotado a 16.000 caracteres y metadatos de adjuntos).
 - `create_draft` (`mail_create_draft`): guarda un borrador en la carpeta de borradores sin enviarlo.
 - `send_email` (`mail_send_email`): envía un correo por SMTP (**desactivada por defecto**; actívala en Ajustes › MCP solo cuando quieras permitir envíos).
+
+## Adjuntos
+
+`create_draft` y `send_email` aceptan `attachments`, una lista de **nombres de fichero sin ruta** que el servicio lee solo de su carpeta de salida fija, `outbox/` dentro de la carpeta del servicio (por defecto `~/zerochat/services/mail/outbox`; se crea al arrancar, solo accesible para el usuario). La descripción de las herramientas lleva la ruta absoluta para que el modelo copie allí antes los ficheros (por ejemplo con `run_command`); esa copia pasa por los permisos de lectura y escritura del proyecto, y el servicio no puede leer nada fuera de la carpeta.
+
+- Se rechazan nombres con separadores (`/`, `\`, `:`), `.` y `..`, enlaces simbólicos, carpetas y nombres repetidos.
+- Como máximo 10 adjuntos y 18 MB en total sin codificar (en base64 quedan por debajo de los 25 MB de Gmail); pasarse es un error, no se descarta ningún adjunto.
+- Tras enviar el correo o guardar el borrador se borran de la carpeta; si la operación falla se conservan para reintentar. Los que no se puedan borrar se indican en `attachments_not_removed`.

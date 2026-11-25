@@ -1,7 +1,9 @@
 import email.message
+import email.policy
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -159,7 +161,7 @@ class MailMcpOperationsTest(unittest.TestCase):
     def test_el_mensaje_se_compone_sin_resolver_el_nombre_del_equipo(self):
         # make_msgid sin dominio llama a socket.getfqdn, que sin DNS inverso tarda decenas de segundos (macOS).
         with patch("socket.getfqdn", side_effect=AssertionError("getfqdn")):
-            msg = mail_mcp._build_email_message(None, self.CFG, {"to": "dest@example.com", "subject": "Hola", "body": "Cuerpo"})
+            msg, _paths = mail_mcp._build_email_message(None, self.CFG, {"to": "dest@example.com", "subject": "Hola", "body": "Cuerpo"})
         self.assertTrue(msg["Message-ID"].endswith("@gmail.com>"), msg["Message-ID"])
 
     def test_adjuntos_en_el_borde_exacto_y_aviso_de_truncado(self):
@@ -172,6 +174,90 @@ class MailMcpOperationsTest(unittest.TestCase):
             _body, attachments, _truncated, att_truncated = mail_mcp._extract_body_and_attachments(msg)
             self.assertEqual(len(attachments), mail_mcp.MAX_ATTACHMENTS)
             self.assertIs(att_truncated, expect_truncated)
+
+
+class MailMcpOutboxAttachmentsTest(unittest.TestCase):
+    CFG = MailMcpOperationsTest.CFG
+    COMPOSE = {"to": "dest@example.com", "subject": "Informe", "body": "Adjunto el informe."}
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+        self.outbox = self.root / "outbox"
+        patcher = patch.object(mail_mcp, "OUTBOX_DIR", self.outbox)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        mail_mcp.ensure_outbox()
+
+    def _smtp(self):
+        smtp = MagicMock()
+        smtp.__enter__.return_value = smtp
+        return smtp
+
+    def test_send_email_adjunta_por_nombre_y_borra_tras_enviar(self):
+        (self.outbox / "informe.pdf").write_bytes(b"%PDF-1.4 datos")
+        (self.outbox / "notas.txt").write_bytes("línea".encode("utf-8"))
+        smtp = self._smtp()
+        with patch.object(mail_mcp.smtplib, "SMTP_SSL", return_value=smtp):
+            res = mail_mcp.tool_send_email(self.CFG, {**self.COMPOSE, "attachments": ["informe.pdf", "notas.txt"]})
+        self.assertEqual(res["attachments"], ["informe.pdf", "notas.txt"])
+        self.assertNotIn("attachments_not_removed", res)
+        sent = email.message_from_bytes(smtp.send_message.call_args.args[0].as_bytes(), policy=email.policy.default)
+        parts = {part.get_filename(): part for part in sent.iter_attachments()}
+        self.assertEqual(parts["informe.pdf"].get_content_type(), "application/pdf")
+        self.assertEqual(parts["informe.pdf"].get_content(), b"%PDF-1.4 datos")
+        self.assertEqual(parts["notas.txt"].get_content_type(), "text/plain")
+        self.assertEqual(list(self.outbox.iterdir()), [])
+
+    def test_create_draft_borra_tras_guardar_y_un_fallo_conserva_los_adjuntos(self):
+        (self.outbox / "a.bin").write_bytes(b"x")
+        conn = MagicMock()
+        conn.list.return_value = ("OK", [b'(\\Drafts) "/" "Drafts"'])
+        conn.append.return_value = ("NO", [b"quota"])
+        with patch.object(mail_mcp, "_open_imap", return_value=conn):
+            with self.assertRaises(ValueError):
+                mail_mcp.tool_create_draft(self.CFG, {**self.COMPOSE, "attachments": ["a.bin"]})
+            self.assertTrue((self.outbox / "a.bin").exists())
+            conn.append.return_value = ("OK", [b"[APPENDUID 1 7]"])
+            res = mail_mcp.tool_create_draft(self.CFG, {**self.COMPOSE, "attachments": ["a.bin"]})
+        self.assertEqual(res["attachments"], ["a.bin"])
+        self.assertFalse((self.outbox / "a.bin").exists())
+
+        (self.outbox / "b.bin").write_bytes(b"y")
+        smtp = self._smtp()
+        smtp.send_message.side_effect = OSError("smtp caído")
+        with patch.object(mail_mcp.smtplib, "SMTP_SSL", return_value=smtp), self.assertRaises(OSError):
+            mail_mcp.tool_send_email(self.CFG, {**self.COMPOSE, "attachments": ["b.bin"]})
+        self.assertTrue((self.outbox / "b.bin").exists())
+
+    def test_topes_de_numero_y_tamano_en_el_borde_exacto(self):
+        names = [f"f{idx}.bin" for idx in range(mail_mcp.MAX_OUTGOING_ATTACHMENTS + 1)]
+        for name in names:
+            (self.outbox / name).write_bytes(b"1")
+        self.assertEqual(len(mail_mcp._load_outbox_attachments(names[:-1])), mail_mcp.MAX_OUTGOING_ATTACHMENTS)
+        with self.assertRaisesRegex(ValueError, str(mail_mcp.MAX_OUTGOING_ATTACHMENTS)):
+            mail_mcp._load_outbox_attachments(names)
+
+        (self.outbox / "grande.bin").write_bytes(b"x" * 8)
+        with patch.object(mail_mcp, "MAX_OUTGOING_ATTACHMENT_BYTES", 9):
+            self.assertEqual(len(mail_mcp._load_outbox_attachments(["grande.bin", "f0.bin"])), 2)
+            with self.assertRaisesRegex(ValueError, "9 bytes"):
+                mail_mcp._load_outbox_attachments(["grande.bin", "f0.bin", "f1.bin"])
+
+    def test_solo_nombres_de_ficheros_normales_de_la_carpeta_de_salida(self):
+        secret = self.root / "secreto.txt"
+        secret.write_text("clave")
+        (self.outbox / "enlace.txt").symlink_to(secret)
+        (self.outbox / "carpeta").mkdir()
+        (self.outbox / "ok.txt").write_text("ok")
+        for bad in (["../secreto.txt"], [str(secret)], ["sub/ok.txt"], ["..\\x"], ["C:x"], [".."], [""],
+                    ["enlace.txt"], ["carpeta"], ["no-existe.txt"], ["ok.txt", "ok.txt"], "ok.txt", [3]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                mail_mcp._load_outbox_attachments(bad)
+        self.assertTrue(secret.exists())
+        if sys.platform != "win32":
+            self.assertEqual(self.outbox.stat().st_mode & 0o777, 0o700)
 
 
 class MailMcpStdioIntegrationTest(unittest.TestCase):

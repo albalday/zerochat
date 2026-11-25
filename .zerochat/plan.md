@@ -43,3 +43,9 @@ Done when: las tareas de M88 están implementadas con todos los niveles de §4 e
 
 ## M90 Reorganización del panel MCP: closed 2026-11-25
 
+## M91 Adjuntos en el MCP de correo
+
+Goal: permitir adjuntar ficheros al enviar correos y crear borradores con el MCP de correo (services/mail) desde una carpeta de salida fija, sin dar al servicio acceso a otras rutas del disco.
+Done when: send_email y create_draft adjuntan por nombre los ficheros de la carpeta de salida y los borran tras el envío o el guardado, con los topes probados en el borde exacto y todos los niveles de §4 en verde.
+- [x] M91-T1 Adjuntos desde carpeta de salida fija en el MCP de correo (services/mail): send_email y create_draft aceptan attachments (solo nombres de fichero, sin ruta) leídos de <serviceDir>/outbox (creada 0700), rechazando separadores, '..', enlaces simbólicos y no regulares; topes MAX_OUTGOING_ATTACHMENTS y MAX_OUTGOING_ATTACHMENT_BYTES con error en N+1; borrado de los adjuntos tras enviar o guardar el borrador; ruta absoluta de la carpeta y cómo copiar allí los ficheros en la descripción de las herramientas; actualizar service.json (versión), README.md y services/manifest.json, con pruebas en test_mail_mcp.py (2026-11-25)
+

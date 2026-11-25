@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "id": "mail",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "displayName": {
     "es": "Correo (IMAP / SMTP)",
     "en": "Email (IMAP / SMTP)"
   },
   "description": {
-    "es": "Lee, busca y crea borradores por IMAP y envía mensajes por SMTP (desactivado por defecto). Funciona con Gmail usando una contraseña de aplicación y con cualquier servidor IMAP/SMTP estándar.",
-    "en": "Read, search and create drafts via IMAP and send messages via SMTP (disabled by default). Works with Gmail using an App Password and with any standard IMAP/SMTP server."
+    "es": "Lee, busca y crea borradores por IMAP y envía mensajes por SMTP (desactivado por defecto), con adjuntos desde su carpeta de salida. Funciona con Gmail usando una contraseña de aplicación y con cualquier servidor IMAP/SMTP estándar.",
+    "en": "Read, search and create drafts via IMAP and send messages via SMTP (disabled by default), with attachments from its outbox folder. Works with Gmail using an App Password and with any standard IMAP/SMTP server."
   },
   "help": {
     "url": "https://myaccount.google.com/apppasswords",
@@ -88,6 +88,6 @@
       "MAIL_PASSWORD": "${secret:MAIL_PASSWORD}"
     },
     "handshakeTimeoutSeconds": 15,
-    "callTimeoutSeconds": 30
+    "callTimeoutSeconds": 120
   }
 }
