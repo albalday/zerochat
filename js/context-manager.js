@@ -21,6 +21,10 @@
   const DEFAULT_CONTEXT_LIMIT = 128000;
   // Contexto que se asume para un modelo WebLLM sin dato propio.
   const WEBLLM_DEFAULT_CONTEXT = 4096;
+  // Presupuesto de entrada: el contexto menos la salida reservada y un margen de seguridad, con un mínimo.
+  const RESERVED_OUTPUT_TOKENS = 4096;
+  const SAFETY_MARGIN_RATIO = 0.10;
+  const MIN_INPUT_BUDGET = 1024;
 
   /** Id de una entrada del catálogo de modelos: la cadena misma o su id o nombre. */
   const catalogModelId = model => (typeof model === 'string' ? model : (model?.id || model?.name || '')).trim();
@@ -71,16 +75,9 @@
    * Calcula el presupuesto de entrada disponible deduciendo salida máxima y margen de seguridad.
    */
   function calculateInputBudget(options = {}) {
-    if (options.maxInputTokens && options.maxInputTokens > 0) {
-      return options.maxInputTokens;
-    }
-
     const totalLimit = options.totalContextLimit || DEFAULT_CONTEXT_LIMIT;
-    const maxOutput = options.maxOutputTokens || 4096;
-    const safetyMargin = Math.ceil(totalLimit * (options.safetyMarginRatio || 0.10));
-
-    const inputBudget = Math.max(1024, totalLimit - maxOutput - safetyMargin);
-    return inputBudget;
+    const safetyMargin = Math.ceil(totalLimit * SAFETY_MARGIN_RATIO);
+    return Math.max(MIN_INPUT_BUDGET, totalLimit - RESERVED_OUTPUT_TOKENS - safetyMargin);
   }
 
   // ==========================================================================
@@ -364,7 +361,7 @@
   function truncateMiddle(str, maxChars, notice) {
     const head = str.slice(0, Math.floor(maxChars * 0.7));
     const tail = str.slice(-Math.floor(maxChars * 0.2));
-    return `${head}\n\n${notice(str.length - maxChars)}\n\n${tail}`;
+    return `${head}\n\n${notice(str.length - head.length - tail.length)}\n\n${tail}`;
   }
 
   function truncateToolContent(content, maxChars = DEFAULT_MAX_ACTIVE_TOOL_CHARS, toolName = 'tool') {
@@ -387,15 +384,15 @@
   /**
    * Compacta y poda los resultados de herramientas de turnos pasados completados.
    */
-  function pruneHistoricalToolMessage(m, maxHistoricalToolChars = DEFAULT_MAX_HISTORICAL_TOOL_CHARS) {
+  function pruneHistoricalToolMessage(m) {
     if (!m || m.role !== 'tool') return m;
     const contentStr = serializeContent(m.content);
 
-    if (contentStr.length <= maxHistoricalToolChars) {
+    if (contentStr.length <= DEFAULT_MAX_HISTORICAL_TOOL_CHARS) {
       return m;
     }
 
-    const truncated = truncateToolContent(contentStr, maxHistoricalToolChars, m.name || 'tool');
+    const truncated = truncateToolContent(contentStr, DEFAULT_MAX_HISTORICAL_TOOL_CHARS, m.name || 'tool');
     return {
       ...m,
       content: truncated,
@@ -463,20 +460,15 @@
   }
 
   /**
-   * Techo de los resultados de herramientas de un bloque del turno en curso: individual (DEFAULT_MAX_ACTIVE_TOOL_CHARS
-   * o `maxActiveToolChars`) y agregado por lote, ambos acotados al presupuesto de entrada.
+   * Techo de los resultados de herramientas de un bloque del turno en curso: individual (DEFAULT_MAX_ACTIVE_TOOL_CHARS)
+   * y agregado por lote, ambos acotados al presupuesto de entrada.
    */
-  function createActiveBlockCap(options, inputBudget) {
-    const maxHistoricalToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
-    const isExplicitActiveToolChars = typeof options.maxActiveToolChars === 'number';
-    const maxBatchCharsFromBudget = Math.max(
-      maxHistoricalToolChars,
+  function createActiveBlockCap(inputBudget) {
+    const batchChars = Math.max(
+      DEFAULT_MAX_HISTORICAL_TOOL_CHARS,
       Math.floor(inputBudget * ACTIVE_BATCH_BUDGET_RATIO * CHARS_PER_TOKEN_ESTIMATE)
     );
-    const perToolChars = isExplicitActiveToolChars
-      ? options.maxActiveToolChars
-      : Math.min(DEFAULT_MAX_ACTIVE_TOOL_CHARS, maxBatchCharsFromBudget);
-    const batchChars = isExplicitActiveToolChars ? 0 : maxBatchCharsFromBudget;
+    const perToolChars = Math.min(DEFAULT_MAX_ACTIVE_TOOL_CHARS, batchChars);
     return block => capToolBatchBlock(block, perToolChars, batchChars);
   }
 
@@ -489,7 +481,6 @@
     const model = options.model || '';
     const providerType = options.providerType || 'openai';
     const inputBudget = calculateInputBudget(options);
-    const maxHistoricalToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
 
     if (!Array.isArray(rawMessages) || rawMessages.length === 0) {
       return {
@@ -538,7 +529,7 @@
     const lastBlock = atomicBlocks.pop(); // Último bloque indispensable
 
     // Aplicar techo de seguridad individual y agregado por lote a herramientas del turno en curso (acotado al inputBudget)
-    const capActiveBlock = createActiveBlockCap(options, inputBudget);
+    const capActiveBlock = createActiveBlockCap(inputBudget);
 
     const processedLastBlock = capActiveBlock(lastBlock);
 
@@ -582,7 +573,7 @@
       .filter(m => !m?.[TOOL_EVIDENCE_FLAG])
       .map(m => {
         if (m.role !== 'tool') return m;
-        const pruned = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
+        const pruned = pruneHistoricalToolMessage(m);
         if (pruned._prunedByContextManager) prunedToolsCount++;
         return pruned;
       });
@@ -798,7 +789,11 @@
   // ==========================================================================
 
   const SUMMARIZER_SYSTEM_PROMPT = `You consolidate a conversation checkpoint. Create one concise, cumulative summary of the checkpoint supplied, if any, and every subsequent message supplied. Preserve user goals, decisions, verified facts, tool calls and their results, open questions, and details needed to continue. Do not mention this instruction or omit relevant information merely because of its source.`;
-  // Fracción mínima del presupuesto que deben ocupar los turnos cerrados comprimibles para justificar compactar.
+  // Se compacta cuando lo que se enviaría alcanza esta fracción del presupuesto de entrada,
+  const COMPRESSION_THRESHOLD_RATIO = 0.70;
+  // con al menos estos mensajes de turnos cerrados desde el último checkpoint
+  const MIN_MESSAGES_TO_COMPRESS = 2;
+  // y si esos turnos cerrados ocupan al menos esta fracción del presupuesto.
   const MIN_COMPRESSIBLE_BUDGET_RATIO = 0.20;
 
   /**
@@ -820,7 +815,6 @@
       return false;
     }
 
-    const minMessagesToCompress = options.minMessagesToCompress || 2;
     const lastCheckpointIndex = messages.reduce((lastIndex, message, index) => (
       message && message._isSummaryBlock ? index : lastIndex
     ), -1);
@@ -830,7 +824,7 @@
     const messagesSinceCheckpoint = messages.slice(lastCheckpointIndex + 1, compressibleEnd)
       .filter(message => message && message.role && message.role !== 'system');
 
-    if (messagesSinceCheckpoint.length < minMessagesToCompress) {
+    if (messagesSinceCheckpoint.length < MIN_MESSAGES_TO_COMPRESS) {
       return false;
     }
 
@@ -841,22 +835,19 @@
       : 0;
     // Se mide lo que buildOptimizedContext enviaría, no el historial crudo: los resultados de turnos cerrados van podados
     // y sin sus imágenes, y los del turno en curso con su techo individual y por lote.
-    const maxHistoricalToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
     const asSentClosed = m => {
       if (!m || m.role !== 'tool') return m;
-      const { images: _images, ...pruned } = pruneHistoricalToolMessage(m, maxHistoricalToolChars);
+      const { images: _images, ...pruned } = pruneHistoricalToolMessage(m);
       return pruned;
     };
     const closedSent = messages.slice(0, compressibleEnd).map(asSentClosed);
-    const capActiveBlock = createActiveBlockCap(options, inputBudget);
+    const capActiveBlock = createActiveBlockCap(inputBudget);
     const activeSent = groupIntoAtomicBlocks(messages.slice(compressibleEnd)).flatMap(capActiveBlock);
     const totalTokens = estimateHistoryTokens(closedSent, model)
       + estimateHistoryTokens(activeSent, model)
       + estimateToolDefinitionsTokens(options.toolDefinitions)
       + extraInputTokens;
-    const thresholdRatio = options.compressionThresholdRatio || 0.70;
-
-    if (totalTokens < (inputBudget * thresholdRatio)) {
+    if (totalTokens < (inputBudget * COMPRESSION_THRESHOLD_RATIO)) {
       return false;
     }
 
@@ -877,7 +868,6 @@
    */
   function formatHistoryTranscript(messages = [], options = {}) {
     if (!Array.isArray(messages) || messages.length === 0) return '';
-    const maxToolChars = options.maxHistoricalToolChars || DEFAULT_MAX_HISTORICAL_TOOL_CHARS;
     const lines = [];
 
     messages.forEach(m => {
@@ -904,7 +894,7 @@
           const callDescs = toolCalls.map(tc => {
             const { name, argsText } = readToolCallSpec(tc);
             // Los argumentos (p. ej. el contenido de write_file) tienen el mismo tope que los resultados.
-            return argsText ? `${name}(${truncateToolContent(argsText, maxToolChars, name)})` : name;
+            return argsText ? `${name}(${truncateToolContent(argsText, DEFAULT_MAX_HISTORICAL_TOOL_CHARS, name)})` : name;
           });
           parts.push(`[Called tools: ${callDescs.join(', ')}]`);
         }
@@ -912,8 +902,8 @@
       } else if (m.role === 'tool') {
         const name = m.name || 'tool';
         const rawContent = typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : '');
-        const contentStr = rawContent.length > maxToolChars
-          ? truncateToolContent(rawContent, maxToolChars, name)
+        const contentStr = rawContent.length > DEFAULT_MAX_HISTORICAL_TOOL_CHARS
+          ? truncateToolContent(rawContent, DEFAULT_MAX_HISTORICAL_TOOL_CHARS, name)
           : rawContent;
         lines.push(`Tool (${name}): ${contentStr}`);
       }

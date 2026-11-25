@@ -73,8 +73,8 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
   const history = [];
   for (let index = 0; index < 4; index++) {
     history.push(
-      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(30)}` },
-      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(30)}` }
+      { role: 'user', content: `Pregunta ${index}: ${'detalle '.repeat(60)}` },
+      { role: 'assistant', content: `Respuesta ${index}: ${'resultado '.repeat(60)}` }
     );
   }
   history.push({ role: 'user', content: 'Petición actual que debe conservarse.' });
@@ -93,7 +93,7 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
       }
     },
     messages: history,
-    contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
+    contextOptions: { totalContextLimit: 4096 },
     summarizeHistory: async ({ messages }) => {
       summaryCalls++;
       events.push('summarize');
@@ -122,7 +122,7 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
         : { accumulatedText: 'Respuesta final.', toolCalls: [] })
     },
     messages: history,
-    contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
+    contextOptions: { totalContextLimit: 4096 },
     summarizeHistory: async () => { failedSummaryCalls++; return ''; }
   });
   assert.equal(failedRes.status, 'completed');
@@ -145,7 +145,7 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
       }
     },
     messages: singleTurnHistory,
-    contextOptions: { totalContextLimit: 300, compressionThresholdRatio: 0.5 },
+    contextOptions: { totalContextLimit: 4096 },
     summarizeHistory: async () => { singleTurnSummaryCalls++; return 'No debería llamarse'; }
   });
   assert.equal(singleTurnRes.status, 'completed');
@@ -169,7 +169,7 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
         : { accumulatedText: 'Listo.', toolCalls: [], stats: { promptTokens: 500, completionTokens: 10, isEstimated: false } })
     },
     messages: shortClosedHistory,
-    contextOptions: { maxInputTokens: 2000, compressionThresholdRatio: 0.7 },
+    contextOptions: { totalContextLimit: 6775 }, // presupuesto de entrada 2001
     summarizeHistory: async () => { calibratedSummaries++; return 'Checkpoint calibrado.'; }
   });
   assert.equal(calibratedRes.status, 'completed');
@@ -197,7 +197,7 @@ test('AgentRuntime - compacta solo turnos cerrados conservando el turno en curso
     api: { streamChatCompletion: async () => ({ accumulatedText: 'Analizado.', toolCalls: [] }) },
     messages: visualSingleTurn,
     prepareMessages: (msgs, extra) => ChatEngine.buildEffectiveMessages(msgs, ConfigStore.normalize({}), extra),
-    contextOptions: { maxInputTokens: 2000, compressionThresholdRatio: 0.5 },
+    contextOptions: { totalContextLimit: 6775 },
     summarizeHistory: async () => { visualSummaries++; return 'No debe llamarse'; },
     callbacks: { onCompactionStart: step => visualCompactions.push(step) }
   });

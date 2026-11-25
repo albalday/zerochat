@@ -3,6 +3,17 @@ const assert = require('node:assert');
 const ChatContextManager = require('../../js/context-manager.js');
 const ChatEngine = require('../../js/chat-engine.js');
 
+// El contexto más pequeño (WebLLM sin dato propio): presupuesto de entrada mínimo de 1024 tokens.
+const SMALLEST_CONTEXT = { totalContextLimit: 4096 };
+
+/** totalContextLimit con el que calculateInputBudget da justo `budget` (crece de uno en uno o se mantiene). */
+function limitForBudget(budget) {
+  let limit = 4096;
+  while (ChatContextManager.calculateInputBudget({ totalContextLimit: limit }) < budget) limit++;
+  assert.equal(ChatContextManager.calculateInputBudget({ totalContextLimit: limit }), budget);
+  return limit;
+}
+
 test('ContextManager - estimación de tokens para texto, código, razonamiento e imágenes', () => {
   const shortText = 'Hola, ¿cómo estás?';
   const tokens = ChatContextManager.estimateTextTokens(shortText);
@@ -38,14 +49,14 @@ test('ContextManager - estimación de tokens para texto, código, razonamiento e
   const defsTokens = ChatContextManager.estimateToolDefinitionsTokens(heavyTools);
   assert.ok(defsTokens > 1000);
   const smallClosedHistory = [
-    { role: 'user', content: 'u1 '.repeat(120) }, { role: 'assistant', content: 'a1 '.repeat(120) },
-    { role: 'user', content: 'u2 '.repeat(120) }, { role: 'assistant', content: 'a2 '.repeat(120) },
-    { role: 'user', content: 'u3 '.repeat(120) }, { role: 'assistant', content: 'a3 '.repeat(120) },
-    { role: 'user', content: 'u4 '.repeat(120) }, { role: 'assistant', content: 'a4 '.repeat(120) },
+    { role: 'user', content: 'u1 '.repeat(60) }, { role: 'assistant', content: 'a1 '.repeat(60) },
+    { role: 'user', content: 'u2 '.repeat(60) }, { role: 'assistant', content: 'a2 '.repeat(60) },
+    { role: 'user', content: 'u3 '.repeat(60) }, { role: 'assistant', content: 'a3 '.repeat(60) },
+    { role: 'user', content: 'u4 '.repeat(60) }, { role: 'assistant', content: 'a4 '.repeat(60) },
     { role: 'user', content: 'actual' }
   ];
-  assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.7 }), false);
-  assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.7, toolDefinitions: heavyTools }), true);
+  assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, SMALLEST_CONTEXT), false);
+  assert.equal(ChatContextManager.shouldCompress(smallClosedHistory, { ...SMALLEST_CONTEXT, toolDefinitions: heavyTools }), true);
 
   // Si los turnos cerrados ocupan menos del 20% del presupuesto, no se compacta aunque el turno activo sea grande.
   const tinyClosedBigActive = [
@@ -56,7 +67,7 @@ test('ContextManager - estimación de tokens para texto, código, razonamiento e
       { role: 'tool', tool_call_id: `tb_${i}`, name: 'read_file', content: 'X'.repeat(5000) }
     ])).flat()
   ];
-  assert.equal(ChatContextManager.shouldCompress(tinyClosedBigActive, { maxInputTokens: 2000, compressionThresholdRatio: 0.7 }), false);
+  assert.equal(ChatContextManager.shouldCompress(tinyClosedBigActive, SMALLEST_CONTEXT), false);
 });
 
 test('ContextManager - shouldCompress mide los turnos cerrados podados como se envían, en el borde exacto del umbral', () => {
@@ -80,24 +91,23 @@ test('ContextManager - shouldCompress mide los turnos cerrados podados como se e
 
   // Umbral 0.7 * presupuesto: N (justo alcanzado) compacta y N+1 (un token de presupuesto más) no.
   const atThreshold = Math.floor(sentTokens / 0.7);
-  assert.equal(ChatContextManager.shouldCompress(history, { maxInputTokens: atThreshold }), true);
-  assert.equal(ChatContextManager.shouldCompress(history, { maxInputTokens: atThreshold + 1 }), false);
+  assert.equal(ChatContextManager.shouldCompress(history, { totalContextLimit: limitForBudget(atThreshold) }), true);
+  assert.equal(ChatContextManager.shouldCompress(history, { totalContextLimit: limitForBudget(atThreshold + 1) }), false);
 });
 
 test('ContextManager - Preservación obligatoria de System Prompt y Último Mensaje con presupuesto pequeño', () => {
+  const old = text => `${text} ${'x'.repeat(2000)}`;
   const messages = [
     { role: 'system', content: 'INSTRUCCIÓN CRÍTICA DE SISTEMA' },
-    { role: 'user', content: 'Mensaje antiguo 1' },
-    { role: 'assistant', content: 'Respuesta antigua 1' },
-    { role: 'user', content: 'Mensaje antiguo 2' },
-    { role: 'assistant', content: 'Respuesta antigua 2' },
+    { role: 'user', content: old('Mensaje antiguo 1') },
+    { role: 'assistant', content: old('Respuesta antigua 1') },
+    { role: 'user', content: old('Mensaje antiguo 2') },
+    { role: 'assistant', content: old('Respuesta antigua 2') },
     { role: 'user', content: 'PREGUNTA ACTUAL DEL USUARIO' }
   ];
 
-  // Presupuesto muy restrictivo (ej. solo 60 tokens)
-  const result = ChatContextManager.buildOptimizedContext(messages, {
-    maxInputTokens: 60
-  });
+  // Presupuesto mínimo (1024 tokens): el historial antiguo no cabe
+  const result = ChatContextManager.buildOptimizedContext(messages, SMALLEST_CONTEXT);
 
   // Debe contener el System Prompt y la Pregunta Actual
   const roles = result.messages.map(m => m.role);
@@ -117,7 +127,7 @@ test('ContextManager - buildOptimizedContext preserva pares atómicos, poda tool
     { role: 'assistant', content: 'Aquí está tu respuesta basada en la búsqueda.' },
     { role: 'user', content: 'Segundo mensaje' }
   ];
-  const atomic = ChatContextManager.buildOptimizedContext(atomicMessages, { maxInputTokens: 2000 });
+  const atomic = ChatContextManager.buildOptimizedContext(atomicMessages, { totalContextLimit: 150000 });
   const toolIdx = atomic.messages.findIndex(m => m.role === 'tool');
   assert.ok(toolIdx > 0);
   assert.equal(atomic.messages[toolIdx - 1].role, 'assistant');
@@ -131,9 +141,9 @@ test('ContextManager - buildOptimizedContext preserva pares atómicos, poda tool
     { role: 'assistant', content: 'El PDF trata de X temas.' },
     { role: 'user', content: '¿Qué más dice?' }
   ];
-  const pruned = ChatContextManager.buildOptimizedContext(hugeMessages, { maxInputTokens: 4000, maxHistoricalToolChars: 500 });
+  const pruned = ChatContextManager.buildOptimizedContext(hugeMessages, { totalContextLimit: 150000 });
   const prunedTool = pruned.messages.find(m => m.role === 'tool');
-  assert.ok(prunedTool.content.length <= 1000);
+  assert.ok(prunedTool.content.length <= 4000);
   assert.ok(prunedTool.content.includes('Truncado por ChatContextManager'));
   assert.equal(pruned.diagnostics.prunedToolsCount, 1);
 
@@ -143,7 +153,7 @@ test('ContextManager - buildOptimizedContext preserva pares atómicos, poda tool
     { role: 'user', content: 'Dame el EBITDA de Walmart.' },
     { role: 'assistant', content: null, tool_calls: [{ id: 'call_read', function: { name: 'read_knowledge_chunk', arguments: '{"chunkIds":["c1"]}' } }] },
     { role: 'tool', tool_call_id: 'call_read', name: 'read_knowledge_chunk', content: tableContent }
-  ], { model: 'configured-model', providerType: 'openai' });
+  ], { model: 'configured-model', totalContextLimit: 150000 });
   const ragTool = activeRag.messages.find(m => m.role === 'tool');
   assert.ok(!ragTool.content.includes('Truncado por ChatContextManager'));
   assert.equal(ragTool.content.length, tableContent.length);
@@ -186,7 +196,8 @@ test('ContextManager - preserva salidas intactas entre pasos del turno activo y 
   assert.equal(byId.c1, step1Output);
   assert.equal(byId.c2, step2Output);
   assert.equal(byId.c3, step3Exact);
-  assert.match(byId.c4, /Truncado por ChatContextManager: 1 caracteres omitidos/);
+  // El aviso dice lo que falta de verdad: de 64001 se conservan el 70 % y el 20 % de 64000 (44800 + 12800).
+  assert.match(byId.c4, /Truncado por ChatContextManager: 6401 caracteres omitidos/);
 
   // 2. Modelo pequeño (WebLLM 4K): el techo activo se acota por inputBudget sin exceder la ventana
   const smallModel = ChatContextManager.buildOptimizedContext([
@@ -194,7 +205,7 @@ test('ContextManager - preserva salidas intactas entre pasos del turno activo y 
     { role: 'user', content: 'Lee' },
     { role: 'assistant', content: null, tool_calls: [{ id: 'cs', function: { name: 'read_file', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'cs', name: 'read_file', content: 'X'.repeat(10000) }
-  ], { maxInputTokens: 3000 });
+  ], SMALLEST_CONTEXT);
   const smallTool = smallModel.messages.find(m => m.role === 'tool');
   assert.match(smallTool.content, /Truncado por ChatContextManager/);
 });
@@ -211,7 +222,7 @@ test('ContextManager - ventana deslizante contigua sin huecos y tope agregado po
     { role: 'tool', tool_call_id: 'big', name: 'read_file', content: 'B'.repeat(4000) },
     { role: 'assistant', content: null, tool_calls: [{ id: 'small', function: { name: 'read_file', arguments: '{}' } }] },
     { role: 'tool', tool_call_id: 'small', name: 'read_file', content: 'reciente' }
-  ], { maxInputTokens: 600, maxHistoricalToolChars: 4000, maxActiveToolChars: 4000 });
+  ], SMALLEST_CONTEXT);
   const contents = contiguous.messages.map(m => m.content);
   assert.equal(contents.includes('Antiguo pequeño'), false, 'No debe saltar el bloque grande para colar turnos más antiguos');
   assert.equal(contents.some(c => typeof c === 'string' && c.startsWith('Petición actual')), true, 'Debe preservar siempre el mensaje user del turno en curso');
@@ -306,11 +317,7 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
       { role: 'tool', tool_call_id: `tc_${i}`, name: 'read_file', content: 'Z'.repeat(2000) }
     );
   }
-  const withNote = ChatContextManager.buildOptimizedContext(tightMessages, {
-    maxInputTokens: 1500,
-    maxHistoricalToolChars: 1200,
-    maxActiveToolChars: 2000
-  });
+  const withNote = ChatContextManager.buildOptimizedContext(tightMessages, SMALLEST_CONTEXT);
   assert.ok(withNote.diagnostics.excludedCount > 0);
   assert.equal(withNote.messages[1].role, 'user');
   assert.match(withNote.messages[1].content, /Earlier tool calls in this turn omitted/);
@@ -327,7 +334,7 @@ test('ContextManager - poda intra-turno con histéresis, presupuesto de pasos re
         { role: 'tool', tool_call_id: `ov_${i}`, name: 'read_file', content: 'Z'.repeat(3000) }
       );
     }
-    const out = ChatContextManager.buildOptimizedContext(msgs, { maxInputTokens: 6000, maxHistoricalToolChars: 1200, maxActiveToolChars: 2000 });
+    const out = ChatContextManager.buildOptimizedContext(msgs, { totalContextLimit: limitForBudget(6000) });
     return out.messages[1].content.slice('Analiza.\n\n'.length);
   };
   const padsFor = extra => {
@@ -383,11 +390,7 @@ test('ContextManager - recorta evidencia visual (image_url) de turnos cerrados y
     { role: 'assistant', content: null, tool_calls: [{ id: 'v3', function: { name: 'browser_action', arguments: '{"p":3}' } }] },
     { role: 'tool', tool_call_id: 'v3', name: 'browser_action', content: 'C'.repeat(4000), images: [img('STEP3')] }
   ];
-  const preparedLong = ChatEngine.buildEffectiveMessages(longVisualTurn, ConfigStore.normalize({}), {
-    maxInputTokens: 6000,
-    maxHistoricalToolChars: 1000,
-    maxActiveToolChars: 20000
-  });
+  const preparedLong = ChatEngine.buildEffectiveMessages(longVisualTurn, ConfigStore.normalize({}), { totalContextLimit: limitForBudget(6000) });
   const imageUrls = preparedLong.filter(hasImagePart)
     .flatMap(m => m.content.filter(p => p.type === 'image_url').map(p => p.image_url.url));
   assert.equal(imageUrls.some(u => u.includes('STEP1')), false, 'La imagen del paso podado debe omitirse');
@@ -413,16 +416,15 @@ test('ContextManager - shouldCompress evalúa umbrales y evita recomponer checkp
     longHistory.push({ role: 'user', content: `Pregunta ${i}: ` + 'detalles '.repeat(40) });
     longHistory.push({ role: 'assistant', content: `Respuesta ${i}: ` + 'explicación '.repeat(40) });
   }
-  assert.equal(ChatContextManager.shouldCompress(longHistory, { maxInputTokens: 2000, compressionThresholdRatio: 0.50 }), true);
+  assert.equal(ChatContextManager.shouldCompress(longHistory, SMALLEST_CONTEXT), true);
 
+  // Por encima del umbral, pero sin turnos cerrados nuevos tras el checkpoint: no se recompone.
   const withRecentCheckpoint = Array.from({ length: 6 }, (_, index) => ({ role: 'system', content: `Sys ${index}` })).concat([
-    { role: 'system', content: 'Memoria previa', _isSummaryBlock: true, _compressedMetadata: { timestamp: Date.now(), endIndexInHistory: 8 } },
+    { role: 'system', content: `Memoria previa ${'m'.repeat(3000)}`, _isSummaryBlock: true, _compressedMetadata: { timestamp: Date.now(), endIndexInHistory: 8 } },
     { role: 'user', content: 'Turno 9' },
     { role: 'assistant', content: 'Respuesta 9' }
   ]);
-  assert.equal(ChatContextManager.shouldCompress(withRecentCheckpoint, {
-    maxInputTokens: 20, compressionThresholdRatio: 0.1, minMessagesToCompress: 3
-  }), false);
+  assert.equal(ChatContextManager.shouldCompress(withRecentCheckpoint, SMALLEST_CONTEXT), false);
 });
 
 test('ContextManager - compressHistory encadena checkpoints acumulativos conservando el turno en curso', async () => {
@@ -529,18 +531,23 @@ test('ContextManager - compressHistory rechaza summarizeFn nulo, vacíos o llama
   // conservando el mensaje user y el paso más reciente intacto.
   const activeOverflow = ChatContextManager.buildOptimizedContext([
     { role: 'system', content: 'Sistema' },
-    { role: 'user', content: 'Analiza los tres archivos.' },
-    { role: 'assistant', content: null, tool_calls: [{ id: 't1', function: { name: 'read_file', arguments: '{"p":"1"}' } }] },
-    { role: 'tool', tool_call_id: 't1', name: 'read_file', content: 'A'.repeat(12000) },
-    { role: 'assistant', content: null, tool_calls: [{ id: 't2', function: { name: 'read_file', arguments: '{"p":"2"}' } }] },
-    { role: 'tool', tool_call_id: 't2', name: 'read_file', content: 'B'.repeat(12000) },
-    { role: 'assistant', content: null, tool_calls: [{ id: 't3', function: { name: 'read_file', arguments: '{"p":"3"}' } }] },
-    { role: 'tool', tool_call_id: 't3', name: 'read_file', content: 'C'.repeat(6000) }
-  ], { maxInputTokens: 6000, maxHistoricalToolChars: 1000, maxActiveToolChars: 20000 });
-  const overflowById = Object.fromEntries(activeOverflow.messages.filter(m => m.role === 'tool').map(m => [m.tool_call_id, m.content]));
+    { role: 'user', content: 'Analiza los cinco archivos.' },
+    ...[1, 2, 3, 4].flatMap(n => [
+      { role: 'assistant', content: null, tool_calls: [{ id: `t${n}`, function: { name: 'read_file', arguments: `{"p":"${n}"}` } }] },
+      { role: 'tool', tool_call_id: `t${n}`, name: 'read_file', content: String(n).repeat(12000) }
+    ]),
+    { role: 'assistant', content: null, tool_calls: [{ id: 't5', function: { name: 'read_file', arguments: '{"p":"5"}' } }] },
+    { role: 'tool', tool_call_id: 't5', name: 'read_file', content: 'D'.repeat(6000) }
+  ], { totalContextLimit: limitForBudget(8000) });
+  const activeTools = activeOverflow.messages.filter(m => m.role === 'tool');
+  // Los pasos antiguos (t1-t3) se podan y, al no bajar al objetivo de histéresis, salen con su nota tras el user; los
+  // recientes que caben en la reserva siguen con el techo activo (7200 con este presupuesto) y el último, intacto.
+  assert.equal(activeOverflow.diagnostics.prunedToolsCount, 3);
   assert.equal(activeOverflow.messages[1].role, 'user');
-  assert.match(overflowById.t1, /Truncado por ChatContextManager/);
-  assert.equal(overflowById.t3, 'C'.repeat(6000));
+  assert.match(activeOverflow.messages[1].content, /3 steps, 3 calls[\s\S]*read_file\(\{"p":"1"\}\)[\s\S]*read_file\(\{"p":"3"\}\)/);
+  assert.deepEqual(activeTools.map(m => m.tool_call_id), ['t4', 't5']);
+  assert.ok(activeTools[0].content.length > 4000 && activeTools[0].content.length <= 7200);
+  assert.equal(activeTools[1].content, 'D'.repeat(6000));
 });
 
 test('ContextManager - truncateToolContent preserva todos los fragmentos en salidas multisección de RAG', () => {
@@ -581,14 +588,14 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
         function: { name: 'run_command', arguments: '{"command":"git status"}' }
       }]
     },
-    { role: 'tool', name: 'run_command', content: 'salida de comando '.repeat(200) },
+    { role: 'tool', name: 'run_command', content: 'salida de comando '.repeat(300) },
     {
       role: 'user',
       content: [{ type: 'text', text: 'mira esta imagen' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AA==' } }]
     }
   ];
 
-  const transcript = ChatContextManager.formatHistoryTranscript(history, { maxHistoricalToolChars: 100 });
+  const transcript = ChatContextManager.formatHistoryTranscript(history, { totalContextLimit: 150000 });
 
   assert.ok(transcript.includes('[Previous Checkpoint Summary]:\nResumen previo'));
   assert.ok(transcript.includes('User: Notas previas\ncomprueba git'));
@@ -598,27 +605,29 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   assert.ok(transcript.includes('User: mira esta imagen'));
   assert.ok(!transcript.includes('Eres un asistente'), 'No debe incluir el prompt de sistema previo');
 
-  // Los argumentos de las llamadas tienen el mismo tope que los resultados, en el borde exacto.
+  // Los argumentos de las llamadas tienen el mismo tope que los resultados (4000), en el borde exacto.
   const callWithArgs = length => ChatContextManager.formatHistoryTranscript([{
     role: 'assistant',
     content: '',
     tool_calls: [{ id: 'call_w', function: { name: 'write_file', arguments: 'a'.repeat(length) } }]
-  }], { maxHistoricalToolChars: 100 });
-  assert.equal(callWithArgs(100), `Assistant: [Called tools: write_file(${'a'.repeat(100)})]`);
-  assert.match(callWithArgs(101), /Truncado por ChatContextManager: 1 caracteres omitidos de la salida de write_file/);
+  }], { totalContextLimit: 150000 });
+  assert.equal(callWithArgs(4000), `Assistant: [Called tools: write_file(${'a'.repeat(4000)})]`);
+  // De 4001 se conservan 2800 + 800: faltan 401.
+  assert.match(callWithArgs(4001), /Truncado por ChatContextManager: 401 caracteres omitidos de la salida de write_file/);
 
   // La transcripción para el resumidor se acota siempre (incluso con totalContextLimit: null usando el respaldo 128K)
-  // con aviso propio y en borde exacto N / N+1 (maxInputTokens=1000 -> tope exacto 2000 chars).
+  // con aviso propio y en borde exacto N / N+1: con el presupuesto mínimo (1024) el tope es 2048 caracteres.
   const hugeTranscript = ChatContextManager.formatHistoryTranscript(
     Array.from({ length: 20 }, (_, i) => ({ role: 'user', content: `Mensaje ${i}: ${'x'.repeat(500)}` })),
-    { maxInputTokens: 1500 }
+    SMALLEST_CONTEXT
   );
   assert.match(hugeTranscript, /Transcript truncated: \d+ characters omitted to fit the summarizer budget/);
 
-  const exactEdge = ChatContextManager.formatHistoryTranscript([{ role: 'user', content: 'A'.repeat(1994) }], { maxInputTokens: 1000 });
-  assert.equal(exactEdge, `User: ${'A'.repeat(1994)}`);
-  const overEdge = ChatContextManager.formatHistoryTranscript([{ role: 'user', content: 'A'.repeat(1995) }], { maxInputTokens: 1000 });
-  assert.match(overEdge, /Transcript truncated: 1 characters omitted to fit the summarizer budget/);
+  const exactEdge = ChatContextManager.formatHistoryTranscript([{ role: 'user', content: 'A'.repeat(2042) }], SMALLEST_CONTEXT);
+  assert.equal(exactEdge, `User: ${'A'.repeat(2042)}`);
+  const overEdge = ChatContextManager.formatHistoryTranscript([{ role: 'user', content: 'A'.repeat(2043) }], SMALLEST_CONTEXT);
+  // De 2049 se conservan floor(2048 * 0.7) + floor(2048 * 0.2) = 1433 + 409: faltan 207.
+  assert.match(overEdge, /Transcript truncated: 207 characters omitted to fit the summarizer budget/);
 
   // Con totalContextLimit: null también aplica el respaldo de 128K (calculateInputBudget -> 111104 * 2 = 222208 chars).
   const fallbackBig = ChatContextManager.formatHistoryTranscript(
