@@ -344,6 +344,71 @@ describe('Browser UI - panel MCP', { concurrency: 2 }, () => {
     });
   });
 
+  test('Browser UI - cada servidor externo agrupa sus herramientas en su tarjeta plegable, preserva su estado abierto tras re-render y guarda políticas/interruptores', async () => {
+    const externalServers = [
+      { id: 'brave', displayName: { es: 'Brave Search' }, description: { es: 'Búsqueda web' }, status: 'running', toolCount: 2 },
+      { id: 'mail', displayName: { es: 'Correo' }, status: 'error', error: 'Falta contraseña', toolCount: 0 }
+    ];
+    const externalTools = [
+      { id: 'brave_web_search', name: 'brave_web_search', description: 'Busca en la web', defaultEnabled: true, inputSchema: { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] }, metadata: { mcpServerId: 'brave', mcpServerName: 'Brave Search', originalName: 'web_search' } },
+      { id: 'brave_news_search', name: 'brave_news_search', description: 'Busca noticias', defaultEnabled: false, inputSchema: { type: 'object', properties: {} }, metadata: { mcpServerId: 'brave', mcpServerName: 'Brave Search', originalName: 'news_search' } }
+    ];
+    await withMcpPanel({ status: 'connected', tools: TOOLS, externalServers, externalTools }, async page => {
+      const initial = await page.evaluate(() => {
+        const serversCounter = document.getElementById('mcp-servers-counter').textContent;
+        const braveCard = document.querySelector('#mcp-servers-list details.mcp-server-item[data-server-id="brave"]');
+        const mailCard = document.querySelector('#mcp-servers-list details.mcp-server-item[data-server-id="mail"]');
+        const toolsDetails = braveCard.querySelector('details.mcp-server-tools-details[data-server-tools-id="brave"]');
+        const names = [...braveCard.querySelectorAll('.mcp-tool-name')].map(el => el.textContent);
+        const localHasBrave = Boolean(document.querySelector('#mcp-tools-container [data-tool-id="brave_web_search"]'));
+        return {
+          serversCounter,
+          braveOpen: braveCard.open,
+          mailOpen: mailCard.open,
+          toolsHeading: toolsDetails.querySelector('summary').textContent.trim(),
+          names,
+          localHasBrave
+        };
+      });
+      assert.equal(initial.serversCounter, '1 activos / 2');
+      assert.equal(initial.braveOpen, false, 'Un servidor sin error empieza plegado');
+      assert.equal(initial.mailOpen, true, 'Un servidor con error se abre automáticamente');
+      assert.equal(initial.toolsHeading, 'Herramientas (1/2 activas)');
+      assert.deepEqual(initial.names, ['web_search', 'news_search'], 'Muestra el nombre original corto dentro de su servidor');
+      assert.equal(initial.localHasBrave, false, 'Las herramientas externas no aparecen en la lista local');
+
+      // Abrir la tarjeta de Brave y su subsección de herramientas; un re-render del latido debe preservar ambos abiertos.
+      await page.evaluate(() => {
+        const braveCard = document.querySelector('#mcp-servers-list details.mcp-server-item[data-server-id="brave"]');
+        braveCard.open = true;
+        braveCard.querySelector('details.mcp-server-tools-details').open = true;
+        window.ChatState.set('mcp', current => ({ ...current, latencyMs: 22 }));
+      });
+      const afterHeartbeat = await page.evaluate(() => {
+        const braveCard = document.querySelector('#mcp-servers-list details.mcp-server-item[data-server-id="brave"]');
+        return {
+          serverOpen: braveCard.open,
+          toolsOpen: braveCard.querySelector('details.mcp-server-tools-details').open
+        };
+      });
+      assert.deepEqual(afterHeartbeat, { serverOpen: true, toolsOpen: true });
+
+      // Cambiar interruptor y política de una herramienta anidada en la tarjeta del servidor.
+      await page.locator('#mcp-servers-list .mcp-tool-checkbox[data-tool-id="brave_news_search"]').evaluate(input => input.click());
+      await page.locator('#mcp-servers-list .mcp-auth-select[data-tool-id="brave_web_search"]').evaluate(el => {
+        el.value = 'allow';
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      await page.waitForFunction(() => window.ChatToolSecurity.manager.getToolPolicy('brave_web_search') === 'allow');
+      const updated = await page.evaluate(() => ({
+        newsEnabled: window.ChatConfig.getActive().enabledTools.brave_news_search,
+        webPolicy: window.ChatToolSecurity.manager.getToolPolicy('brave_web_search'),
+        serverStillOpen: document.querySelector('#mcp-servers-list details.mcp-server-item[data-server-id="brave"]').open
+      }));
+      assert.deepEqual(updated, { newsEnabled: true, webPolicy: 'allow', serverStillOpen: true });
+    });
+  });
+
   test('Browser UI - repintar las listas MCP no vuelve a enlazar eventos: cada acción se dispara una vez', async () => {
     await withMcpPanel({}, async page => {
       const counts = await page.evaluate(async () => {

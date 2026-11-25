@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M90 Reorganización del panel MCP
-- Next task: M90-T3 Compactar el diseño visual de tarjetas de herramientas y servidores MCP y añadir pruebas de navegador (css/components/tools.css, js/ui-mcp.js, tests/browser/): (1) hacer más legibles y compactas las filas de herramientas (descripción en 1–2 líneas, parámetros solo visibles al desplegar o en línea discreta, controles alineados en una sola fila y buen comportamiento en móvil); (2) añadir/actualizar pruebas en tests/browser/ y tests/unit/ o tests/integration/ cubriendo el plegado de secciones, la separación de herramientas locales frente a las agrupadas en cada servidor externo, la persistencia del estado desplegado tras re-render y el guardado de interruptores/políticas desde las herramientas anidadas; y (3) verificar npm run test:architecture (incluyendo CSS e i18n sin huérfanos) y npm run test:browser
+- Next task: none pending
 - Last closed: M89 Adaptación del bucle agéntico al contexto del modelo (2026-11-25)
 - Last updated: 2026-11-25
