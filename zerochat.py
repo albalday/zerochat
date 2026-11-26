@@ -2024,9 +2024,11 @@ COMMAND_WILDCARD_UNSAFE = re.compile(r"[$`{}]|(?:^|[=:])~|(?:^|[/\\=:])\.\.(?:[/
 COMMAND_ABSOLUTE_ARG = re.compile(r"(?:^|[=:])(?:[/\\]|[A-Za-z]:[/\\])")
 SYSTEM_BIN_DIRS = ("/usr/bin/", "/bin/", "/usr/local/bin/")
 SUBCOMMAND_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9_.:-]*")
-SAFE_REDIRECTION_PATTERN = re.compile(r"&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d")
+# Cada redirección acaba donde acaba la palabra: '>/dev/null.txt', '2>&10' o '>$null.txt' son otra cosa.
+_REDIRECTION_END = r"(?=[\s;&|)]|$)"
+SAFE_REDIRECTION_PATTERN = re.compile(rf"(?:&>\s*/dev/null|\d?>>?\s*/dev/null|\d?>&\d){_REDIRECTION_END}")
 # En PowerShell /dev/null es un fichero más: lo que se descarta va a $null.
-POWERSHELL_SAFE_REDIRECTION_PATTERN = re.compile(r"[\d*]?>>?\s*\$null\b|\d?>&\d")
+POWERSHELL_SAFE_REDIRECTION_PATTERN = re.compile(rf"(?:[\d*]?>>?\s*\$null|\d?>&\d){_REDIRECTION_END}")
 # Lo que impide validar un comando por partes: sustitución de comandos o de procesos y saltos de línea, y en
 # PowerShell además los bloques de script ({ }), que ejecutan lo que llevan dentro.
 SHELL_SPLIT_UNSUPPORTED = re.compile(r"[`\n\r]|\$\(|[<>]\(")
@@ -2150,9 +2152,12 @@ def _is_plain_segment(segment: str) -> bool:
         return False
     if not words or words[0].lower() in SHELL_KEYWORDS:
         return False
-    # Un cd tras variables ('x=1 cd /etc') o tras 'command' también cambia la carpeta: no se admite.
+    # Un cd tras variables ('x=1 cd /etc') o tras 'command' y sus opciones ('command -p cd', 'command -- cd')
+    # también cambia la carpeta: no se admite.
     rest = list(itertools.dropwhile(ENV_ASSIGNMENT.fullmatch, words))
-    if rest[rest[:1] == ["command"]:][:1] == ["cd"] and not _is_cd(words[0]):
+    if rest[:1] == ["command"]:
+        rest = list(itertools.dropwhile(lambda word: word.startswith("-"), rest[1:]))
+    if rest[:1] == ["cd"] and not _is_cd(words[0]):
         return False
     return not _is_cd(words[0]) or (len(words) == 2 and not words[1].startswith("-") and not CD_UNSAFE_TARGET.search(words[1]))
 

@@ -321,7 +321,9 @@ class PolicyEvaluationTest(ControllerTestCase):
             dec = self.evaluate("run_command", {"command": command})
             self.assertEqual((dec.reason, dec.rule_offer["command"]), ("command_outside_allowed_patterns", offer), command)
         # Lo que no se puede validar por partes pide permiso sin oferta de patrón
-        unsplittable = ("git log > out.txt", "git log $(rm x)", "git log `rm x`", "git status & rm x", "(git status)",
+        # Una redirección segura solo lo es entera: ni un fichero que empieza por /dev/null ni el descriptor 10.
+        self.assertEqual(zerochat.split_command("git log >/dev/null 2>&1| git status"), [("", "git log"), ("|", "git status")])
+        unsplittable = ("git log >/dev/null.txt", "git log 2>/dev/null-x", "git log 2>&10", "git log > out.txt", "git log $(rm x)", "git log `rm x`", "git status & rm x", "(git status)",
                         "if git status; then rm x; fi", "git status &&", "git log\nrm x", 'git log "a')
         for command in unsplittable:
             dec = self.evaluate("run_command", {"command": command})
@@ -340,7 +342,8 @@ class PolicyEvaluationTest(ControllerTestCase):
             self.assertEqual((dec.reason, dec.rule_offer), ("command_directory_outside_rules", None), command)
         # Un cd que solo la shell resuelve o que va escondido no se valida por partes
         for command in ("cd ~ && ls", "cd $HOME && ls", "cd - && ls", "cd && ls", "cd s* && ls", "x=1 cd /etc && ls",
-                        "command cd /etc; ls", "Set-Location /etc; ls", "pushd /etc && ls"):
+                        "command cd /etc; ls", "command -- cd /etc; ls", "command -p cd /etc; ls", "Set-Location /etc; ls",
+                        "pushd /etc && ls"):
             self.assertEqual(self.evaluate("run_command", {"command": command}).reason, "command_chaining_requires_approval", command)
 
     def test_rule_offer_for_commands_and_directories(self):
@@ -891,6 +894,8 @@ class PowerShellCommandTest(ControllerTestCase):
                         "npm test > /dev/null", "npm test > out.txt"):
             self.assertIsNone(split(command), command)
         self.assertEqual(split("npm test 2>$null; npm run lint *>$null"), [("", "npm test"), (";", "npm run lint")])
+        for command in ("npm test >$null.txt", "npm test 2>$null-out.txt", "npm test 2>&10"):
+            self.assertIsNone(split(command), command)
         # PowerShell no distingue mayúsculas: CD también cambia de carpeta
         self.assertEqual(zerochat.cd_target("CD src"), "src")
 
