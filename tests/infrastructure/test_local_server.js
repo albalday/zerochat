@@ -102,6 +102,12 @@ describe('Servidor local zerochat.py', () => {
     // Un iframe sandbox de cualquier web llega con Origin: null; la CLI y el runner, sin Origin.
     assert.equal((await sendNoToken(loginBody(4096), { Origin: 'null' })).status, 403);
     assert.equal((await (await sendNoToken(loginBody(4096), {})).json()).error?.code, -32602);
+    // Un origen local solo vale si es el de la petición (la interfaz que sirve este servidor); otra web local, no.
+    const own = new URL(baseUrl);
+    assert.equal((await (await sendNoToken(loginBody(4096), { Origin: own.origin })).json()).error?.code, -32602);
+    for (const other of [`http://${own.hostname}:${Number(own.port) + 1}`, `http://localhost:${own.port}`, `http://${own.hostname}`]) {
+      assert.equal((await sendNoToken(loginBody(4096), { Origin: other })).status, 403, other);
+    }
     assert.equal((await post('zerochat/heartbeat', {}, { headers: { Authorization: '' } })).status, 401);
 
     const api = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });

@@ -11857,21 +11857,21 @@ def static_file_target(root: Path, rel_path: str) -> Path | None:
     return target
 
 
-def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
+def is_allowed_origin(origin: str | None, host: str | None, require_origin: bool = False) -> bool:
     """
     Verifica si el origen CORS está autorizado. Sin Origin llegan la CLI, el runner y curl; "null" es una
     página file:// o un iframe sandbox de cualquier web, y ningún flujo de ZeroChat habla así con el servidor.
+    Un origen local solo vale si es el de la petición (`host`, la cabecera Host): la interfaz que sirve este
+    servidor en desarrollo, también por un túnel con otro puerto; otra aplicación web local no.
     """
     if origin is None:
         return not require_origin
     origin_lower = origin.lower()
     if origin_lower == "https://albalday.github.io" or origin_lower.startswith("https://albalday.github.io/"):
         return True
-    if origin_lower == "http://127.0.0.1" or origin_lower.startswith("http://127.0.0.1:"):
-        return True
-    if origin_lower == "http://localhost" or origin_lower.startswith("http://localhost:"):
-        return True
-    return False
+    if not host or origin_lower != f"http://{host.lower()}":
+        return False
+    return host.lower().rsplit(":", 1)[0] in ("127.0.0.1", "localhost")
 
 
 # zerochat/run/progress ya se registra con su propio texto en dispatch_run; zerochat/run/usage llega tras cada paso.
@@ -11952,7 +11952,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
 
     def send_cors_headers(self):
         origin = self.headers.get("Origin")
-        if not is_allowed_origin(origin, require_origin=True):
+        if not is_allowed_origin(origin, self.headers.get("Host"), require_origin=True):
             return
         self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
@@ -11987,7 +11987,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if self._reject_dot_segment("OPTIONS", safe_path, t0):
             return
         origin = self.headers.get("Origin")
-        if not is_allowed_origin(origin, require_origin=True):
+        if not is_allowed_origin(origin, self.headers.get("Host"), require_origin=True):
             self._log_req("OPTIONS", safe_path)
             self.send_response(403)
             self.end_headers()
@@ -12023,7 +12023,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         self._log_req("GET", safe_path)
 
         origin = self.headers.get("Origin")
-        if not is_allowed_origin(origin):
+        if not is_allowed_origin(origin, self.headers.get("Host")):
             self.send_response(403)
             self.end_headers()
             self._log_res(403, safe_path, (time.monotonic() - t0) * 1000, f"Origen no permitido: '{origin}'")
@@ -12183,7 +12183,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if self._reject_dot_segment("POST", safe_path, t0):
             return
         origin = self.headers.get("Origin")
-        if not is_allowed_origin(origin):
+        if not is_allowed_origin(origin, self.headers.get("Host")):
             self._log_req("POST", safe_path)
             self.send_response(403)
             self.end_headers()

@@ -38,15 +38,18 @@ config = json.loads(Path(sys.argv[0]).with_name("fake-ui.json").read_text(encodi
 scenario = config["scenario"]
 info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment), "launcher": Path(sys.argv[0]).name, "args": sys.argv[1:url_index], "after_url": sys.argv[url_index + 1:]}
 
+# La interfaz de desarrollo la sirve el propio servidor de la ejecución: su origen es el de la petición.
+ORIGIN = f"http://{fragment['host']}:{fragment['port']}"
+
 def rpc(method, run_id=fragment["run"], **params):
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {"run_id": run_id, **params}}).encode()
     request = urllib.request.Request(f"http://{fragment['host']}:{fragment['port']}/", data=body, headers={
-        "Content-Type": "application/json", "Origin": "http://127.0.0.1", "X-ZeroChat-Token": fragment["token"]})
+        "Content-Type": "application/json", "Origin": ORIGIN, "X-ZeroChat-Token": fragment["token"]})
     return json.loads(urllib.request.urlopen(request, timeout=5).read())
 
 def post_status(size):
     request = urllib.request.Request(f"http://{fragment['host']}:{fragment['port']}/", data=b"x" * size, headers={
-        "Content-Type": "application/json", "Origin": "http://127.0.0.1", "X-ZeroChat-Token": fragment["token"]})
+        "Content-Type": "application/json", "Origin": ORIGIN, "X-ZeroChat-Token": fragment["token"]})
     try:
         return urllib.request.urlopen(request, timeout=30).status
     except urllib.error.HTTPError as err:
@@ -57,7 +60,7 @@ def rpc_status(method, size, **params):
     envelope = {"jsonrpc": "2.0", "id": 1, "method": method, "params": {"run_id": fragment["run"], **params, "pad": ""}}
     envelope["params"]["pad"] = "p" * (size - len(json.dumps(envelope).encode()))
     request = urllib.request.Request(f"http://{fragment['host']}:{fragment['port']}/", data=json.dumps(envelope).encode(), headers={
-        "Content-Type": "application/json", "Origin": "http://127.0.0.1", "X-ZeroChat-Token": fragment["token"]})
+        "Content-Type": "application/json", "Origin": ORIGIN, "X-ZeroChat-Token": fragment["token"]})
     try:
         return urllib.request.urlopen(request, timeout=30).status
     except urllib.error.HTTPError as err:
@@ -68,7 +71,7 @@ def save():
 
 def status_with(token, method):
     """Estado HTTP de un JSON-RPC con otra credencial (o sin ella) que la del runner."""
-    headers = {"Content-Type": "application/json", "Origin": "http://127.0.0.1", **({"X-ZeroChat-Token": token} if token else {})}
+    headers = {"Content-Type": "application/json", "Origin": ORIGIN, **({"X-ZeroChat-Token": token} if token else {})}
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {}}).encode()
     try:
         return urllib.request.urlopen(urllib.request.Request(f"http://{fragment['host']}:{fragment['port']}/", data=body, headers=headers), timeout=5).status
