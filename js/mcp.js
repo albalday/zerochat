@@ -316,8 +316,7 @@
       metadata: {
         mcpServerName: tool.metadata.mcpServerName,
         mcpServerId: tool.metadata.mcpServerId,
-        originalName: tool.metadata.originalName,
-        controller: tool.metadata.controller
+        originalName: tool.metadata.originalName
       }
     };
   }
@@ -517,13 +516,14 @@
       this.clients.delete(clientId);
     }
 
-    /** Descubre las herramientas de un cliente y las registra; devuelve sus resúmenes. */
+    /** Descubre las herramientas de un cliente y las registra; devuelve los resúmenes de las que ve Ajustes › MCP. */
     async registerClient(client, options = {}) {
       const provider = new McpToolProvider(client, options);
       const tools = await provider.discoverTools(options);
       getAgentCore().registry.registerProvider(provider);
       this.clients.set(client.id, client);
-      return tools.map(summarizeTool);
+      // Las del controlador no salen en Ajustes: las enciende «Subagentes» y no piden permiso.
+      return tools.filter(tool => !tool.metadata.controller).map(summarizeTool);
     }
 
     /**

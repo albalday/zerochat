@@ -17,6 +17,7 @@ from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from security.rules import COMMAND_TOOL, JOB_CONTROL_TOOL, POLICY_ASK, POLICY_DENY
 from server.state import BROWSER_LEASES, BROWSER_LEASE_IDLE_SECONDS
+from tools.agents import CONTROLLER_TOOLS
 from tools.common import _tool_error
 from tools.registry import LOCAL_TOOL_HANDLERS
 
@@ -188,6 +189,10 @@ def call_tool(params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | N
     # el reto. Con ella se detiene un run_command y se corta la espera de un check_command (zerochat/jobs/*).
     job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name in (COMMAND_TOOL, JOB_CONTROL_TOOL) else None
     conversation_id = str(meta.get("zerochatConversationId") or "")
+    # Las del controlador no piden permiso: lo dio quien lo pidió («Subagentes» en la interfaz o controller: true), y
+    # fuera de un controlador sus manejadores se niegan. Con project, sus reglas de directorio deciden sin preguntar.
+    if origin == "local" and tool_name in CONTROLLER_TOOLS:
+        return execute_tool(origin, tool_name, args, ctx, conversation_id)
     gate = authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
     return gate if gate is not None else execute_tool(origin, tool_name, with_job_key(args, job_key), ctx, conversation_id)
 

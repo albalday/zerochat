@@ -551,11 +551,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         names = lambda: [tool["name"] for tool in zerochat._local_tools()]
         check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
 
-        # En una ejecución que no es controladora no se publica, no se autoriza en sesión ni responde.
+        # En una ejecución que no es controladora no se publica ni responde.
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
         self.assertNotIn("check_agents", names())
-        zerochat.reset_session_authorizations()
-        self.assertNotEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("check_agents", {}, context=ctx).status, zerochat.POLICY_ALLOW)
         self.assertFalse(check()["success"])
         self.assertIsNone(zerochat.validate_local_tool_arguments("check_agents", {"agent": "a.b"}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"agent": 123}))
@@ -584,8 +582,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         self.assertIn("check_agents", names())
-        zerochat.reset_session_authorizations()
-        self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("check_agents", {}, context=ctx).status, zerochat.POLICY_ALLOW)
 
         # Listado: la conversación más reciente de cada agente del proyecto, de cualquier subconjunto, nunca humanas, otros
         # proyectos ni la del propio controlador.
@@ -989,7 +985,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         launched = []
         fake_launch = lambda request, cwd: launched.append((dict(request), cwd)) or {"run_id": f"run_{len(launched)}", "pid": 1}
 
-        # Una ejecución que no es controladora no las publica ni las atiende; una controladora publica y autoriza las cuatro.
+        # Una ejecución que no es controladora no las publica ni las atiende; una controladora publica las cuatro.
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
         for tool_name in zerochat.CONTROLLER_TOOLS:
             self.assertNotIn(tool_name, names())
@@ -997,10 +993,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertFalse(json.loads(zerochat.stop_agent(conversation_id="x", ctx=ctx))["success"])
         self.assertFalse(json.loads(zerochat.prune_agents(keep=1, ctx=ctx))["success"])
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
-        zerochat.reset_session_authorizations()
         for tool_name in zerochat.CONTROLLER_TOOLS:
             self.assertIn(tool_name, names())
-            self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization(tool_name, {}, context=ctx).status, zerochat.POLICY_ALLOW)
         self.assertIsNone(zerochat.validate_local_tool_arguments("launch_agent", {"run_file": "agents/diario.md", "project": str(other)}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {"max_steps": "5"}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {"controller": True}), "En línea no hay controller")
@@ -1083,7 +1077,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIn("do not give RW access", json.loads(zerochat.prune_agents(keep=0, project=str(other), ctx=ctx))["error"])
         self.assertIn("does not exist", check(project=str(other / "nada"))["error"])
 
-    def test_en_el_servidor_de_la_interfaz_cada_conversacion_es_un_controlador_que_pide_permiso(self):
+    def test_en_el_servidor_de_la_interfaz_cada_conversacion_es_un_controlador_sin_pedir_permiso(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
         zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
@@ -1094,12 +1088,19 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         launch = lambda own, **args: json.loads(zerochat.launch_agent(**args, ctx=ctx, own_conversation=own))
         check = lambda own, **args: json.loads(zerochat.check_agents(**args, ctx=ctx, own_conversation=own))
 
-        # Sin ejecución, se publican todas marcadas como del controlador, pero no se autorizan solas: piden permiso.
+        # Sin ejecución, se publican todas marcadas como del controlador y se ejecutan sin reto: el permiso es «Subagentes».
         tools = {tool["name"]: tool for tool in zerochat._local_tools()}
         for tool_name in zerochat.CONTROLLER_TOOLS:
             self.assertEqual(tools[tool_name].get("metadata"), {"controller": True})
-            self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization(tool_name, {}, context=ctx).status, zerochat.POLICY_ASK)
         self.assertNotIn("metadata", tools["read_file"])
+        called, _, _ = zerochat.call_tool({"name": "check_agents", "arguments": {}, "_meta": {"zerochatConversationId": "chat_a"}}, ctx)
+        self.assertNotIn("requiresAuthorization", called)
+        self.assertEqual(json.loads(called["content"][0]["text"])["success"], True)
+        # Fuera de un controlador tampoco hay reto: responde su manejador, que se niega.
+        zerochat.RUN_SESSION = zerochat.RunSession("Hola")
+        called, _, _ = zerochat.call_tool({"name": "check_agents", "arguments": {}}, ctx)
+        self.assertIn("only available to a controller", json.loads(called["content"][0]["text"])["error"])
+        zerochat.RUN_SESSION = None
         # Responden a la conversación que llama (_meta, nunca un argumento del modelo); sin ella, no.
         self.assertIn("needs the conversation", check("")["error"])
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"own_conversation": "chat_a"}))

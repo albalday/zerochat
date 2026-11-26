@@ -11928,6 +11928,10 @@ def call_tool(params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | N
     # el reto. Con ella se detiene un run_command y se corta la espera de un check_command (zerochat/jobs/*).
     job_key = meta.get("zerochatJobKey") if origin == "local" and tool_name in (COMMAND_TOOL, JOB_CONTROL_TOOL) else None
     conversation_id = str(meta.get("zerochatConversationId") or "")
+    # Las del controlador no piden permiso: lo dio quien lo pidió («Subagentes» en la interfaz o controller: true), y
+    # fuera de un controlador sus manejadores se niegan. Con project, sus reglas de directorio deciden sin preguntar.
+    if origin == "local" and tool_name in CONTROLLER_TOOLS:
+        return execute_tool(origin, tool_name, args, ctx, conversation_id)
     gate = authorize_or_challenge(origin, tool_name, args, ctx, job_key, conversation_id)
     return gate if gate is not None else execute_tool(origin, tool_name, with_job_key(args, job_key), ctx, conversation_id)
 
@@ -12938,17 +12942,8 @@ def reset_session_authorizations():
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         # Ninguna herramienta se autoriza sola por ser una ejecución desatendida: siguen las reglas guardadas, y lo que
-        # pediría permiso pausa la ejecución (needs_input). Solo las del controlador, que piden controller: true del
-        # run-file o «Subagentes» al lanzar un chat en segundo plano.
-        permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
-        ACCESS_CONTROLLER.apply_session_overlay({
-            "allowAll": False,
-            "tools": {
-                name: {"policy": POLICY_ALLOW}
-                for name in (CONTROLLER_TOOLS if session.controller else ())
-                if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
-            }
-        }, ctx)
+        # pediría permiso pausa la ejecución (needs_input). Las del controlador no pasan por permisos (call_tool).
+        ACCESS_CONTROLLER.apply_session_overlay({"allowAll": False}, ctx)
 
 
 def open_server(args) -> ThreadingHTTPServer:

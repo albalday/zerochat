@@ -56,7 +56,6 @@ from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.supervisor import launch_node_runner, run_supervisor
 from security.context import SecurityContext, project_context, set_default_project_dir
 from security.controller import ACCESS_CONTROLLER
-from security.rules import POLICY_ALLOW, POLICY_DENY
 from server.handler import ZeroChatHTTPServer, ZeroChatServerHandler
 from server.state import (
     DEFAULT_HEARTBEAT_GRACE,
@@ -76,7 +75,6 @@ from storage.db import (
     list_general_profiles,
     mark_conversation_server_run,
 )
-from tools.agents import CONTROLLER_TOOLS
 from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
 from tools.jobs import cleanup_orphan_jobs, run_command
@@ -349,17 +347,8 @@ def reset_session_authorizations():
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         # Ninguna herramienta se autoriza sola por ser una ejecución desatendida: siguen las reglas guardadas, y lo que
-        # pediría permiso pausa la ejecución (needs_input). Solo las del controlador, que piden controller: true del
-        # run-file o «Subagentes» al lanzar un chat en segundo plano.
-        permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
-        ACCESS_CONTROLLER.apply_session_overlay({
-            "allowAll": False,
-            "tools": {
-                name: {"policy": POLICY_ALLOW}
-                for name in (CONTROLLER_TOOLS if session.controller else ())
-                if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
-            }
-        }, ctx)
+        # pediría permiso pausa la ejecución (needs_input). Las del controlador no pasan por permisos (call_tool).
+        ACCESS_CONTROLLER.apply_session_overlay({"allowAll": False}, ctx)
 
 
 def open_server(args) -> ThreadingHTTPServer:

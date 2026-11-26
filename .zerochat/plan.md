@@ -25,5 +25,6 @@ Done when: Las tareas abiertas de M97 quedan resueltas o evaluadas y descartadas
 - [ ] M97-T5 Mostrar el plan vigente de update_plan como checklist fija encima del compositor (pendiente / en curso / hecho, ES/EN en js/i18n.js), también en ejecuciones en segundo plano y en el modo supervisión de la bandeja Agentes, y su tarjeta de herramienta compacta en el historial
 - [x] M97-T6 Servidor: el chat interactivo y su ejecución en segundo plano con «Subagentes» son controladores: check_agents, launch_agent, stop_agent y prune_agents se publican en el servidor de la interfaz (marcados como del controlador) con estado por conversación (zerochatConversationId), y zerochat/run/prompt devuelve subagents = controller (2026-11-26)
 - [x] M97-T7 Interfaz: «Subagentes» da las herramientas del controlador con el servidor local conectado y delegate_task solo sin él; Ajustes › MCP muestra su permiso sin interruptor; ayuda ES/EN y docs (2026-11-26)
+- [x] M97-T8 Simplificar el controlador interactivo: las herramientas del controlador no piden permiso (lo da «Subagentes» o controller: true) y no aparecen en Ajustes › MCP (2026-11-26)
 
 
