@@ -1,36 +1,59 @@
 # Plan
 
-<!-- Hitos M1 a M77 archivados en .zerochat/archive/ -->
-
-## M78 Compactación con los agentes locales: closed 2026-11-17
-
-## M79 Usabilidad y propuestas de mejora: closed 2026-11-20
-
-## M80 Entorno de ejecución por proyecto: closed 2026-11-20
-
-## M81 Propuestas de mejora: closed 2026-11-21
-
-## M83 Esperas síncronas en lugar de sondeo (restos tras M81): closed 2026-11-21
-
-## M84 ZeroChat como ejecutor para orquestadores de agentes: closed 2026-11-21
-
-## M85 Secretos por proyecto y relleno seguro en navegador: closed 2026-11-22
-
-## M82 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-20: closed 2026-11-22
-
-## M86 Mejoras para proyectos de agentes y `--run-file`: closed 2026-11-23
-
-## M87 Mejoras sistema de agentes: closed 2026-11-24
-
-## M88 Ajustes de control de agentes: closed 2026-11-25
-
-## M89 Adaptación del bucle agéntico al contexto del modelo: closed 2026-11-25
-
-## M90 Reorganización del panel MCP: closed 2026-11-25
+<!-- Hitos M1 a M90 archivados en .zerochat/archive/ -->
 
 ## M91 Adjuntos en el MCP de correo: closed 2026-11-25
 
 ## M92 Acciones durante un turno en marcha: closed 2026-11-25
 
 ## M93 Correcciones del navegador de agentes: closed 2026-11-25
+
+## M94 Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-25
+
+Goal: que cada agente que trabaja en este repositorio traiga a .zerochat/ lo que solo guarda en su memoria privada.
+Done when: el usuario confirma que todos los agentes que usa lo han hecho.
+- [ ] M94-T1 Cada agente que lea esta tarea revisa su memoria privada de este proyecto frente al código y a .zerochat/, propone al usuario las tareas, decisiones y normas aún vigentes y no registradas (nunca secretos ni datos personales), las escribe una vez aprobadas y pregunta al usuario antes de marcar la tarea como hecha, porque otros agentes pueden faltar todavía
+
+## M95 Auditoría 10.48.1
+
+Goal: corregir, o descartar razonadamente tras verificarlos en el código, los hallazgos F-01 a F-28 de docs/audit-v10.48.1.md, de más fácil a más difícil, y resolver con el usuario las decisiones abiertas y las adoptadas que la auditoría deja en duda.
+Done when: cada tarea está hecha o descartada con motivo, cada corrección lleva su prueba en el nivel más bajo (bordes N/N+1 en los topes), todos los niveles de AGENTS.md §4 están en verde y el usuario ha respondido las consultas finales.
+- [ ] M95-T1 Traducir al inglés los literales en español que evaden test_english_literals.js: js/context-manager.js (avisos de truncado al modelo), js/web-browser.js y js/profile-repository.js (F-23)
+- [ ] M95-T2 Higiene simple de pruebas: incluir files.html en tests/architecture/test_csp.js y retirar la excepción obsoleta de py/core/environment.py en test_backend_hygiene.js (F-24, parte 1)
+- [ ] M95-T3 check_agents(include_turn=True): no tomar como inicio del turno los mensajes user sintéticos con _toolEvidence, igual que js/context-manager.js (F-27)
+- [ ] M95-T4 MCP de correo: normalizar In-Reply-To/References plegados (\r\n\t) antes de asignarlos al EmailMessage al responder, con prueba (F-21)
+- [ ] M95-T5 js/markdown.js: limpiar también los placeholders \u0001/\u0002 del texto del modelo y quitar el doble escape de altText en renderImage (F-17)
+- [ ] M95-T6 McpServiceManager._expand: sustituir ${option:*}/${secret:*} en una sola pasada para que una opción con texto ${secret:X} no se expanda al secreto (F-09)
+- [ ] M95-T7 zerochat/login: rechazar \x00 en usuario y contraseña con -32602 y capturar el error de forma controlada en rpc_login/_serve_login (F-28)
+- [ ] M95-T8 OAuth MCP: extraer oauth_url de la línea de stderr sin redactar (redactar solo el trace) y abrirla en js/mcp-external.js solo si es http(s) y con noopener,noreferrer (F-11)
+- [ ] M95-T9 Comprobar si OpenRouterProviderAdapter.applyContextCache (js/providers.js) acumula cache_control al mutar en sitio la última herramienta compartida y, si es así, copiarla (observación del dominio 5)
+- [ ] M95-T10 Temporales únicos (PID + aleatorio, limpieza en error) en runner_loader.py y mcp/catalog.py, y no lanzar start_catalog_refresh en ejecuciones efímeras --prompt/--conversation/--run-file (F-16)
+- [ ] M95-T11 zerochat/project/delete: rechazar siempre la carpeta de arranque y general, con y sin deleteDirectory, y añadir PROJECT_DIR a validate_deletable_project_dir (F-26, M85-D2)
+- [ ] M95-T12 js/run-node.js: encadenar los guardados de onStepHistory y esperarlos antes del guardado final y de zerochat/run/result, como generation-controller (F-12, M87-D10)
+- [ ] M95-T13 browser_fill_secret (keypad): quitar steps=len(secreto) de la respuesta y unificar los errores para que no revelen qué caracteres cubre keypad_map (F-25, parte sin decisión)
+- [ ] M95-T14 Retirar código muerto: acción «Borrar datos del navegador» y browser/data/clear tras M80-D1 (py/browser, js/ui-browser.js, claves i18n, py/README.md), ramas inalcanzables y rutas HTTP legacy de handler.py y startsWith('La copia') de profile-backup.js (F-22)
+- [ ] M95-T15 Cotas simples de herramientas: math.isfinite en _normalize_timeout_ms de py/tools/sandbox.py, MAX_TIMEOUT_MS en js/sandbox.js y noopener,noreferrer + revokeObjectURL al abrir blobs en tool-cards.js y diff.py (F-19, parte 1)
+- [ ] M95-T16 _atomic_write_text: conservar st_mode del destino y borrar el .tmp_* en caso de error (F-19, parte 2)
+- [ ] M95-T17 Directorio de jobs: validar con lstat que /tmp/zerochat-jobs-<uid> es directorio propio, 0700 y sin enlace simbólico antes de leer jobs.json o enviar señales (F-10)
+- [ ] M95-T18 Topes y truncado en N/N+1: acotar lecturas de edit_file, get_diagnostics, git show y git diff; campo truncated en list_directory y get_diagnostics leyendo N+1; quitar el falso positivo de search_files en N; reaplicar max_chars en truncate_terminal_output (F-19, parte 3)
+- [ ] M95-T19 run_command: rechazar o saltar las opciones de command (--, -p) antes de detectar cd y delimitar SAFE_REDIRECTION_PATTERN y su variante PowerShell (>/dev/null.txt, 2>&10, >$null.txt), con pruebas de cada bypass en ambos dialectos (F-02)
+- [ ] M95-T20 AccessController: validador único de decisiones compartido por authorize_challenge y apply_tool_decision (directoryRule+commandPattern, run_command sin patrón, servidor vacío, allow_project, patrón que no cubre los args) con una prueba por combinación inválida (F-04, M61-D25, M91-D2)
+- [ ] M95-T21 TokenGrant(runner): fijar el proyecto del run en la credencial y rechazar con 403 un X-ZeroChat-Project distinto (F-05)
+- [ ] M95-T22 conversations/save: rechazar con -32000 el guardado desde la interfaz de una conversación con run vivo, comprobar run_process_alive en delete_project_storage y alinear py/README.md sobre delete (F-13)
+- [ ] M95-T23 extensionToken de Playwright de solo escritura: devolver extensionTokenConfigured en engines/list y config/set, no inyectarlo en el DOM y permitir sustituirlo o borrarlo como los secretos MCP (F-07, M75-D5)
+- [ ] M95-T24 Anti-SSRF (salvo el TOCTOU de T33): comparar duckduckgo.com exacto o por sufijo .duckduckgo.com, propagar como -32602 el PermissionError de las redirecciones bloqueadas y alinear isDangerousIpAddress de js/web-browser.js con el backend (punto final, .localhost/.local/.internal, IPv6 privado y mapeado, CGNAT) (F-06, parte 1)
+- [ ] M95-T25 js/office-parser.js: tope por entrada y acumulado sobre el tamaño descomprimido real (no originalSize) y aplicarlo también antes de mammoth en parseDocx, con prueba en N/N+1 (F-18)
+- [ ] M95-T26 Sustituir los sleeps fijos de tests/unit/test_utils.js, browser_conversation.test.js y test_server_runs.py por esperas a evento o condición (F-24, parte 2)
+- [ ] M95-T27 PersistentBrowserSession: drenar o descartar stderr, plazo y tope de tamaño al leer stdout, _kill_process_tree en browser_action.py y browser/engines.py, y cerrar la sesión en stop_zerochat_server (F-14)
+- [ ] M95-T28 run_mode: escribir la petición de launch_run_file en stdin fuera del hilo HTTP, MAX_CONCURRENT_RUNS probado en N/N+1 para launch_agent y start_server_run, y cota de _EXITED en servidores --keep-server (F-15)
+- [ ] M95-T29 McpServiceManager.list_servers: cachear las definiciones (recarga al arrancar, al refrescar el catálogo o por mtime) y proteger self.services/preferences con un cerrojo breve propio, nunca self._lock, que start() mantiene durante npm install y OAuth (F-20)
+- [ ] M95-T30 CONSULTA AL USUARIO — browser_action y ejecuciones desatendidas (F-01, F-25): ¿se permite localhost/red privada para probar webs locales o solo http(s) público con el anti-SSRF de py/web/fetch.py? ¿browser_action y browser_fill_secret salen del auto-allow de reset_session_authorizations (los runs sin interfaz ya no podrían usarlas sin regla previa)? ¿tope de intentos fallidos de browser_fill_secret por turno?
+- [ ] M95-T31 CONSULTA AL USUARIO — copias de perfiles cifradas (F-08): pasar a PBKDF2 con sal y >=210000 iteraciones (sobre version 2); ¿deben seguir abriéndose las copias version 1 ya exportadas o se aceptan como ilegibles (AGENTS.md §2 no admite compatibilidad sin petición expresa)?
+- [ ] M95-T32 CONSULTA AL USUARIO — Origin: null (F-03): ¿existe algún flujo soportado de zerochat.html desde file:// o de la vista previa HTML (origen null) que hable con el backend? Si no, rechazar Origin null en POST y exigir Content-Type application/json para forzar preflight
+- [ ] M95-T33 CONSULTA AL USUARIO — DNS rebinding en py/web/fetch.py (F-06, parte 2): fijar la IP validada al abrir el socket exige una subclase de HTTPSConnection que conserve SNI y verificación TLS; ¿se asume esa complejidad en zerochat.py o se documenta la limitación?
+- [ ] M95-T34 CONSULTA AL USUARIO — decisión adoptada M75-D3/M75-D4: los secretos del backend se guardan en SQLite con XOR de clave fija (evita la lectura casual, no protege frente a quien lee el fichero); ¿se mantiene o se valora el llavero del sistema o una clave por instalación fuera de la base?
+- [ ] M95-T35 CONSULTA AL USUARIO — decisión adoptada M73-D10: el runner de Node hereda todo el entorno de quien lanza zerochat (incluidas posibles claves en variables); ¿se mantiene o se pasa a una lista de variables permitidas (NODE_EXTRA_CA_CERTS, TZ, LANG, proxy...)?
+- [ ] M95-T36 CONSULTA AL USUARIO — decisión adoptada M73-D17: zerochat/run/profile entrega al runner la API key de cualquier perfil de sesión que cargue, no solo de los que nombra el usuario; ¿se mantiene o se limita a los perfiles de la ejecución y a los que nombra el run-file?
+- [ ] M95-T37 CONSULTA AL USUARIO — decisión adoptada M87-D8: launch_agent en otro proyecto solo exige R en las reglas del maestro, y el agente lanzado corre con el entorno guardado de esa carpeta (que puede tener RWX y run_command); ¿basta leer para lanzar o se exige X (o RWX) sobre la carpeta destino?
+- [ ] M95-T38 CONSULTA AL USUARIO — alcance pendiente de la auditoría: ¿se prueban en Windows las rutas solo auditadas en estático (PowerShell en rules.py, LogonUserW, _WindowsKillOnCloseJob) y se abre una segunda pasada sobre sw.js, providers-webllm.js, ingestionEngine.js, rag-service.js y los MCP distintos de mail?
 
