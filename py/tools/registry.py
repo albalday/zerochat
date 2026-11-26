@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from core.environment import DETECTED_OS
 from core.limits import MAX_COMMAND_LENGTH, MAX_HTTP_BODY_BYTES, MAX_PATH_LENGTH
-from storage.db import MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH
+from run_mode.state import DEFAULT_RUN_REASONING, RUN_FILE_LIMIT_KEYS, RUN_REASONING_LEVELS
+from storage.db import MAX_AGENT_ID_LENGTH, MAX_CONVERSATION_ID_LENGTH, MAX_PROFILE_NAME_LENGTH, MAX_PROJECT_PROMPT_LENGTH
 from tools.agents import (
     AGENT_LIST_RESULT_MAX_CHARS,
     AGENT_LIST_TOTAL_CHARS,
@@ -255,19 +256,27 @@ CHECK_AGENTS_DEFINITION = {
 LAUNCH_AGENT_DEFINITION = {
     "name": LAUNCH_AGENT_TOOL,
     "description": (
-        "Start an agent from its run-file (for example agents/report.md) as a separate run that keeps going "
-        "after this run ends, and return its conversation_id and run_id. The run-file must set an agent; it "
-        "runs with the saved environment and permissions of its project. Give prompt to replace the run-file's prompt, "
-        "and project to launch an agent of another project. Then follow it with check_agents, which can wait for it."
+        "Start an agent as a separate run that keeps going after this run ends, and return its conversation_id and "
+        "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
+        "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
+        "max_steps, timeout and conversation_id). It runs with the saved environment and permissions of its project and "
+        "is never a controller. With run_file, prompt replaces the run-file's task; give project to launch an agent of "
+        "another project. Then follow it with check_agents, which can wait for it."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
-            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project"},
-            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run, instead of the run-file's prompt"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give RX"}
-        },
-        "required": ["run_file"]
+            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project; leave it out to give the agent inline"},
+            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run (with run_file, instead of the run-file's task)"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give X, and R to read run_file"},
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Inline: agent id (<name> or <set>.<name>)"},
+            "system_prompt": {"type": "string", "maxLength": MAX_PROJECT_PROMPT_LENGTH, "description": "Inline: the agent's manual, instead of the project's system data prompt"},
+            "profile": {"type": "string", "maxLength": MAX_PROFILE_NAME_LENGTH, "description": "Inline: server profile name or id (default: local)"},
+            "reasoning": {"type": "string", "enum": list(RUN_REASONING_LEVELS), "description": f"Inline: reasoning level (default {DEFAULT_RUN_REASONING})"},
+            "max_steps": {"type": "integer", "description": f"Inline: at most this many model calls (1 to {RUN_FILE_LIMIT_KEYS['maxSteps']})"},
+            "timeout": {"type": "integer", "description": f"Inline: seconds from the start before it stops (1 to {RUN_FILE_LIMIT_KEYS['timeout']})"},
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Inline: continue this conversation of the agent, or create it with this id (default: a new one)"}
+        }
     }
 }
 # Las de un controlador, que solo se publican en una ejecución --run-file con controller: true.

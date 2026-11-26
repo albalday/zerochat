@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M96 Esquema único de agentes (.md), controlador y subagentes
-- Next task: M96-T3 Lanzamiento sin fichero en disco en `launch_agent`: aceptar como alternativa a `run_file` parámetros tipados en línea (`agent`, `system_prompt`, `prompt` y opcionales `profile`, `reasoning`, `max_steps`, `timeout`, `conversation_id`, `project`), construyendo el mismo `request` validado sin permisos ni MCP ni `controller: true` y exigiendo el entorno guardado del proyecto destino, con pruebas
+- Next task: M96-T4 «Subagentes» en el panel de razonamiento e inhabilitación en `--run-file`: mover el interruptor de `delegate_task` de Ajustes › Agente al panel de razonamiento (`ui-reasoning.js`, `zerochat.html`, i18n ES/EN) con el nombre «Subagentes» / «Subagents» apagado por defecto (`defaultEnabled: false`), e inhabilitar `delegate_task` en todas las ejecuciones `--run-file`, con pruebas
 - Last closed: M94 and M95 (2026-11-26)
 - Last updated: 2026-11-26

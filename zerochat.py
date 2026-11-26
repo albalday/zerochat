@@ -9076,16 +9076,47 @@ def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict)
     return json.dumps({"success": True, **_agent_state(conv, run), **_result_page(result, offset), **turn, **extra},
                       ensure_ascii=False)
 
+# Lo que launch_agent acepta en línea, en lugar de run_file, y el campo del run-file que ocupa cada argumento.
+INLINE_LAUNCH_FIELDS = {"agent": "agent", "system_prompt": "systemDataPrompt", "profile": "profile", "reasoning": "reasoning",
+                        "max_steps": "maxSteps", "timeout": "timeout", "conversation_id": "conversation_id"}
+
+
+def _inline_request(fields: dict, prompt: str | None) -> dict:
+    """La petición de un agente dado en línea: se escribe y se lee como su run-file, así que vale lo mismo que en él
+    (nunca controller ni permisos, herramientas o servicios MCP, que no tienen argumento)."""
+    if not fields.get("agent") or prompt is None:
+        raise ValueError("Without run_file, give the agent inline: agent and prompt (and usually system_prompt, its manual).")
+    if not all(isinstance(value, str) for key, value in fields.items() if key not in ("max_steps", "timeout")):
+        raise ValueError("agent, system_prompt, profile, reasoning and conversation_id must be texts.")
+    fields = {INLINE_LAUNCH_FIELDS[key]: value for key, value in fields.items()}
+    return parse_run_request(format_run_request({**fields, "prompt": prompt}).encode("utf-8"))
+
+
 def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
-                 ctx: SecurityContext | None = None) -> str:
-    """Lanza el run-file `run_file` (ruta dentro del proyecto) de un agente, separado de este controlador, y
-    devuelve su conversation_id y run_id. Con prompt sustituye el del fichero; con project, el run-file y la ejecución
-    son de esa carpeta, con su entorno guardado y sus permisos."""
+                 agent: str | None = None, system_prompt: str | None = None, profile: str | None = None,
+                 reasoning: str | None = None, max_steps: int | None = None, timeout: int | None = None,
+                 conversation_id: str | None = None, ctx: SecurityContext | None = None) -> str:
+    """Lanza un agente separado de este controlador y devuelve su conversation_id y run_id: el de su run-file
+    `run_file` (ruta dentro del proyecto) o, sin él, el que se da en línea (agent, system_prompt y prompt, con profile,
+    reasoning, max_steps, timeout y conversation_id opcionales). Con prompt sustituye el del fichero; con project, el
+    agente se lanza en esa carpeta, con su entorno guardado y sus permisos."""
     session = current_run_session()
     if session is None or not session.controller or ctx is None:
         return _tool_error("launch_agent is only available in a --run-file run with controller: true.")
+    fields = {key: value for key, value in (("agent", agent), ("system_prompt", system_prompt), ("profile", profile),
+              ("reasoning", reasoning), ("max_steps", max_steps), ("timeout", timeout), ("conversation_id", conversation_id))
+              if value is not None}
+    own_id = session.conversation_id or session.new_conversation_id or ""
+    if run_file is None:
+        try:
+            target = _target_project(ctx, project, "X")
+            return _launch(_inline_request(fields, prompt), prompt, target, own_id=own_id)
+        except ValueError as exc:
+            return _tool_error(str(exc))
+    if fields:
+        return _tool_error(f"Give either run_file or the agent inline, not both: {', '.join(fields)} go without run_file.")
     if not isinstance(run_file, str) or not run_file.strip():
-        return _tool_error("run_file is required: the path of the agent's run-file in the project, such as agents/report.md.")
+        return _tool_error("run_file must be the path of the agent's run-file in the project, such as agents/report.md.")
     try:
         # Lanzar en otra carpeta es ejecutar en ella: el agente corre con su entorno y sus permisos, y prompt
         # sustituye las instrucciones del run-file.
@@ -9097,7 +9128,7 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
             raise ValueError(f"This project's directory rules do not give R access to {path}.")
         with open(path, "rb") as handle:
             request = parse_run_request(handle.read(RUN_FILE_MAX_BYTES + 1))
-        return _launch(request, prompt, target, own_id=session.conversation_id or session.new_conversation_id or "")
+        return _launch(request, prompt, target, own_id=own_id)
     except OSError as exc:
         return _tool_error(f"Could not read the run-file: {exc}")
     except ValueError as exc:
@@ -11320,19 +11351,27 @@ CHECK_AGENTS_DEFINITION = {
 LAUNCH_AGENT_DEFINITION = {
     "name": LAUNCH_AGENT_TOOL,
     "description": (
-        "Start an agent from its run-file (for example agents/report.md) as a separate run that keeps going "
-        "after this run ends, and return its conversation_id and run_id. The run-file must set an agent; it "
-        "runs with the saved environment and permissions of its project. Give prompt to replace the run-file's prompt, "
-        "and project to launch an agent of another project. Then follow it with check_agents, which can wait for it."
+        "Start an agent as a separate run that keeps going after this run ends, and return its conversation_id and "
+        "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
+        "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
+        "max_steps, timeout and conversation_id). It runs with the saved environment and permissions of its project and "
+        "is never a controller. With run_file, prompt replaces the run-file's task; give project to launch an agent of "
+        "another project. Then follow it with check_agents, which can wait for it."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
-            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project"},
-            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run, instead of the run-file's prompt"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give RX"}
-        },
-        "required": ["run_file"]
+            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project; leave it out to give the agent inline"},
+            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run (with run_file, instead of the run-file's task)"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give X, and R to read run_file"},
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Inline: agent id (<name> or <set>.<name>)"},
+            "system_prompt": {"type": "string", "maxLength": MAX_PROJECT_PROMPT_LENGTH, "description": "Inline: the agent's manual, instead of the project's system data prompt"},
+            "profile": {"type": "string", "maxLength": MAX_PROFILE_NAME_LENGTH, "description": "Inline: server profile name or id (default: local)"},
+            "reasoning": {"type": "string", "enum": list(RUN_REASONING_LEVELS), "description": f"Inline: reasoning level (default {DEFAULT_RUN_REASONING})"},
+            "max_steps": {"type": "integer", "description": f"Inline: at most this many model calls (1 to {RUN_FILE_LIMIT_KEYS['maxSteps']})"},
+            "timeout": {"type": "integer", "description": f"Inline: seconds from the start before it stops (1 to {RUN_FILE_LIMIT_KEYS['timeout']})"},
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Inline: continue this conversation of the agent, or create it with this id (default: a new one)"}
+        }
     }
 }
 # Las de un controlador, que solo se publican en una ejecución --run-file con controller: true.

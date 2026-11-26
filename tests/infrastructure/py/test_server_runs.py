@@ -822,13 +822,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.reset_session_authorizations()
         self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("launch_agent", {}, context=ctx).status, zerochat.POLICY_ALLOW)
         self.assertIsNone(zerochat.validate_local_tool_arguments("launch_agent", {"run_file": "agents/diario.md", "project": str(other)}))
-        self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {"max_steps": "5"}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {"controller": True}), "En línea no hay controller")
 
         with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
             # Sin entorno guardado no lanza (el hijo saldría con código 3).
             self.assertIn("no saved environment", launch(run_file="agents/diario.md")["error"])
             zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
-            for invalid, reason in (({}, "run_file is required"), ({"run_file": "../fuera.md"}, "inside the project"),
+            for invalid, reason in (({"run_file": " "}, "run_file must be"), ({"run_file": "../fuera.md"}, "inside the project"),
                                     ({"run_file": "agents/nada.md"}, "Could not read"), ({"run_file": "agents/anonimo.md"}, "must set an agent"),
                                     # Sin anidamiento: ni el run-file ni la conversación de otro controlador.
                                     ({"run_file": "agents/jefe.md"}, "not controllers"), ({"run_file": "agents/jefe_fijo.md"}, "not controllers"),
@@ -843,6 +844,21 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertEqual(launched[0], ({"agent": "informes.diario", "prompt": "Informe de marzo", "projectMode": False, "reasoning": "medium",
                                             "conversation_id": result["conversation_id"]},
                                            ctx.workspace_dir))
+            # En línea, sin fichero: la misma petición que daría su run-file, con sus mismas comprobaciones.
+            result = launch(agent="informes.linea", system_prompt="Eres el agente en línea.", prompt=" Resume ", max_steps=5, reasoning="low")
+            self.assertEqual(launched[-1], ({"agent": "informes.linea", "systemDataPrompt": "Eres el agente en línea.", "prompt": "Resume",
+                                             "maxSteps": 5, "projectMode": False, "reasoning": "low", "conversation_id": result["conversation_id"]},
+                                            ctx.workspace_dir))
+            for invalid, reason in (({}, "agent and prompt"), ({"agent": "informes.linea"}, "agent and prompt"),
+                                    ({"run_file": "agents/diario.md", "agent": "informes.diario"}, "not both"),
+                                    ({"agent": "a.b.c", "prompt": "x"}, "agent debe ser"), ({"agent": "x", "prompt": "x", "reasoning": "max"}, "reasoning debe ser"),
+                                    ({"agent": "x", "prompt": "x", "max_steps": 0}, "maxSteps debe ser"),
+                                    ({"agent": "x", "prompt": "x", "profile": "a\nb"}, "saltos de línea"),
+                                    ({"agent": "x", "prompt": "x", "system_prompt": "a\n<!-- prompt -->\nb"}, "marcador"),
+                                    ({"agent": "jefe", "prompt": "x", "conversation_id": "jefe_fija"}, "not controllers")):
+                self.assertIn(reason, launch(**invalid)["error"], invalid)
+            self.assertEqual(len(launched), 2)
+
             # Un conversation_id fijo en marcha no se lanza otra vez.
             upsert_run({"run_id": "r_fija", "conversation_id": "fija", "status": "running", "pid": os.getpid(),
                         "pid_start": zerochat._process_start_token(os.getpid())})
@@ -855,6 +871,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("do not give X access", launch(run_file="agents/diario.md", project=str(other))["error"])
             zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"X:{other}/**"]}, ctx)
             self.assertIn("do not give R access", launch(run_file="agents/diario.md", project=str(other))["error"])
+            # En línea no se lee ningún fichero: basta X, y lo que falta es el entorno guardado de esa carpeta.
+            self.assertIn("no saved environment", launch(agent="informes.diario", prompt="Hola", project=str(other))["error"])
             zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"RX:{other}/**"]}, ctx)
             self.assertIn("no saved environment", launch(run_file="agents/diario.md", project=str(other))["error"])
             other_key = zerochat.SecurityContext(workspace_dir=other).key
