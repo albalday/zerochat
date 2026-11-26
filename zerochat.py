@@ -16,6 +16,7 @@ import atexit
 import base64
 import binascii
 import codecs
+import collections
 import contextlib
 import ctypes
 import ctypes.util
@@ -4507,9 +4508,11 @@ class BrowserEngines:
         log_event(f"[zerochat] Instalando el motor {engine} de Playwright")
         lines = []
         try:
+            # Grupo propio: al vencer el plazo se terminan también las descargas que lanza el instalador.
             proc = subprocess.Popen([shutil.which("node") or "node", str(cli), "install", engine], cwd=cli.parent,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, proc.kill)
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                    start_new_session=DETECTED_OS != "windows")
+            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, _kill_process_tree, args=(proc,))
             timer.start()
             try:
                 for line in proc.stdout:
@@ -6379,6 +6382,11 @@ def _atomic_write_text(target: Path, text: str):
 
 
 BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
+# Plazo de cada respuesta del proceso del navegador (y de su arranque): sus acciones tienen ya plazos de 15-30 s,
+# así que pasado este el proceso está colgado y se termina.
+BROWSER_ACTION_TIMEOUT_SECONDS = 60
+# Últimas líneas de stderr que se conservan para explicar un arranque fallido.
+BROWSER_STDERR_TAIL_LINES = 20
 
 
 class PersistentBrowserSession:
@@ -6387,7 +6395,28 @@ class PersistentBrowserSession:
     def __init__(self):
         self._lock = threading.Lock()
         self._process: subprocess.Popen | None = None
+        self._stderr_tail: collections.deque[str] = collections.deque(maxlen=BROWSER_STDERR_TAIL_LINES)
         atexit.register(self.close)
+
+    @staticmethod
+    def _drain_stderr(proc: subprocess.Popen, tail: collections.deque):
+        """Lee stderr entero (sin leerlo, el proceso se bloquearía al llenarse la tubería) y guarda su final."""
+        try:
+            for line in proc.stderr:
+                tail.append(line.rstrip())
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def _read_line(self, proc: subprocess.Popen) -> str | None:
+        """Una línea de stdout ("" si el proceso la cerró), o None si no llega en el plazo: el proceso se termina."""
+        box: list[str] = []
+        reader = threading.Thread(target=lambda: box.append(proc.stdout.readline()), daemon=True)
+        reader.start()
+        reader.join(BROWSER_ACTION_TIMEOUT_SECONDS)
+        if reader.is_alive():
+            self._close_locked()
+            return None
+        return box[0] if box else ""
 
     def _ensure_running(self) -> subprocess.Popen:
         if self._process is not None and self._process.poll() is None:
@@ -6518,12 +6547,20 @@ try {
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
-            bufsize=1
+            bufsize=1,
+            # Grupo propio: al terminarlo se termina también Chromium.
+            start_new_session=DETECTED_OS != "windows",
         )
         self._process = proc
-        first_line = proc.stdout.readline()
+        self._stderr_tail.clear()
+        drain = threading.Thread(target=self._drain_stderr, args=(proc, self._stderr_tail), daemon=True)
+        drain.start()
+        first_line = self._read_line(proc)
+        if first_line is None:
+            raise RuntimeError(f"The headless browser did not start within {BROWSER_ACTION_TIMEOUT_SECONDS} s.")
         if not first_line:
-            err = proc.stderr.read()
+            drain.join(1)
+            err = "\n".join(self._stderr_tail)
             self._process = None
             raise RuntimeError(f"Failed to initialize headless browser: {err or 'process terminated unexpectedly'}")
         data = json.loads(first_line)
@@ -6544,32 +6581,40 @@ try {
             try:
                 proc.stdin.write(req_json)
                 proc.stdin.flush()
-                resp_line = proc.stdout.readline()
+                resp_line = self._read_line(proc)
+                if resp_line is None:
+                    return {"success": False, "error": f"The browser did not answer within {BROWSER_ACTION_TIMEOUT_SECONDS} s and was closed."}
                 if not resp_line:
-                    self.close()
+                    self._close_locked()
                     return {"success": False, "error": "Browser process closed unexpectedly."}
                 return json.loads(resp_line)
             except Exception as e:
-                self.close()
+                self._close_locked()
                 return {"success": False, "error": f"Error executing browser action: {e}"}
 
     def close(self):
         with self._lock:
-            if self._process is not None:
-                try:
-                    if self._process.poll() is None:
-                        try:
-                            self._process.stdin.write(json.dumps({"action": "close"}) + "\n")
-                            self._process.stdin.flush()
-                            self._process.wait(timeout=2)
-                        except (OSError, subprocess.SubprocessError):
-                            self._process.kill()
-                except (OSError, subprocess.SubprocessError):
-                    pass
-                self._process = None
+            self._close_locked()
+
+    def _close_locked(self):
+        """Cierra el navegador con self._lock tomado: se lo pide y, si no termina, termina su grupo de procesos."""
+        proc, self._process = self._process, None
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            proc.stdin.write(json.dumps({"action": "close"}) + "\n")
+            proc.stdin.flush()
+            proc.wait(timeout=2)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            _kill_process_tree(proc)
 
 
 _BROWSER_SESSION = PersistentBrowserSession()
+
+
+def close_browser_session():
+    """Cierra el navegador de browser_action, si está abierto (al detener el servidor)."""
+    _BROWSER_SESSION.close()
 
 
 def browser_action_availability() -> dict:
@@ -9115,6 +9160,7 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
     JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
     BROWSER_ENGINES.close()
+    close_browser_session()
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 

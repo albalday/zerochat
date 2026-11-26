@@ -19,10 +19,11 @@ from browser.config import (
     own_browser_profile_dir,
     save_browser_config,
 )
-from core.environment import get_data_dir
+from core.environment import DETECTED_OS, get_data_dir
 from core.limits import LONG_POLL_MAX_WAIT_MS
 from core.live_events import notify_live_change
 from core.logging import format_log_error, log_event
+from core.process import _kill_process_tree
 
 
 # Si Playwright MCP está en marcha: lo registra el gestor de servicios MCP (on_playwright_status).
@@ -230,9 +231,11 @@ class BrowserEngines:
         log_event(f"[zerochat] Instalando el motor {engine} de Playwright")
         lines = []
         try:
+            # Grupo propio: al vencer el plazo se terminan también las descargas que lanza el instalador.
             proc = subprocess.Popen([shutil.which("node") or "node", str(cli), "install", engine], cwd=cli.parent,
-                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, proc.kill)
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                    start_new_session=DETECTED_OS != "windows")
+            timer = threading.Timer(ENGINE_INSTALL_TIMEOUT_SECONDS, _kill_process_tree, args=(proc,))
             timer.start()
             try:
                 for line in proc.stdout:

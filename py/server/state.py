@@ -17,7 +17,7 @@ from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.state import list_server_runs
 from security.context import SecurityContext
 from storage.db import conversations_revision, get_server_id
-from tools.browser_action import playwright_status
+from tools.browser_action import close_browser_session, playwright_status
 from tools.jobs import JOBS
 
 DEFAULT_HEARTBEAT_TIMEOUT = 60.0
@@ -203,6 +203,7 @@ def stop_zerochat_server(server: ThreadingHTTPServer):
     JOBS.stop_all("shutdown")
     GLOBAL_MCP_MANAGER.close()
     BROWSER_ENGINES.close()
+    close_browser_session()
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 

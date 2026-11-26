@@ -113,3 +113,41 @@ class BrowserActionTest(unittest.TestCase):
             popen.return_value.stdout.readline.return_value = '{"ready": true}'
             zerochat.PersistentBrowserSession()._ensure_running()
             self.assertEqual(popen.call_args.kwargs["env"]["ZEROCHAT_PLAYWRIGHT_MODULE"], str(playwright.resolve()))
+
+
+REAL_POPEN = subprocess.Popen
+
+
+class PersistentBrowserSessionTest(unittest.TestCase):
+    """El proceso del navegador se sustituye por uno de Python que contesta o no como el de Node."""
+
+    def session_with(self, script):
+        class FakeNode(REAL_POPEN):
+            # Subclase y no una función: _kill_process_tree comprueba isinstance(proc, subprocess.Popen).
+            def __init__(self, _cmd, **kwargs):
+                super().__init__([sys.executable, "-c", script], **kwargs)
+
+        patches = (patch.object(zerochat.shutil, "which", return_value="node"), patch.object(zerochat.subprocess, "Popen", FakeNode),
+                   patch.object(zerochat, "BROWSER_ACTION_TIMEOUT_SECONDS", 0.5))
+        for patcher in patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        session = zerochat.PersistentBrowserSession()
+        self.addCleanup(session.close)
+        return session
+
+    def test_un_navegador_que_no_contesta_se_termina_y_uno_que_se_cierra_no_bloquea_la_sesion(self):
+        hung = self.session_with('import sys, time; print(\'{"ready": true}\', flush=True); sys.stdin.readline(); time.sleep(60)')
+        result = hung.execute({"action": "navigate", "url": "https://example.com"})
+        self.assertIs(result["success"], False)
+        self.assertIn("did not answer", result["error"])
+        self.assertIsNone(hung._process)
+
+        # Antes, cerrar dentro de execute volvía a tomar el cerrojo y la sesión se quedaba bloqueada para siempre.
+        dying = self.session_with('import sys; print(\'{"ready": true}\', flush=True); sys.stdin.readline()')
+        self.assertEqual(dying.execute({"action": "navigate"})["error"], "Browser process closed unexpectedly.")
+        self.assertEqual(dying.execute({"action": "navigate"})["error"], "Browser process closed unexpectedly.")
+
+        broken = self.session_with('import sys; sys.stderr.write("motivo del fallo\\n" * 5000); sys.exit(1)')
+        failed = broken.execute({"action": "navigate"})
+        self.assertIn("motivo del fallo", failed["error"])
