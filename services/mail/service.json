@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "mail",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "displayName": {
     "es": "Correo (IMAP / SMTP)",
     "en": "Email (IMAP / SMTP)"

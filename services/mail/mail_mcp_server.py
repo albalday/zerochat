@@ -416,8 +416,9 @@ def _build_email_message(conn: imaplib.IMAP4_SSL | None, cfg: dict,
             status, fetched = conn.uid("FETCH", uid, "(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID REFERENCES)])")
             if status == "OK" and fetched and isinstance(fetched[0], tuple):
                 orig = email.message_from_bytes(fetched[0][1], policy=email.policy.compat32)
-                orig_id = (orig.get("Message-ID") or "").strip()
-                orig_refs = (orig.get("References") or "").strip()
+                # compat32 conserva el plegado (\r\n\t) de cabeceras largas, que EmailMessage rechaza al asignarlas.
+                orig_id = " ".join(str(orig.get("Message-ID") or "").split())
+                orig_refs = " ".join(str(orig.get("References") or "").split())
                 if orig_id:
                     msg["In-Reply-To"] = orig_id
                     msg["References"] = f"{orig_refs} {orig_id}".strip()

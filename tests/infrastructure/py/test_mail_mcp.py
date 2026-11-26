@@ -105,7 +105,7 @@ class MailMcpOperationsTest(unittest.TestCase):
             ("OK", [b"10 42"]),
             ("OK", [(b"1 (UID 42 FLAGS (\\Seen))", b"From: Alice <alice@example.com>\r\nSubject: Alerta diaria\r\nDate: Thu, 19 Nov 2026 10:00:00 +0100\r\n")]),
             ("OK", [(b"1 (UID 42 BODY[] {100})", sample.as_bytes())]),
-            ("OK", [(b"1 (UID 42)", b"Message-ID: <orig-42@example.com>\r\n")]),
+            ("OK", [(b"1 (UID 42)", b"Message-ID: <orig-42@example.com>\r\nReferences: <r1@example.com>\r\n\t<r2@example.com>\r\n")]),
         ]
         conn.append.return_value = ("OK", [b"[APPENDUID 1 99]"])
 
@@ -130,6 +130,8 @@ class MailMcpOperationsTest(unittest.TestCase):
             sent_bytes = conn.append.call_args.args[3]
             parsed_draft = email.message_from_bytes(sent_bytes)
             self.assertEqual(parsed_draft["In-Reply-To"], "<orig-42@example.com>")
+            # References plegada en el original (\r\n\t) se responde en una sola línea.
+            self.assertEqual(parsed_draft["References"], "<r1@example.com> <r2@example.com> <orig-42@example.com>")
 
     def test_validacion_bordes_y_bloqueo_inyeccion_crlf(self):
         with self.assertRaises(ValueError):
