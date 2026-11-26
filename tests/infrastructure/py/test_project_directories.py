@@ -169,6 +169,14 @@ class ProjectDirectoriesTest(unittest.TestCase):
         self.assertIsNone(proj_policy)
         self.assertIsNone(zerochat.get_conversation("conv_proj_del"))
 
+        # General no se borra ni en datos ni en disco: sus conversaciones siguen ahí.
+        general_ctx = zerochat.SecurityContext(zerochat.get_no_project_dir().resolve())
+        zerochat.save_conversation({"id": "conv_general", "title": "t", "project": general_ctx.key, "createdAt": 1, "updatedAt": 2, "messages": []})
+        for params in ({"deleteDirectory": False}, {"deleteDirectory": True, "confirmPath": general_ctx.key}):
+            _, err, _ = zerochat.dispatch_local("zerochat/project/delete", params, general_ctx)
+            self.assertIsNotNone(err, params)
+        self.assertIsNotNone(zerochat.get_conversation("conv_general"))
+
         # No permite borrar general, ~ ni raíz
         for protected in (zerochat.get_no_project_dir(), self.home, zerochat.Path(proj_dir.anchor)):
             p_ctx = zerochat.SecurityContext(protected)

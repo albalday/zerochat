@@ -11462,6 +11462,9 @@ def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
     try:
         delete_directory = bool(params.get("deleteDirectory"))
         confirm_path = str(params.get("confirmPath") or "").strip()
+        # La carpeta general no se borra ni en datos ni en disco (M85-D2); la interfaz no lo ofrece.
+        if ctx.workspace_dir.resolve() == get_no_project_dir().resolve():
+            raise ValueError("No se pueden borrar los datos ni la carpeta general.")
         if JOBS.running(ctx.key):
             raise ValueError("Detén los comandos y ejecuciones activas del proyecto antes de borrarlo.")
         target = None
