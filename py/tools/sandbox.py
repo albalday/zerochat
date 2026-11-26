@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import subprocess
 import time
 
@@ -20,7 +21,8 @@ def _normalize_timeout_ms(timeout_ms: int | float | None) -> int:
     """Valida y acota el timeout del sandbox en milisegundos."""
     if timeout_ms is None:
         return DEFAULT_SANDBOX_TIMEOUT_MS
-    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or timeout_ms <= 0:
+    # json.loads admite Infinity y NaN: int() los rechazaría con OverflowError/ValueError sin este mensaje.
+    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or not math.isfinite(timeout_ms) or timeout_ms <= 0:
         raise ValueError("timeout_ms debe ser un número positivo")
     return min(int(timeout_ms), MAX_SANDBOX_TIMEOUT_MS)
 

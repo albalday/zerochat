@@ -39,8 +39,9 @@ class SandboxExecutionTest(unittest.TestCase):
         self.assertEqual((isolated["success"], isolated["result"]), (True, "sin llamar:undefined"))
 
     def test_bucle_asincrono_infinito_se_mata_por_senal_al_vencer_timeout(self):
-        with self.assertRaises(ValueError):
-            zerochat.execute_js_sandbox("1 + 1", timeout_ms=0)
+        for invalid in (0, float("inf"), float("nan")):
+            with self.subTest(timeout_ms=invalid), self.assertRaises(ValueError):
+                zerochat.execute_js_sandbox("1 + 1", timeout_ms=invalid)
         res = zerochat.execute_js_sandbox("while (true) { await Promise.resolve(); }", timeout_ms=150)
         self.assertFalse(res["success"])
         self.assertIn("timed out after 150ms", res["error"])

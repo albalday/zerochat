@@ -276,7 +276,8 @@
     if (res?.html) {
       const blob = new Blob([res.html], { type: 'text/html' });
       const url = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      window.open(url, '_blank', 'noopener,noreferrer');
       return;
     }
     if (res?.has_diff !== false) return;

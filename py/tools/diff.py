@@ -386,7 +386,9 @@ def render_diff_html(
         bytes[i] = binary.charCodeAt(i);
       }}
       const blob = new Blob([bytes], {{ type: "text/plain;charset=utf-8" }});
-      window.open(URL.createObjectURL(blob), "_blank");
+      const url = URL.createObjectURL(blob);
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      window.open(url, "_blank", "noopener,noreferrer");
     }}
   </script>"""
 
