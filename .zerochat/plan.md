@@ -20,7 +20,7 @@ Goal: corregir, o descartar razonadamente tras verificarlos en el código, los h
 Done when: cada tarea está hecha o descartada con motivo, cada corrección lleva su prueba en el nivel más bajo (bordes N/N+1 en los topes), todos los niveles de AGENTS.md §4 están en verde y el usuario ha respondido las consultas finales.
 - [x] M95-T1 Traducir al inglés los literales en español que evaden test_english_literals.js: js/context-manager.js (avisos de truncado al modelo), js/web-browser.js y js/profile-repository.js (F-23) (2026-11-26)
 - [x] M95-T2 Higiene simple de pruebas: incluir files.html en tests/architecture/test_csp.js y retirar la excepción obsoleta de py/core/environment.py en test_backend_hygiene.js (F-24, parte 1) (2026-11-26)
-- [ ] M95-T3 check_agents(include_turn=True): no tomar como inicio del turno los mensajes user sintéticos con _toolEvidence, igual que js/context-manager.js (F-27)
+- [x] M95-T3 check_agents(include_turn=True): no tomar como inicio del turno los mensajes user sintéticos con _toolEvidence, igual que js/context-manager.js (F-27) (2026-11-26)
 - [ ] M95-T4 MCP de correo: normalizar In-Reply-To/References plegados (\r\n\t) antes de asignarlos al EmailMessage al responder, con prueba (F-21)
 - [ ] M95-T5 js/markdown.js: limpiar también los placeholders \u0001/\u0002 del texto del modelo y quitar el doble escape de altText en renderImage (F-17)
 - [ ] M95-T6 McpServiceManager._expand: sustituir ${option:*}/${secret:*} en una sola pasada para que una opción con texto ${secret:X} no se expanda al secreto (F-09)

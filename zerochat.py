@@ -9454,8 +9454,10 @@ def _result_page(result: str, offset: int) -> dict:
 
 
 def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
-    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó."""
-    start = max((index for index, message in enumerate(history) if message.get("role") == "user"), default=0)
+    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó.
+    La evidencia visual de las herramientas (user con _toolEvidence, M67-D1) es parte del turno, no su inicio."""
+    start = max((index for index, message in enumerate(history)
+                 if message.get("role") == "user" and not message.get("_toolEvidence")), default=0)
     budget, truncated, messages = AGENT_TURN_MAX_CHARS, False, []
     for message in history[start:]:
         content, clipped = _clip("" if message.get("content") is None else str(message["content"]), budget)

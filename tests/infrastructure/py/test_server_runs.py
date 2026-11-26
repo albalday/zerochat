@@ -554,6 +554,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             detail = check(conversation_id="largo", include_turn=True)
             self.assertEqual((sum(len(m["content"]) for m in detail["last_turn"]), detail.get("last_turn_truncated", False)), (turn_limit, truncated))
 
+        # La evidencia visual que sigue a un resultado de herramienta (M67-D1) no abre un turno nuevo.
+        conv("evidencia", "informes.evidencia", updated_at=6000, history=[
+            {"id": "u", "role": "user", "content": "Mira"}, {"id": "t", "role": "tool", "content": "png", "name": "browser_action"},
+            {"id": "e", "role": "user", "content": "[imagen]", "_toolEvidence": True}, {"id": "a", "role": "assistant", "content": "Visto"}])
+        self.assertEqual([m["content"] for m in check(conversation_id="evidencia", include_turn=True)["last_turn"]],
+                         ["Mira", "png", "[imagen]", "Visto"])
+
     def test_check_agents_da_la_respuesta_final_entera_si_cabe_y_por_bloques_en_el_detalle(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
