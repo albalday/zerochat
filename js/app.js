@@ -123,8 +123,10 @@
     attachmentsContainer: 'attachments-container',
     // Razonamiento y modo proyecto
     btnReasoning: 'btn-reasoning',
+    reasoningSubagentsBadge: 'reasoning-subagents-badge',
     reasoningLabel: 'reasoning-label',
     reasoningProjectLabel: 'reasoning-project-label',
+    reasoningSubagentsLabel: 'reasoning-subagents-label',
     reasoningModal: 'reasoning-modal',
     reasoningIntensity: 'reasoning-intensity',
     reasoningIntensityValue: 'reasoning-intensity-value',
@@ -434,7 +436,8 @@
       startServerRun: ({ conversationId, profile }) => ServerRun.start({
         conversationId,
         profile: profile || getActiveProfileName(),
-        toolDecision: sendOptions.toolDecision
+        toolDecision: sendOptions.toolDecision,
+        ...(!agent && getRuntimeConfig().subagents === true ? { subagents: true } : {})
       }),
       ...sendOptions
     });
@@ -533,6 +536,7 @@
   function applyLanguage(lang) {
     UISettings.applyLanguage(elements, lang);
     UIReasoning.updateReasoningUI(elements, getRuntimeConfig().reasoningEffort);
+    UIReasoning.syncProjectIndicator(elements, getRuntimeConfig(), State.get('project'));
     UIProject.syncProjectFilesLink(elements);
     syncLiveServerRun();
   }

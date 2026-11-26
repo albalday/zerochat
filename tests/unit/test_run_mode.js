@@ -137,7 +137,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.equal(ok.submitted.opts.maxSteps, 5);
   assert.deepEqual(State.get('ui').profileCheck, { status: 'error', reason: 'unreachable', message: 'fetch failed' }, 'El runner comprueba su perfil antes del turno');
   assert.equal(Config.getActive().projectMode, false, '--run-file sin projectMode no inyecta las normas del proyecto');
-  assert.equal(Config.getActive().subagents, false, 'Una ejecución en el servidor nunca delega en subagentes');
+  assert.equal(Config.getActive().subagents, false, 'Sin subagents: true en el prompt del servidor se apaga en la ejecución');
   assert.deepEqual(ok.calls.filter(c => c.method === 'zerochat/run/progress' && c.params.kind === 'warning').map(c => c.params.text),
     ['disabledTools: none, imp is not a tool, MCP service or browser of this run'], 'Solo los nombres inválidos quedan en los avisos');
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
@@ -151,15 +151,16 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.ok(ok.calls.findIndex(c => c.method === 'zerochat/run/usage' && c.params.model_calls === 2)
     < ok.calls.findIndex(c => c.method === 'zerochat/run/result'));
 
-  // 2. Límite de pasos; projectMode true vuelve a inyectarlas.
+  // 2. Límite de pasos; projectMode true y subagents true (chat interactivo en servidor) vuelven a activarlos.
   Config.updateRuntime({ reasoningEffort: 'low' });
   const limit = await runScenario({
-    promptPayload: { prompt: 'Lee', new_conversation_id: 'session_lim', max_steps: 2, project_mode: true },
+    promptPayload: { prompt: 'Lee', new_conversation_id: 'session_lim', max_steps: 2, project_mode: true, subagents: true },
     submitResult: { limit: 'steps' },
     afterSubmitMessages: [{ role: 'user', content: 'Lee' }, { role: 'tool', content: '{}' }]
   });
   assert.deepEqual(limit.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', limit: 'steps' });
   assert.equal(Config.getActive().projectMode, true);
+  assert.equal(Config.getActive().subagents, true);
   assert.equal(Config.getActive().reasoningEffort, 'low', 'Sin reasoning (--prompt, --conversation de un chat) no se toca el nivel');
 
   // 3. Pausa por ask_user.

@@ -97,6 +97,8 @@ RUN_REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh")
 DEFAULT_RUN_REASONING = "medium"
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
+# Marca que pasa start_server_run al hijo de una conversación interactiva cuando «Subagentes» está encendido.
+ZEROCHAT_RUN_SUBAGENTS_ENV = "ZEROCHAT_RUN_SUBAGENTS"
 
 
 # Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: uno que lanzó
@@ -510,6 +512,9 @@ def start_server_run(params: dict) -> dict:
     tool_security = params.get("tool_security")
     if tool_security is not None and not isinstance(tool_security, dict):
         raise ValueError("tool_security debe ser un objeto o null.")
+    subagents = params.get("subagents", False)
+    if not isinstance(subagents, bool):
+        raise ValueError("subagents debe ser true o false.")
 
     if not find_node_executable():
         raise ValueError(f"Se necesita {NODE_REQUIRED_MESSAGE} para ejecutar tareas en segundo plano en el servidor.")
@@ -527,6 +532,10 @@ def start_server_run(params: dict) -> dict:
     env["ZEROCHAT_RUN_ID"] = run_id
     if tool_security:
         env["ZEROCHAT_RUN_SECURITY"] = json.dumps(tool_security, ensure_ascii=False)
+    if subagents and not conv.get("agent"):
+        env[ZEROCHAT_RUN_SUBAGENTS_ENV] = "1"
+    else:
+        env.pop(ZEROCHAT_RUN_SUBAGENTS_ENV, None)
 
     now = int(time.time() * 1000)
     mark_conversation_server_run(clean_conv_id, profile_name)
@@ -571,7 +580,7 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
     if not find_node_executable():
         raise ValueError(f"Se necesita {NODE_REQUIRED_MESSAGE} para lanzar agentes.")
     run_id = secrets.token_urlsafe(24)
-    env = {key: value for key, value in os.environ.items() if key != "ZEROCHAT_RUN_SECURITY"}
+    env = {key: value for key, value in os.environ.items() if key not in ("ZEROCHAT_RUN_SECURITY", ZEROCHAT_RUN_SUBAGENTS_ENV)}
     env["ZEROCHAT_RUN_ID"] = run_id
     proc = subprocess.Popen(
         [sys.executable, str(Path(__file__).resolve()), "--run-file", "-"],
@@ -635,7 +644,7 @@ class RunSession:
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
                  agent: str | None = None, launch: dict | None = None, controller: bool = False, disabled_tools: tuple[str, ...] = (),
-                 track_run: bool = False, reasoning: str | None = None):
+                 track_run: bool = False, reasoning: str | None = None, subagents: bool = False):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -657,6 +666,8 @@ class RunSession:
         self.controller = controller
         # disabledTools de --run-file: lo que run_project_environment le quita del entorno del proyecto.
         self.disabled_tools = tuple(disabled_tools)
+        # Solo una ejecución interactiva en servidor (sin --run-file ni agente) puede heredar «Subagentes».
+        self.subagents = bool(subagents and not agent and not track_run)
         # Respuestas finales ya entregadas en esta ejecución, por (conversación, run_id) -> (result_chars, partial): el
         # listado no las repite ni relee conversaciones cortadas.
         self.delivered_results: dict[tuple[str, str], tuple[int, bool]] = {}
@@ -858,7 +869,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
                        "export": export_format, "max_steps": session.max_steps, "project_mode": session.project_mode,
-                       "reasoning": session.reasoning, "disabled_tools": list(session.disabled_tools)})
+                       "reasoning": session.reasoning, "subagents": session.subagents, "disabled_tools": list(session.disabled_tools)})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:

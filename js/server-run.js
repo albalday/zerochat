@@ -58,12 +58,13 @@
   }
 
   /** Arranca la ejecución con la política de herramientas vigente y, al reanudar, la decisión del usuario. */
-  function start({ conversationId, profile, toolDecision = null }) {
+  function start({ conversationId, profile, toolDecision = null, subagents = false }) {
     const snapshot = getToolSecurity().snapshot();
     return getMcpManager().startServerRun({
       conversationId,
       profile,
-      toolSecurity: toolDecision ? { ...snapshot, tool_decision: toolDecision } : snapshot
+      toolSecurity: toolDecision ? { ...snapshot, tool_decision: toolDecision } : snapshot,
+      subagents
     });
   }
 

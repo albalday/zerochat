@@ -41,6 +41,7 @@ from run_mode.state import (
     RUN_EXPORT_FORMATS,
     RUN_FILE_MAX_BYTES,
     RUN_LAUNCH_KEYS,
+    ZEROCHAT_RUN_SUBAGENTS_ENV,
     RunSession,
     announce_run_conversation,
     check_no_active_run,
@@ -256,12 +257,14 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     launch = None
     if args.run_file is not None and request.get("agent"):
         launch = {"profile": profile_name, **{key: request[key] for key in RUN_LAUNCH_KEYS if key in request}}
+    subagents = (args.run_file is None and not (conv and conv.get("agent"))
+                 and os.environ.get(ZEROCHAT_RUN_SUBAGENTS_ENV) == "1")
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
                       controller=bool(options.get("controller")), disabled_tools=tuple(options.get("disabledTools") or ()), track_run=args.run_file is not None,
-                      reasoning=options.get("reasoning"))
+                      reasoning=options.get("reasoning"), subagents=subagents)
 
 
 def _require_no_active_run(conversation_id: str | None):

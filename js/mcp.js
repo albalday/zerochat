@@ -988,12 +988,13 @@
      * Lanza en segundo plano en el servidor local un turno de continuación (`zerochat --conversation <id>`).
      * Actualiza el estado vivo de `serverRuns` y mantiene activo el seguimiento por long-poll.
      */
-    async startServerRun({ conversationId, profile, prompt = null, toolSecurity = null }) {
+    async startServerRun({ conversationId, profile, prompt = null, toolSecurity = null, subagents = false }) {
       const params = {
         conversation_id: conversationId,
         profile,
         ...(prompt ? { prompt } : {}),
-        ...(toolSecurity ? { tool_security: toolSecurity } : {})
+        ...(toolSecurity ? { tool_security: toolSecurity } : {}),
+        ...(subagents === true ? { subagents: true } : {})
       };
       const result = await this.requestExternalControl('zerochat/run/start', params);
       this.liveStateSeq += 1;

@@ -1482,7 +1482,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 "conversation_id": "conv_val",
                 "profile": "valid-profile",
                 "prompt": "Genera reporte",
-                "tool_security": {"directoryRules": ["R:/test"]}
+                "tool_security": {"directoryRules": ["R:/test"]},
+                "subagents": True
             })
             self.assertIsNone(err)
             self.assertTrue(res["ok"])
@@ -1505,6 +1506,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             env = kwargs["env"]
             self.assertEqual(env["ZEROCHAT_RUN_ID"], run_id)
             self.assertEqual(json.loads(env["ZEROCHAT_RUN_SECURITY"])["directoryRules"], ["R:/test"])
+            self.assertEqual(env[zerochat.ZEROCHAT_RUN_SUBAGENTS_ENV], "1")
+            # Una conversación de agente nunca recibe subagents aunque se pida en zerochat/run/start ni aunque esté en el entorno.
+            zerochat.save_conversation({"id": "conv_agente_srv", "title": "Agente", "agent": "diario"}, [{"id": "u", "role": "user", "content": "H"}])
+            mock_popen.reset_mock()
+            _, err_ag, _ = dispatch_run("zerochat/run/start", {"conversation_id": "conv_agente_srv", "profile": "valid-profile", "subagents": True})
+            self.assertIsNone(err_ag)
+            self.assertNotIn(zerochat.ZEROCHAT_RUN_SUBAGENTS_ENV, mock_popen.call_args.kwargs["env"])
+            zerochat.remove_run_state("conv_agente_srv")
+            # En RunSession solo una ejecución interactiva (sin agent ni --run-file) entrega subagents=True.
+            self.assertTrue(zerochat._rpc_prompt({}, zerochat.RunSession(conversation_id="conv_val", subagents=True))[0]["subagents"])
+            self.assertFalse(zerochat._rpc_prompt({}, zerochat.RunSession("H", agent="diario", track_run=True, subagents=True))[0]["subagents"])
 
             self.assertIsNotNone(zerochat.get_run_state("conv_val"))
             conv_data = zerochat.get_conversation("conv_val")

@@ -462,15 +462,23 @@ test('Browser UI - confirmar cambio de proyecto al abrir chat, enlace de fichero
     assert.equal(await page.locator('#chk-project-mode').isChecked(), false);
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().projectMode), true);
 
-    // «Subagentes», apagado por defecto, se enciende y se apaga desde el mismo panel y se ve al volver a abrirlo.
+    // «Subagentes», apagado por defecto, se enciende y se apaga desde el mismo panel y se refleja en #btn-reasoning.
     assert.equal(await page.locator('#chk-subagents').isChecked(), false);
+    assert.equal(await page.locator('#btn-reasoning').getAttribute('data-subagents'), null);
+    assert.equal(await page.locator('#reasoning-subagents-badge').isHidden(), true);
     await page.locator('#chk-subagents').evaluate(input => input.click());
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().subagents), true);
+    assert.equal(await page.locator('#btn-reasoning').getAttribute('data-subagents'), '');
+    assert.equal(await page.locator('#reasoning-subagents-badge').getAttribute('hidden'), null);
+    assert.match(await page.locator('#btn-reasoning').getAttribute('title'), /Subagentes|Subagents/);
     await page.click('#btn-close-reasoning');
+    assert.equal(await page.locator('#reasoning-subagents-badge').isVisible(), true);
     await page.click('#btn-reasoning');
     assert.equal(await page.locator('#chk-subagents').isChecked(), true);
     await page.locator('#chk-subagents').evaluate(input => input.click());
     assert.equal(await page.evaluate(() => window.ChatConfig.getActive().subagents), false);
+    assert.equal(await page.locator('#btn-reasoning').getAttribute('data-subagents'), null);
+    assert.equal(await page.locator('#reasoning-subagents-badge').isHidden(), true);
   });
 });
 

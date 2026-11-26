@@ -103,16 +103,21 @@
     return project.status === 'error' || project.status === 'no_access' ? 'warning' : '';
   }
 
-  /** Refleja el estado del proyecto en el botón (punto, nombre accesible y tooltip) sin abrir el panel. */
+  /** Refleja el proyecto y «Subagentes» en el botón (marca, icono, nombre accesible y tooltip) sin abrir el panel. */
   function syncProjectIndicator(elements, config, project) {
     const button = elements.btnReasoning;
     const indicator = getProjectIndicator(config, project);
     if (indicator) button.setAttribute('data-project-indicator', indicator);
     else button.removeAttribute('data-project-indicator');
-    const text = indicator ? getProjectStatusText(config, project) : '';
-    elements.reasoningProjectLabel.textContent = text;
-    const baseTitle = t('reasoning_btn_title');
-    button.setAttribute('title', text ? `${baseTitle} · ${text}` : baseTitle);
+    const subagentsOn = config.subagents === true;
+    button.toggleAttribute('data-subagents', subagentsOn);
+    elements.reasoningSubagentsBadge.toggleAttribute('hidden', !subagentsOn);
+    const projectText = indicator ? getProjectStatusText(config, project) : '';
+    const subagentsText = subagentsOn ? t('agent_delegate_task_title') : '';
+    elements.reasoningProjectLabel.textContent = projectText;
+    elements.reasoningSubagentsLabel.textContent = subagentsText;
+    const titleParts = [t('reasoning_btn_title'), projectText, subagentsText].filter(Boolean);
+    button.setAttribute('title', titleParts.join(' · '));
   }
 
   /** Página de un chat vacío: proyecto del servidor (ruta completa en el tooltip) y modo proyecto activado o no. */

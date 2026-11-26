@@ -32,7 +32,7 @@ Done when: `--run-file` y `launch_agent` usan el `.md` único (también con par�
 - [x] M96-T14 Ignorar marcadores <!-- system --> y <!-- prompt --> dentro de bloques cercados (``` / ~~~) en _run_request_object y format_run_request (py/run_mode/state.py) para admitir manuales o prompts con ejemplos Markdown de agentes, con pruebas (2026-11-26)
 - [x] M96-T15 En py/tools/agents.py: releer get_run_state tras _kill_process_tree en _stop_launched (sin pisar usage, warnings ni un completed recién guardado) y guardar (len, partial) en delivered_results para no releer get_conversation en cada _listing, con pruebas (2026-11-26)
 - [x] M96-T16 En launch_agent en línea (py/tools/agents.py): permitir omitir prompt al continuar un conversation_id existente (como con run_file) y unificar en inglés los errores de validación que recibe el modelo, con pruebas (2026-11-26)
-- [ ] M96-T17 Indicador visual en #btn-reasoning cuando «Subagentes» está encendido (js/ui-reasoning.js, zerochat.html, CSS e i18n) y confirmar con el usuario si «Ejecutar en servidor» en un chat interactivo mantiene subagents: false (M96-D4) o respeta el interruptor
+- [x] M96-T17 Indicador visual en #btn-reasoning cuando «Subagentes» está encendido (js/ui-reasoning.js, zerochat.html, CSS e i18n) y confirmar con el usuario si «Ejecutar en servidor» en un chat interactivo mantiene subagents: false (M96-D4) o respeta el interruptor (2026-11-26)
 - [ ] M96-T18 CONSULTA Y REFACTOR — Desdoblar check_agents separando las acciones de control/borrado (stop y prune_keep) de la consulta/espera de solo lectura para simplificar el esquema en modelos locales (actualizando plantillas, ayuda y pruebas tras confirmar el nombre y forma)
 
 

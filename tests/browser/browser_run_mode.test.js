@@ -126,6 +126,7 @@ describe('Browser UI - ejecución en servidor', { concurrency: 2 }, () => {
     await page.evaluate(async () => {
       await window.ChatUIProfiles.activateConnectionProfile('profile:server');
       window.ChatUIProfiles.setServerMode(true);
+      window.ChatConfig.updateRuntime({ subagents: true });
     });
     assert.equal(await page.locator('#active-profile-trigger.server-mode').count(), 1);
     assert.equal((await page.locator('#active-profile-name').textContent()).trim(), 'server');
@@ -137,6 +138,7 @@ describe('Browser UI - ejecución en servidor', { concurrency: 2 }, () => {
     assert.equal(startCalls.length, 1);
     assert.equal(startCalls[0].conversation_id, activeConvId);
     assert.equal(startCalls[0].profile, 'server');
+    assert.equal(startCalls[0].subagents, true);
 
     // Un paso que la ejecución graba llega con el siguiente latido: la página recarga la conversación grabada.
     const runningRecord = savedConversations.get(activeConvId);
