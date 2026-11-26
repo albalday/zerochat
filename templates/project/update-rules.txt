@@ -5,14 +5,14 @@ Update the ZeroChat project rules of the repository at {{CWD}} to the current ve
 Follow these phases in order:
 
 PHASE 1 - READ-ONLY INSPECTION:
-Read without modifying anything: {{RULES_FILE}}, {{TASK_HELPER_FILE}}, and whether an `agents/` directory exists. If it exists, also read `agents/template.json`, `agents/template.sh` and every `agents/*.md` and `agents/*.json`.
+Read without modifying anything: {{RULES_FILE}}, {{TASK_HELPER_FILE}}, and whether an `agents/` directory exists. If it exists, also read `agents/template.md`, `agents/template.sh`, every `agents/*.md` and any older `agents/*.json` run-file.
 
 PHASE 2 - PROPOSAL (show the exact changes and wait for the user's explicit approval; use the ask_user tool when available):
 1. {{TASK_HELPER_FILE}}: replace it with the current helper script below if it differs. It is generic: it holds nothing specific to the project.
 2. {{RULES_FILE}}: replace only the standard "## {{MEMORY_SECTION_TITLE}}" section with the current one below (add it if it is missing). Keep every other section, rule and wording of the project exactly as it is, and never move plans or logs into {{RULES_FILE}}.
 3. Only if `agents/` exists (an agent project):
-   - `agents/template.json` and `agents/template.sh`: bring them to the current templates below, keeping the project's own values (set and role names, profile, prompts, limits, alert command).
-   - `agents/*.md` and `agents/*.json`: update only what describes the ZeroChat run contract (the --run-file fields such as `reasoning`, `watchAgents`, `projectMode`, `maxSteps` and `timeout`; the `launch_agent` and `check_agents` tools, their waiting with `wait_seconds` and how results are read with `offset`/`next_offset`; exit codes and the stderr line) to match the current agent mode reference below. Keep each agent's role, steps, outputs, file conventions and any other project-specific instruction untouched.
+   - `agents/template.md` and `agents/template.sh`: bring them to the current templates below (an older `agents/template.json` becomes `agents/template.md`), keeping the project's own values (set and role names, profile, prompts, limits, alert command).
+   - `agents/*.md` and any older `agents/*.json`: update only what describes the ZeroChat run contract (the Markdown run-file with its header keys such as `reasoning`, `controller`, `projectMode`, `maxSteps` and `timeout` and its `<!-- system -->` and `<!-- prompt -->` sections, which replace a JSON run-file and its `watchAgents`; the `launch_agent` and `check_agents` tools, their waiting with `wait_seconds` and how results are read with `offset`/`next_offset`; exit codes and the stderr line) to match the current agent mode reference below. Keep each agent's role, steps, outputs, file conventions and any other project-specific instruction untouched.
    If a file needs no change, say so instead of rewriting it. Do not create agents, plans or milestones.
 
 PHASE 3 - APPLY (only after approval):

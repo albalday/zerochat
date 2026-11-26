@@ -31,12 +31,10 @@ MAX_PROFILE_NAME_LENGTH = 128
 MAX_PROFILE_DESCRIPTION_LENGTH = 2048
 MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
-# Identificador de agente de una conversación: <subconjunto>.<nombre>, dos niveles dentro de su proyecto.
+# Identificador de agente de una conversación dentro de su proyecto: <nombre> o <subconjunto>.<nombre>.
 MAX_AGENT_ID_LENGTH = 64
 _AGENT_SEGMENT = r"[a-z0-9_-]+"
-_AGENT_ID_PATTERN = re.compile(rf"{_AGENT_SEGMENT}\.{_AGENT_SEGMENT}")
-# Patrón de watchAgents: todos los agentes del proyecto, los de un subconjunto o uno concreto.
-_AGENT_WATCH_PATTERN = re.compile(rf"\*|{_AGENT_SEGMENT}\.(?:\*|{_AGENT_SEGMENT})")
+_AGENT_ID_PATTERN = re.compile(rf"{_AGENT_SEGMENT}(?:\.{_AGENT_SEGMENT})?")
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
 CONVERSATION_UPLOAD_TTL_SECONDS = 300
@@ -468,17 +466,11 @@ def _validate_conversation_id(session_id) -> str:
 
 
 def validate_agent_id(agent) -> str:
-    """El identificador de agente <subconjunto>.<nombre> (minúsculas, cifras, _ y -), sin pasar de MAX_AGENT_ID_LENGTH."""
+    """El identificador de agente <nombre> o <subconjunto>.<nombre> (minúsculas, cifras, _ y -), sin pasar de
+    MAX_AGENT_ID_LENGTH."""
     if not isinstance(agent, str) or len(agent) > MAX_AGENT_ID_LENGTH or not _AGENT_ID_PATTERN.fullmatch(agent):
-        raise ValueError(f"agent debe ser <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
+        raise ValueError(f"agent debe ser <nombre> o <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
     return agent
-
-
-def validate_agent_watch_pattern(pattern) -> str:
-    """Un patrón de watchAgents: '*', '<subconjunto>.*' o '<subconjunto>.<nombre>', con el tope de un identificador."""
-    if not isinstance(pattern, str) or len(pattern) > MAX_AGENT_ID_LENGTH or not _AGENT_WATCH_PATTERN.fullmatch(pattern):
-        raise ValueError("watchAgents admite '*', '<subconjunto>.*' o '<subconjunto>.<nombre>'")
-    return pattern
 
 
 def agent_matches(agent, patterns) -> bool:

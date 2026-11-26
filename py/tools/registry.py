@@ -227,7 +227,7 @@ LOCAL_TOOLS_DEFINITIONS = [
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
-        "Status of the agents that this run supervises (watchAgents), in this project or, with project, in another one. Without arguments, one entry per "
+        "Status of the agents of this project, which this run controls, or, with project, of another one. Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). With agent or conversation_id, the final answer in blocks of "
@@ -242,7 +242,7 @@ CHECK_AGENTS_DEFINITION = {
     "inputSchema": {
         "type": "object",
         "properties": {
-            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
             "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
@@ -255,15 +255,15 @@ CHECK_AGENTS_DEFINITION = {
 LAUNCH_AGENT_DEFINITION = {
     "name": LAUNCH_AGENT_TOOL,
     "description": (
-        "Start a watched agent from its run-file JSON (for example agents/report.json) as a separate run that keeps going "
-        "after this run ends, and return its conversation_id and run_id. The run-file's agent must match watchAgents; it "
+        "Start an agent from its run-file (for example agents/report.md) as a separate run that keeps going "
+        "after this run ends, and return its conversation_id and run_id. The run-file must set an agent; it "
         "runs with the saved environment and permissions of its project. Give prompt to replace the run-file's prompt, "
         "and project to launch an agent of another project. Then follow it with check_agents, which can wait for it."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
-            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file JSON inside the project"},
+            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project"},
             "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run, instead of the run-file's prompt"},
             "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give RX"}
         },

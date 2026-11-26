@@ -1,15 +1,18 @@
-Agent run-file template (agents/template.json — omit conversation_id for a fresh conversation per run; add "watchAgents": ["<set>.*"] for a master agent that launches and supervises others with launch_agent and check_agents):
-```json
-{
-  "conversation_id": "<set>.<role>",
-  "agent": "<set>.<role>",
-  "profile": "local",
-  "systemDataPrompt": "Read agents/<role>.md and follow its instructions strictly.",
-  "prompt": "Run the scheduled task.",
-  "reasoning": "medium",
-  "maxSteps": 40,
-  "timeout": 600
-}
+Agent run-file template (agents/template.md — omit conversation_id for a fresh conversation per run; add "controller: true" for a controller agent that launches and supervises others with launch_agent and check_agents):
+```markdown
+---
+agent: <set>.<role>
+conversation_id: <set>.<role>
+profile: local
+reasoning: medium
+maxSteps: 40
+timeout: 600
+---
+<!-- system -->
+You are the <role> agent of this project. Describe here its job, steps, inputs, outputs and file conventions.
+
+<!-- prompt -->
+Run the scheduled task.
 ```
 
 Agent launcher template (agents/template.sh — set ZEROCHAT_NOTIFY to be alerted when a run pauses, hits its limit or fails):
@@ -24,7 +27,7 @@ NOTIFY="${ZEROCHAT_NOTIFY:-}"
 err="$(mktemp)"
 trap 'rm -f "$err"' EXIT
 set +e
-zerochat --run-file "agents/<role>.json" 2>"$err"
+zerochat --run-file "agents/<role>.md" 2>"$err"
 rc=$?
 set -e
 cat "$err" >&2

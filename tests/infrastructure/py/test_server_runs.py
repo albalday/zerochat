@@ -84,6 +84,17 @@ def upsert_run(fields):
     })
 
 
+def run_md(fields: dict) -> str:
+    """Run-file Markdown con esos campos: prompt y systemDataPrompt en sus secciones y el resto, tal cual, en la cabecera."""
+    header = [f"{key}: {str(value).lower() if isinstance(value, bool) else value}"
+              for key, value in fields.items() if key not in ("prompt", "systemDataPrompt")]
+    lines = ["---", *header, "---"]
+    for marker, key in (("system", "systemDataPrompt"), ("prompt", "prompt")):
+        if key in fields:
+            lines += [f"<!-- {marker} -->", str(fields[key])]
+    return "\n".join(lines) + "\n"
+
+
 class ServerRunsInfrastructureTest(unittest.TestCase):
     def setUp(self):
         self.data_dir = use_data_dir(self)
@@ -267,8 +278,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         parser = zerochat.build_parser()
         folder = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, folder, True)
-        request = folder / "nueva.json"
-        request.write_text(json.dumps({"prompt": "Hola", "conversation_id": "conv_cron_nueva"}), encoding="utf-8")
+        request = folder / "nueva.md"
+        request.write_text(run_md({"prompt": "Hola", "conversation_id": "conv_cron_nueva"}), encoding="utf-8")
         worker = start_worker(self)
         running = {"status": "running", "pid": worker.pid, "pid_start": zerochat._process_start_token(worker.pid)}
 
@@ -308,9 +319,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.addCleanup(shutil.rmtree, folder, True)
 
         def write_request(data) -> str:
-            path = folder / "peticion.json"
-            path.write_text(json.dumps(data) if not isinstance(data, str) else data, encoding="utf-8")
+            path = folder / "peticion.md"
+            path.write_text(run_md(data) if not isinstance(data, str) else data, encoding="utf-8")
             return str(path)
+
+        parse = lambda fields: zerochat.parse_run_request(run_md(fields).encode())
 
         def session_from(argv):
             return zerochat.run_session_from_args(parser, parser.parse_args(argv))
@@ -320,16 +333,36 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 session_from(argv)
             self.assertEqual(cm.exception.code, zerochat.RUN_EXIT_ARGS)
 
-        # Petición no válida: campos de permisos o herramientas, tipos y textos vacíos.
-        for invalid in ({"prompt": "Hola", "enabledTools": {"run_command": True}}, {"prompt": "Hola", "tool_security": {}},
-                        {"prompt": 3}, {"prompt": "  "}, {"prompt": "Hola", "systemDataPrompt": None}, ["Hola"], "{no json"):
+        # Petición no válida: campos de permisos o herramientas, textos vacíos y un fichero que no es un run-file.
+        for invalid in ({"prompt": "Hola", "enabledTools": "run_command"}, {"prompt": "Hola", "tool_security": "{}"},
+                        {"prompt": "  "}, {"prompt": "Hola", "watchAgents": "*"}, {"prompt": "Hola", "agent": ""}, "Hola",
+                        '{"prompt": "Hola"}', "---\nprofile: local\n<!-- prompt -->\nHola\n"):
             rejects(["--run-file", write_request(invalid)])
         rejects(["--run-file", write_request({"profile": "local"})])
-        rejects(["--run-file", str(folder / "no_existe.json")])
+        rejects(["--run-file", str(folder / "no_existe.md")])
         rejects(["--run-file", write_request({"prompt": "Hola"}), "--prompt", "Otro"])
+        for text, message in (("---\nprofile: a\nprofile: b\n---\n", "dos veces"), ("---\nsin dos puntos\n---\n", "desconocido"),
+                              ("---\n---\n<!-- prompt -->\nA\n<!-- prompt -->\nB\n", "dos veces"),
+                              ("---\n---\nManual\n<!-- system -->\nOtro\n", "antes de las secciones"), (b"---\n---\n\xff", "UTF-8")):
+            with self.assertRaisesRegex(ValueError, message):
+                zerochat.parse_run_request(text if isinstance(text, bytes) else text.encode())
+
+        # Cabecera y secciones: el texto sin marcador es el system, los marcadores van en su propia línea, los saltos de
+        # línea de Windows y el BOM no cuentan, y format_run_request escribe lo que parse_run_request devuelve igual.
+        self.assertEqual(zerochat.parse_run_request("\ufeff---\r\nagent: diario\r\n---\r\nEres el agente.\r\n<!-- prompt -->\r\n"
+                                                    "Usa <!-- prompt --> en el texto.\r\n".encode()),
+                         {"agent": "diario", "systemDataPrompt": "Eres el agente.", "prompt": "Usa <!-- prompt --> en el texto.",
+                          "projectMode": False, "reasoning": "medium"})
+        full = {"agent": "informes.diario", "conversation_id": "fija", "profile": "local", "controller": True, "projectMode": True,
+                "reasoning": "high", "maxSteps": 5, "timeout": 60, "systemDataPrompt": "Manual\n\nen dos párrafos", "prompt": "Tarea"}
+        self.assertEqual(zerochat.parse_run_request(zerochat.format_run_request(full).encode()), full)
+        self.assertNotIn("controller", parse({"prompt": "Hola", "controller": False}), "Solo se guarda cuando es true")
+        for unsafe in ({"profile": "a\nb"}, {"prompt": "x\n<!-- system -->\ny"}):
+            with self.assertRaises(ValueError):
+                zerochat.format_run_request(unsafe)
 
         # Tope del fichero en el borde exacto: N bytes se aceptan y N+1 no.
-        body = json.dumps({"prompt": "Hola"})
+        body = run_md({"prompt": "Hola"})
         at_limit = (body + " " * (zerochat.RUN_FILE_MAX_BYTES - len(body))).encode()
         self.assertEqual(zerochat.parse_run_request(at_limit), {"prompt": "Hola", "projectMode": False, "reasoning": "medium"})
         with self.assertRaisesRegex(ValueError, "no puede superar"):
@@ -337,25 +370,26 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         # Límites: enteros de 1 a su máximo, en el borde exacto.
         for key, maximum in zerochat.RUN_FILE_LIMIT_KEYS.items():
-            self.assertEqual(zerochat.parse_run_request(json.dumps({"prompt": "Hola", key: maximum}).encode())[key], maximum)
-            for invalid in (maximum + 1, 0, True, "5", 2.5):
+            self.assertEqual(parse({"prompt": "Hola", key: maximum})[key], maximum)
+            for invalid in (maximum + 1, 0, True, "", "-1", 2.5, "５"):
                 with self.assertRaisesRegex(ValueError, f"{key} debe ser un entero"):
-                    zerochat.parse_run_request(json.dumps({"prompt": "Hola", key: invalid}).encode())
+                    parse({"prompt": "Hola", key: invalid})
 
         # reasoning: uno de los niveles del selector, medium si el fichero no lo indica.
         for level in zerochat.RUN_REASONING_LEVELS:
-            self.assertEqual(zerochat.parse_run_request(json.dumps({"prompt": "Hola", "reasoning": level}).encode())["reasoning"], level)
+            self.assertEqual(parse({"prompt": "Hola", "reasoning": level})["reasoning"], level)
         self.assertEqual(zerochat.RUN_REASONING_LEVELS, ("none", "low", "medium", "high", "xhigh"))
-        for invalid in ("max", "Medium", "", None, 2, True):
+        for invalid in ("max", "Medium", "", 2, True):
             with self.assertRaisesRegex(ValueError, "reasoning debe ser"):
-                zerochat.parse_run_request(json.dumps({"prompt": "Hola", "reasoning": invalid}).encode())
+                parse({"prompt": "Hola", "reasoning": invalid})
         self.assertIsNone(session_from(["--prompt", "Hola"]).reasoning, "Sin --run-file queda el del perfil")
 
-        # projectMode: por defecto no se inyectan las normas del proyecto; solo admite booleanos.
-        self.assertTrue(zerochat.parse_run_request(json.dumps({"prompt": "Hola", "projectMode": True}).encode())["projectMode"])
-        for invalid in ("true", 1, None):
-            with self.assertRaisesRegex(ValueError, "projectMode debe ser true o false"):
-                zerochat.parse_run_request(json.dumps({"prompt": "Hola", "projectMode": invalid}).encode())
+        # projectMode y controller: por defecto no; solo admiten true o false.
+        self.assertTrue(parse({"prompt": "Hola", "projectMode": True})["projectMode"])
+        for key in ("projectMode", "controller"):
+            for invalid in ("True", "1", "yes", ""):
+                with self.assertRaisesRegex(ValueError, f"{key} debe ser true o false"):
+                    parse({"prompt": "Hola", key: invalid})
 
         # Un conversation_id que no existe es el de la conversación nueva; sin prompt no hay con qué empezarla.
         session = session_from(["--run-file", write_request({
@@ -368,15 +402,16 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         # Uno que existe se continúa, como --conversation; desde stdin con -. No marca serverRun antes de comprobar el entorno.
         zerochat.save_conversation({"id": "session_orquestador_3", "title": "Agente"}, [{"id": "u1", "role": "user", "content": "Hola"}])
-        with mock.patch("sys.stdin", mock.Mock(buffer=io.BytesIO(json.dumps({"conversation_id": "session_orquestador_3"}).encode()))):
+        with mock.patch("sys.stdin", mock.Mock(buffer=io.BytesIO(run_md({"conversation_id": "session_orquestador_3"}).encode()))):
             session = session_from(["--run-file", "-"])
         self.assertEqual((session.conversation_id, session.new_conversation_id, session.prompt), ("session_orquestador_3", None, None))
         self.assertNotIn("serverRun", zerochat.get_conversation("session_orquestador_3"))
 
         # agent: la conversación nueva de la ejecución lo lleva aunque el runner no lo envíe (también por tramos); otra no.
-        self.assertEqual(zerochat.parse_run_request(json.dumps({"prompt": "Hola", "agent": "informes.diario"}).encode())["agent"], "informes.diario")
+        # El identificador lo valida validate_agent_id (test_storage.py).
+        self.assertEqual(parse({"prompt": "Hola", "agent": "diario"})["agent"], "diario")
         with self.assertRaisesRegex(ValueError, "agent debe ser"):
-            zerochat.parse_run_request(json.dumps({"prompt": "Hola", "agent": "informes"}).encode())
+            parse({"prompt": "Hola", "agent": "a.b.c"})
         def save_as_run(conv_id, chunked):
             zerochat.RUN_SESSION = session_from(["--run-file", write_request({"conversation_id": conv_id, "prompt": "Hola", "agent": "informes.diario"})])
             if chunked:
@@ -484,15 +519,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertEqual(stderr.getvalue(), f"[run] conversation_id={conv_id} new={new}\n")
 
     def test_check_agents_solo_con_watchagents_y_solo_agentes_vigilados_del_proyecto(self):
-        # watchAgents: patrones '*', '<subconjunto>.*' o '<subconjunto>.<nombre>', sin repetir y hasta MAX_WATCH_AGENTS.
-        parse = lambda patterns: zerochat.parse_run_request(json.dumps({"prompt": "Hola", "watchAgents": patterns}).encode())["watchAgents"]
-        self.assertEqual(parse(["*", "informes.*", "ventas.diario", "informes.*"]), ["*", "informes.*", "ventas.diario"])
-        at_limit = [f"a.n{index}" for index in range(zerochat.MAX_WATCH_AGENTS)]
-        self.assertEqual(parse(at_limit), at_limit)
-        for invalid in ([], at_limit + ["a.extra"], "*", ["informes"], ["a.b.c"], ["*.diario"], ["Informes.*"], [3]):
-            with self.assertRaisesRegex(ValueError, "watchAgents"):
-                parse(invalid)
-
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
         names = lambda: [tool["name"] for tool in zerochat._local_tools()]
@@ -692,7 +718,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
         (ctx.workspace_dir / "agents").mkdir()
-        (ctx.workspace_dir / "agents" / "diario.json").write_text(json.dumps({"agent": "informes.diario", "prompt": "Haz el informe"}))
+        (ctx.workspace_dir / "agents" / "diario.md").write_text(run_md({"agent": "informes.diario", "prompt": "Haz el informe"}))
         zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
         zerochat.save_conversation({"id": "anterior", "title": "anterior", "updatedAt": 1000, "project": ctx.key, "agent": "informes.diario"},
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
@@ -707,7 +733,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             return {"run_id": "r_nuevo", "pid": os.getpid()}
 
         with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
-            launched = json.loads(zerochat.launch_agent(run_file="agents/diario.json", ctx=ctx))
+            launched = json.loads(zerochat.launch_agent(run_file="agents/diario.md", ctx=ctx))
         new_id = launched["conversation_id"]
         self.assertIsNone(zerochat.get_conversation(new_id), "El agente aún no la ha guardado")
         # Sin esperar: la conversación existe para check_agents, en marcha, y es la más reciente de su agente.
@@ -773,9 +799,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         for folder in (ctx.workspace_dir, other):
             self.addCleanup(shutil.rmtree, folder, True)
             (folder / "agents").mkdir()
-            (folder / "agents" / "diario.json").write_text(json.dumps({"agent": "informes.diario", "prompt": "Haz el informe"}))
-        (ctx.workspace_dir / "agents" / "ventas.json").write_text(json.dumps({"agent": "ventas.diario", "prompt": "Vende"}))
-        (ctx.workspace_dir / "agents" / "fijo.json").write_text(json.dumps({"agent": "informes.diario", "conversation_id": "fija", "prompt": "Sigue"}))
+            (folder / "agents" / "diario.md").write_text(run_md({"agent": "informes.diario", "prompt": "Haz el informe"}))
+        (ctx.workspace_dir / "agents" / "ventas.md").write_text(run_md({"agent": "ventas.diario", "prompt": "Vende"}))
+        (ctx.workspace_dir / "agents" / "fijo.md").write_text(run_md({"agent": "informes.diario", "conversation_id": "fija", "prompt": "Sigue"}))
         names = lambda: [tool["name"] for tool in zerochat._local_tools()]
         launch = lambda **args: json.loads(zerochat.launch_agent(**args, ctx=ctx))
         check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
@@ -785,26 +811,26 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         # Solo en una ejecución con watchAgents, que la publica y autoriza junto a check_agents.
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
         self.assertNotIn("launch_agent", names())
-        self.assertFalse(launch(run_file="agents/diario.json")["success"])
+        self.assertFalse(launch(run_file="agents/diario.md")["success"])
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
         self.assertIn("launch_agent", names())
         zerochat.reset_session_authorizations()
         self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("launch_agent", {}, context=ctx).status, zerochat.POLICY_ALLOW)
-        self.assertIsNone(zerochat.validate_local_tool_arguments("launch_agent", {"run_file": "agents/diario.json", "project": str(other)}))
+        self.assertIsNone(zerochat.validate_local_tool_arguments("launch_agent", {"run_file": "agents/diario.md", "project": str(other)}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {}))
 
         with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
             # Sin entorno guardado no lanza (el hijo saldría con código 3).
-            self.assertIn("no saved environment", launch(run_file="agents/diario.json")["error"])
+            self.assertIn("no saved environment", launch(run_file="agents/diario.md")["error"])
             zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
-            for invalid, reason in (({}, "run_file is required"), ({"run_file": "../fuera.json"}, "inside the project"),
-                                    ({"run_file": "agents/ventas.json"}, "watchAgents"), ({"run_file": "agents/nada.json"}, "Could not read"),
-                                    ({"run_file": "agents/diario.json", "prompt": " "}, "non-empty")):
+            for invalid, reason in (({}, "run_file is required"), ({"run_file": "../fuera.md"}, "inside the project"),
+                                    ({"run_file": "agents/ventas.md"}, "cannot launch the agent ventas.diario"), ({"run_file": "agents/nada.md"}, "Could not read"),
+                                    ({"run_file": "agents/diario.md", "prompt": " "}, "non-empty")):
                 self.assertIn(reason, launch(**invalid)["error"], invalid)
             self.assertEqual(launched, [])
 
             # Una conversación nueva por lanzamiento, con el prompt pedido, en la carpeta del proyecto.
-            result = launch(run_file="agents/diario.json", prompt="Informe de marzo")
+            result = launch(run_file="agents/diario.md", prompt="Informe de marzo")
             self.assertEqual((result["agent"], result["new"], result["run_id"], result["project"]), ("informes.diario", True, "run_1", ctx.key))
             self.assertTrue(result["conversation_id"].startswith("session_"))
             self.assertEqual(launched[0], ({"agent": "informes.diario", "prompt": "Informe de marzo", "projectMode": False, "reasoning": "medium",
@@ -813,20 +839,20 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             # Un conversation_id fijo en marcha no se lanza otra vez.
             upsert_run({"run_id": "r_fija", "conversation_id": "fija", "status": "running", "pid": os.getpid(),
                         "pid_start": zerochat._process_start_token(os.getpid())})
-            self.assertIn("already running", launch(run_file="agents/fijo.json")["error"])
+            self.assertIn("already running", launch(run_file="agents/fijo.md")["error"])
 
             # Otro proyecto: consultar pide R sobre su carpeta, lanzar RX (RW para borrar) y su propio entorno guardado.
             self.assertIn("do not give R access", check(project=str(other))["error"])
             default_rule = zerochat.AccessController.get_default_directory_rule(ctx)
             zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"R:{other}/**"]}, ctx)
-            self.assertIn("do not give X access", launch(run_file="agents/diario.json", project=str(other))["error"])
+            self.assertIn("do not give X access", launch(run_file="agents/diario.md", project=str(other))["error"])
             zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"X:{other}/**"]}, ctx)
-            self.assertIn("do not give R access", launch(run_file="agents/diario.json", project=str(other))["error"])
+            self.assertIn("do not give R access", launch(run_file="agents/diario.md", project=str(other))["error"])
             zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"RX:{other}/**"]}, ctx)
-            self.assertIn("no saved environment", launch(run_file="agents/diario.json", project=str(other))["error"])
+            self.assertIn("no saved environment", launch(run_file="agents/diario.md", project=str(other))["error"])
             other_key = zerochat.SecurityContext(workspace_dir=other).key
             zerochat.save_project_environment(other_key, {"systemDataPrompt": "Otro"})
-            result = launch(run_file="agents/diario.json", project=str(other))
+            result = launch(run_file="agents/diario.md", project=str(other))
             self.assertEqual((result.get("project"), launched[-1][1], launched[-1][0]["prompt"]), (other_key, other, "Haz el informe"), result)
 
         # check_agents con project ve los agentes de esa carpeta y no los de la suya; borrar en ella pide RW.
@@ -853,7 +879,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 return real_popen(cmd, **kwargs)  # Otros procesos (p. ej. ps en macOS para la huella de arranque).
             seen.update(cmd=cmd, **kwargs)
             # Hace de zerochat --run-file -: guarda lo que recibe por stdin, su carpeta y su entorno; la prueba espera a que termine.
-            script = (f"import json, os, sys; f = open({str(received)!r}, 'w'); json.dump({{'request': json.load(sys.stdin), "
+            script = (f"import json, os, sys; f = open({str(received)!r}, 'w'); json.dump({{'request': sys.stdin.read(), "
                       "'cwd': os.getcwd(), 'run_id': os.environ.get('ZEROCHAT_RUN_ID'), "
                       "'security': os.environ.get('ZEROCHAT_RUN_SECURITY')}, f); f.close()")
             seen["proc"] = real_popen([sys.executable, "-c", script], **kwargs)
@@ -870,7 +896,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual((row["status"], row["run_id"], row["pid"]), ("running", launched["run_id"], launched["pid"]))
         self.assertEqual(seen["proc"].wait(timeout=10), 0)
         got = json.loads(received.read_text())
-        self.assertEqual(got, {"request": request, "cwd": str(ctx.workspace_dir), "run_id": launched["run_id"], "security": None})
+        # Le llega el run-file Markdown de la petición, que lee con --run-file - como cualquier otro.
+        self.assertEqual(got, {"request": zerochat.format_run_request(request), "cwd": str(ctx.workspace_dir), "run_id": launched["run_id"], "security": None})
+        self.assertEqual(zerochat.parse_run_request(got["request"].encode()), {**request, "projectMode": False, "reasoning": "medium"})
         # Otra vez la misma conversación en marcha: no se lanza.
         upsert_run({**row, "pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())})
         with self.assertRaisesRegex(ValueError, "en marcha"):
@@ -894,8 +922,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
     def test_una_ejecucion_que_falla_antes_de_lanzar_el_runner_no_deja_fila_en_runs(self):
         folder = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, folder, True)
-        run_file = folder / "agente.json"
-        run_file.write_text(json.dumps({"agent": "informes.diario", "conversation_id": "session_sin_entorno", "prompt": "Hola", "profile": "remoto"}))
+        run_file = folder / "agente.md"
+        run_file.write_text(run_md({"agent": "informes.diario", "conversation_id": "session_sin_entorno", "prompt": "Hola", "profile": "remoto"}))
         # Una conversación nueva en la carpeta general, que no tiene entorno guardado: sale con código 3 sin dejar fila.
         with mock.patch.object(sys, "argv", ["zerochat", "--run-file", str(run_file)]), mock.patch("sys.stderr", io.StringIO()) as stderr, \
                 mock.patch.dict(os.environ, {"ZEROCHAT_RUN_ID": ""}), self.assertRaises(SystemExit) as cm:

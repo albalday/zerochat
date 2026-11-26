@@ -2473,12 +2473,10 @@ MAX_PROFILE_NAME_LENGTH = 128
 MAX_PROFILE_DESCRIPTION_LENGTH = 2048
 MAX_CONVERSATION_ID_LENGTH = 128
 MAX_CONVERSATION_TITLE_LENGTH = 256
-# Identificador de agente de una conversación: <subconjunto>.<nombre>, dos niveles dentro de su proyecto.
+# Identificador de agente de una conversación dentro de su proyecto: <nombre> o <subconjunto>.<nombre>.
 MAX_AGENT_ID_LENGTH = 64
 _AGENT_SEGMENT = r"[a-z0-9_-]+"
-_AGENT_ID_PATTERN = re.compile(rf"{_AGENT_SEGMENT}\.{_AGENT_SEGMENT}")
-# Patrón de watchAgents: todos los agentes del proyecto, los de un subconjunto o uno concreto.
-_AGENT_WATCH_PATTERN = re.compile(rf"\*|{_AGENT_SEGMENT}\.(?:\*|{_AGENT_SEGMENT})")
+_AGENT_ID_PATTERN = re.compile(rf"{_AGENT_SEGMENT}(?:\.{_AGENT_SEGMENT})?")
 MAX_BLOB_SIZE = 50 * 1024 * 1024
 MAX_BLOB_HTTP_BYTES = 72 * 1024 * 1024
 CONVERSATION_UPLOAD_TTL_SECONDS = 300
@@ -2910,17 +2908,11 @@ def _validate_conversation_id(session_id) -> str:
 
 
 def validate_agent_id(agent) -> str:
-    """El identificador de agente <subconjunto>.<nombre> (minúsculas, cifras, _ y -), sin pasar de MAX_AGENT_ID_LENGTH."""
+    """El identificador de agente <nombre> o <subconjunto>.<nombre> (minúsculas, cifras, _ y -), sin pasar de
+    MAX_AGENT_ID_LENGTH."""
     if not isinstance(agent, str) or len(agent) > MAX_AGENT_ID_LENGTH or not _AGENT_ID_PATTERN.fullmatch(agent):
-        raise ValueError(f"agent debe ser <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
+        raise ValueError(f"agent debe ser <nombre> o <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
     return agent
-
-
-def validate_agent_watch_pattern(pattern) -> str:
-    """Un patrón de watchAgents: '*', '<subconjunto>.*' o '<subconjunto>.<nombre>', con el tope de un identificador."""
-    if not isinstance(pattern, str) or len(pattern) > MAX_AGENT_ID_LENGTH or not _AGENT_WATCH_PATTERN.fullmatch(pattern):
-        raise ValueError("watchAgents admite '*', '<subconjunto>.*' o '<subconjunto>.<nombre>'")
-    return pattern
 
 
 def agent_matches(agent, patterns) -> bool:
@@ -5347,14 +5339,18 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
-RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode", "watchAgents", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS))
+# El run-file es Markdown: una cabecera fija entre dos líneas '---' con estas claves (`clave: valor`) y un cuerpo con las
+# secciones <!-- system --> (systemDataPrompt, el manual del agente) y <!-- prompt --> (la tarea). El texto del cuerpo
+# que no va tras ningún marcador es el system.
+RUN_FILE_HEADER_KEYS = ("agent", "conversation_id", "profile", "controller", "projectMode", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_FILE_SECTIONS = {"system": "systemDataPrompt", "prompt": "prompt"}
+_RUN_FILE_BOOLEAN_KEYS = ("controller", "projectMode")
+_RUN_FILE_SECTION = re.compile(r"^<!--[ \t]*(system|prompt)[ \t]*-->[ \t]*$", re.MULTILINE)
 # Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
-RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "watchAgents", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "controller", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
 # Niveles de razonamiento de --run-file (los del selector de la interfaz) y el que usa si no indica ninguno.
 RUN_REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh")
 DEFAULT_RUN_REASONING = "medium"
-# Patrones de watchAgents que admite una ejecución (agentes que vigila con check_agents).
-MAX_WATCH_AGENTS = 32
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -5376,38 +5372,83 @@ def _remember_exit(key: tuple[int, str | None]) -> None:
         del _EXITED[next(iter(_EXITED))]
 
 
+def _header_value(key: str, raw: str):
+    """El valor de una clave de la cabecera: true/false y los enteros de los límites se convierten; lo demás queda como
+    texto, que parse_run_request rechaza con el mensaje de esa clave si no vale."""
+    if key in _RUN_FILE_BOOLEAN_KEYS and raw in ("true", "false"):
+        return raw == "true"
+    if key in RUN_FILE_LIMIT_KEYS and raw.isascii() and raw.isdigit():
+        return int(raw)
+    return raw
+
+
 def _run_request_object(raw: bytes) -> dict:
-    """El objeto JSON de --run-file, sin pasar del tope ni llevar campos fuera de RUN_FILE_KEYS."""
+    """Los campos del run-file Markdown, sin pasar del tope ni llevar claves fuera de RUN_FILE_HEADER_KEYS."""
     if len(raw) > RUN_FILE_MAX_BYTES:
         raise ValueError(f"no puede superar {RUN_FILE_MAX_BYTES} bytes")
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"no es JSON válido: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError("debe ser un objeto JSON")
-    unknown = sorted(set(data) - RUN_FILE_KEYS)
-    if unknown:
-        raise ValueError(f"campos desconocidos: {', '.join(unknown)}")
+        lines = raw.decode("utf-8-sig").replace("\r\n", "\n").split("\n")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"no es texto UTF-8: {exc}") from exc
+    end = next((i for i, line in enumerate(lines) if i > 0 and line.strip() == "---"), None)
+    if lines[0].strip() != "---" or end is None:
+        raise ValueError("debe empezar con su cabecera entre dos líneas '---'")
+    data: dict = {}
+    for line in lines[1:end]:
+        if not line.strip():
+            continue
+        key, colon, value = (part.strip() for part in line.partition(":"))
+        if not colon or key not in RUN_FILE_HEADER_KEYS:
+            raise ValueError(f"campo desconocido en la cabecera: {line.strip()[:80]}")
+        if key in data:
+            raise ValueError(f"{key} aparece dos veces en la cabecera")
+        data[key] = _header_value(key, value)
+    # split con un grupo deja [texto sin marcador, nombre, texto, nombre, texto...].
+    lead, *sections = _RUN_FILE_SECTION.split("\n".join(lines[end + 1:]))
+    for name, content in zip(sections[::2], sections[1::2], strict=True):
+        if RUN_FILE_SECTIONS[name] in data:
+            raise ValueError(f"la sección <!-- {name} --> aparece dos veces")
+        data[RUN_FILE_SECTIONS[name]] = content
+    if lead.strip():
+        if "systemDataPrompt" in data:
+            raise ValueError("hay texto antes de las secciones: ponlo dentro de <!-- system --> o de <!-- prompt -->")
+        data["systemDataPrompt"] = lead
     return data
+
+
+def format_run_request(request: dict) -> str:
+    """El run-file Markdown de una petición ya validada: parse_run_request lo devuelve igual."""
+    lines = ["---"]
+    for key in RUN_FILE_HEADER_KEYS:
+        if key in request:
+            value = request[key]
+            text = ("true" if value else "false") if isinstance(value, bool) else str(value)
+            if "\n" in text or "\r" in text:
+                raise ValueError(f"{key} no puede tener saltos de línea")
+            lines.append(f"{key}: {text}")
+    lines.append("---")
+    for name, key in RUN_FILE_SECTIONS.items():
+        if key in request:
+            if _RUN_FILE_SECTION.search(request[key]):
+                raise ValueError(f"{key} no puede tener una línea con el marcador de una sección")
+            lines += [f"<!-- {name} -->", request[key]]
+    return "\n".join(lines) + "\n"
 
 
 def _agent_options(data: dict) -> dict:
     """projectMode (sin él, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual),
-    reasoning (el nivel de razonamiento de la ejecución, DEFAULT_RUN_REASONING si no lo indica) y watchAgents (los
-    agentes que la ejecución puede consultar con check_agents)."""
-    if "projectMode" in data and not isinstance(data["projectMode"], bool):
-        raise ValueError("projectMode debe ser true o false")
+    reasoning (el nivel de razonamiento de la ejecución, DEFAULT_RUN_REASONING si no lo indica) y controller (la
+    ejecución consulta y lanza los agentes del proyecto con check_agents y launch_agent)."""
+    for key in _RUN_FILE_BOOLEAN_KEYS:
+        if key in data and not isinstance(data[key], bool):
+            raise ValueError(f"{key} debe ser true o false")
     options = {"projectMode": data.get("projectMode", False)}
     reasoning = data.get("reasoning", DEFAULT_RUN_REASONING)
     if reasoning not in RUN_REASONING_LEVELS:
         raise ValueError(f"reasoning debe ser uno de: {', '.join(RUN_REASONING_LEVELS)}")
     options["reasoning"] = reasoning
-    if "watchAgents" in data:
-        patterns = data["watchAgents"]
-        if not isinstance(patterns, list) or not 1 <= len(patterns) <= MAX_WATCH_AGENTS:
-            raise ValueError(f"watchAgents debe ser una lista de 1 a {MAX_WATCH_AGENTS} patrones")
-        options["watchAgents"] = list(dict.fromkeys(validate_agent_watch_pattern(pattern) for pattern in patterns))
+    if data.get("controller") is True:
+        options["controller"] = True
     return options
 
 
@@ -5745,7 +5786,7 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
                "started_at": now, "updated_at": now, "status": "running", "step_text": "", "pending": None, "error": None}
     upsert_run_state(payload)
     watch_run_exit(proc.pid, payload["pid_start"], proc)
-    data = json.dumps(request, ensure_ascii=False).encode("utf-8")
+    data = format_run_request(request).encode("utf-8")
 
     def write_request():
         # Hasta RUN_FILE_MAX_BYTES no caben en la tubería: la escritura espera a que el hijo lea, fuera de este hilo.
@@ -8988,7 +9029,7 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     session = current_run_session()
     patterns = session.watch_agents if session is not None else ()
     if not patterns or ctx is None:
-        return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
+        return _tool_error("check_agents is only available in a --run-file run with controller: true.")
     own_id = session.conversation_id or session.new_conversation_id or ""
     try:
         ctx = _target_project(ctx, project, "RW" if prune_keep is not None else "R")
@@ -9050,9 +9091,9 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
     session = current_run_session()
     patterns = session.watch_agents if session is not None else ()
     if not patterns or ctx is None:
-        return _tool_error("launch_agent is only available in a --run-file run with watchAgents.")
+        return _tool_error("launch_agent is only available in a --run-file run with controller: true.")
     if not isinstance(run_file, str) or not run_file.strip():
-        return _tool_error("run_file is required: the path of the agent's run-file JSON in the project, such as agents/report.json.")
+        return _tool_error("run_file is required: the path of the agent's run-file in the project, such as agents/report.md.")
     try:
         # Lanzar en otra carpeta es ejecutar en ella: el agente corre con su entorno y sus permisos, y prompt
         # sustituye las instrucciones del run-file.
@@ -9073,8 +9114,10 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
 
 def _launch(request: dict, prompt: str | None, target: SecurityContext, patterns: tuple[str, ...], own_id: str) -> str:
     agent = request.get("agent")
-    if not agent or not agent_matches(agent, patterns):
-        raise ValueError("The run-file must set an agent that matches this run's watchAgents.")
+    if not agent:
+        raise ValueError("The run-file must set an agent.")
+    if not agent_matches(agent, patterns):
+        raise ValueError(f"This run cannot launch the agent {agent}.")
     if prompt is not None:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be a non-empty text.")
@@ -11255,7 +11298,7 @@ LOCAL_TOOLS_DEFINITIONS = [
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
-        "Status of the agents that this run supervises (watchAgents), in this project or, with project, in another one. Without arguments, one entry per "
+        "Status of the agents of this project, which this run controls, or, with project, of another one. Without arguments, one entry per "
         "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). With agent or conversation_id, the final answer in blocks of "
@@ -11270,7 +11313,7 @@ CHECK_AGENTS_DEFINITION = {
     "inputSchema": {
         "type": "object",
         "properties": {
-            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id <set>.<name>: details of its latest conversation"},
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
             "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
@@ -11283,15 +11326,15 @@ CHECK_AGENTS_DEFINITION = {
 LAUNCH_AGENT_DEFINITION = {
     "name": LAUNCH_AGENT_TOOL,
     "description": (
-        "Start a watched agent from its run-file JSON (for example agents/report.json) as a separate run that keeps going "
-        "after this run ends, and return its conversation_id and run_id. The run-file's agent must match watchAgents; it "
+        "Start an agent from its run-file (for example agents/report.md) as a separate run that keeps going "
+        "after this run ends, and return its conversation_id and run_id. The run-file must set an agent; it "
         "runs with the saved environment and permissions of its project. Give prompt to replace the run-file's prompt, "
         "and project to launch an agent of another project. Then follow it with check_agents, which can wait for it."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
-            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file JSON inside the project"},
+            "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project"},
             "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run, instead of the run-file's prompt"},
             "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give RX"}
         },
@@ -12308,7 +12351,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar la petición del fichero JSON (- para leerla de stdin) en lugar de --prompt, --conversation y --profile: prompt, conversation_id (la continúa o, si no existe, la crea con ese id), profile, agent (<subconjunto>.<nombre>: marca la conversación nueva como de ese agente), systemDataPrompt, watchAgents (patrones de agentes del proyecto que vigila con check_agents), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), reasoning (none, low, medium, high o xhigh; medium por defecto), maxSteps y timeout (segundos); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar el agente del fichero Markdown (- para leerlo de stdin) en lugar de --prompt, --conversation y --profile: una cabecera entre dos líneas --- con agent (<nombre> o <subconjunto>.<nombre>: marca la conversación nueva como de ese agente), conversation_id (la continúa o, si no existe, la crea con ese id), profile, controller (true: consulta y lanza los agentes del proyecto con check_agents y launch_agent), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), reasoning (none, low, medium, high o xhigh; medium por defecto), maxSteps y timeout (segundos), y las secciones <!-- system --> (su manual; también el texto sin marcador) y <!-- prompt --> (la tarea); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
@@ -12455,7 +12498,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
-                      watch_agents=tuple(options.get("watchAgents") or ()), track_run=args.run_file is not None,
+                      watch_agents=("*",) if options.get("controller") else (), track_run=args.run_file is not None,
                       reasoning=options.get("reasoning"))
 
 
@@ -12541,7 +12584,7 @@ def reset_session_authorizations():
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         # Ninguna herramienta se autoriza sola por ser una ejecución desatendida: siguen las reglas guardadas, y lo que
-        # pediría permiso pausa la ejecución (needs_input). Solo las de master, que el run-file pide con watchAgents.
+        # pediría permiso pausa la ejecución (needs_input). Solo las del controlador, que el run-file pide con controller: true.
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
             "allowAll": False,

@@ -27,7 +27,6 @@ from storage.db import (
     _validate_conversation_id,
     get_conversation_launch,
     validate_agent_id,
-    validate_agent_watch_pattern,
     validate_project_prompt,
     delete_orphan_run_states,
     delete_run_state,
@@ -75,14 +74,18 @@ RUN_EXPORT_MAX_BODY_BYTES = 64 * 1024 * 1024
 RUN_FILE_TEXT_KEYS = ("conversation_id", "prompt", "profile", "agent")
 # Límites opcionales de la ejecución: llamadas al modelo y segundos desde el arranque del proceso, con su máximo.
 RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
-RUN_FILE_KEYS = frozenset(RUN_FILE_TEXT_KEYS + ("systemDataPrompt", "projectMode", "watchAgents", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS))
+# El run-file es Markdown: una cabecera fija entre dos líneas '---' con estas claves (`clave: valor`) y un cuerpo con las
+# secciones <!-- system --> (systemDataPrompt, el manual del agente) y <!-- prompt --> (la tarea). El texto del cuerpo
+# que no va tras ningún marcador es el system.
+RUN_FILE_HEADER_KEYS = ("agent", "conversation_id", "profile", "controller", "projectMode", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_FILE_SECTIONS = {"system": "systemDataPrompt", "prompt": "prompt"}
+_RUN_FILE_BOOLEAN_KEYS = ("controller", "projectMode")
+_RUN_FILE_SECTION = re.compile(r"^<!--[ \t]*(system|prompt)[ \t]*-->[ \t]*$", re.MULTILINE)
 # Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
-RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "watchAgents", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "controller", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
 # Niveles de razonamiento de --run-file (los del selector de la interfaz) y el que usa si no indica ninguno.
 RUN_REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh")
 DEFAULT_RUN_REASONING = "medium"
-# Patrones de watchAgents que admite una ejecución (agentes que vigila con check_agents).
-MAX_WATCH_AGENTS = 32
 # El prompt acaba en la conversación, que se guarda por HTTP: no cabe uno mayor que el cuerpo admitido.
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 
@@ -104,38 +107,83 @@ def _remember_exit(key: tuple[int, str | None]) -> None:
         del _EXITED[next(iter(_EXITED))]
 
 
+def _header_value(key: str, raw: str):
+    """El valor de una clave de la cabecera: true/false y los enteros de los límites se convierten; lo demás queda como
+    texto, que parse_run_request rechaza con el mensaje de esa clave si no vale."""
+    if key in _RUN_FILE_BOOLEAN_KEYS and raw in ("true", "false"):
+        return raw == "true"
+    if key in RUN_FILE_LIMIT_KEYS and raw.isascii() and raw.isdigit():
+        return int(raw)
+    return raw
+
+
 def _run_request_object(raw: bytes) -> dict:
-    """El objeto JSON de --run-file, sin pasar del tope ni llevar campos fuera de RUN_FILE_KEYS."""
+    """Los campos del run-file Markdown, sin pasar del tope ni llevar claves fuera de RUN_FILE_HEADER_KEYS."""
     if len(raw) > RUN_FILE_MAX_BYTES:
         raise ValueError(f"no puede superar {RUN_FILE_MAX_BYTES} bytes")
     try:
-        data = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"no es JSON válido: {exc}") from exc
-    if not isinstance(data, dict):
-        raise ValueError("debe ser un objeto JSON")
-    unknown = sorted(set(data) - RUN_FILE_KEYS)
-    if unknown:
-        raise ValueError(f"campos desconocidos: {', '.join(unknown)}")
+        lines = raw.decode("utf-8-sig").replace("\r\n", "\n").split("\n")
+    except UnicodeDecodeError as exc:
+        raise ValueError(f"no es texto UTF-8: {exc}") from exc
+    end = next((i for i, line in enumerate(lines) if i > 0 and line.strip() == "---"), None)
+    if lines[0].strip() != "---" or end is None:
+        raise ValueError("debe empezar con su cabecera entre dos líneas '---'")
+    data: dict = {}
+    for line in lines[1:end]:
+        if not line.strip():
+            continue
+        key, colon, value = (part.strip() for part in line.partition(":"))
+        if not colon or key not in RUN_FILE_HEADER_KEYS:
+            raise ValueError(f"campo desconocido en la cabecera: {line.strip()[:80]}")
+        if key in data:
+            raise ValueError(f"{key} aparece dos veces en la cabecera")
+        data[key] = _header_value(key, value)
+    # split con un grupo deja [texto sin marcador, nombre, texto, nombre, texto...].
+    lead, *sections = _RUN_FILE_SECTION.split("\n".join(lines[end + 1:]))
+    for name, content in zip(sections[::2], sections[1::2], strict=True):
+        if RUN_FILE_SECTIONS[name] in data:
+            raise ValueError(f"la sección <!-- {name} --> aparece dos veces")
+        data[RUN_FILE_SECTIONS[name]] = content
+    if lead.strip():
+        if "systemDataPrompt" in data:
+            raise ValueError("hay texto antes de las secciones: ponlo dentro de <!-- system --> o de <!-- prompt -->")
+        data["systemDataPrompt"] = lead
     return data
+
+
+def format_run_request(request: dict) -> str:
+    """El run-file Markdown de una petición ya validada: parse_run_request lo devuelve igual."""
+    lines = ["---"]
+    for key in RUN_FILE_HEADER_KEYS:
+        if key in request:
+            value = request[key]
+            text = ("true" if value else "false") if isinstance(value, bool) else str(value)
+            if "\n" in text or "\r" in text:
+                raise ValueError(f"{key} no puede tener saltos de línea")
+            lines.append(f"{key}: {text}")
+    lines.append("---")
+    for name, key in RUN_FILE_SECTIONS.items():
+        if key in request:
+            if _RUN_FILE_SECTION.search(request[key]):
+                raise ValueError(f"{key} no puede tener una línea con el marcador de una sección")
+            lines += [f"<!-- {name} -->", request[key]]
+    return "\n".join(lines) + "\n"
 
 
 def _agent_options(data: dict) -> dict:
     """projectMode (sin él, --run-file no inyecta AGENTS.md ni .zerochat/state.md: el agente sigue su propio manual),
-    reasoning (el nivel de razonamiento de la ejecución, DEFAULT_RUN_REASONING si no lo indica) y watchAgents (los
-    agentes que la ejecución puede consultar con check_agents)."""
-    if "projectMode" in data and not isinstance(data["projectMode"], bool):
-        raise ValueError("projectMode debe ser true o false")
+    reasoning (el nivel de razonamiento de la ejecución, DEFAULT_RUN_REASONING si no lo indica) y controller (la
+    ejecución consulta y lanza los agentes del proyecto con check_agents y launch_agent)."""
+    for key in _RUN_FILE_BOOLEAN_KEYS:
+        if key in data and not isinstance(data[key], bool):
+            raise ValueError(f"{key} debe ser true o false")
     options = {"projectMode": data.get("projectMode", False)}
     reasoning = data.get("reasoning", DEFAULT_RUN_REASONING)
     if reasoning not in RUN_REASONING_LEVELS:
         raise ValueError(f"reasoning debe ser uno de: {', '.join(RUN_REASONING_LEVELS)}")
     options["reasoning"] = reasoning
-    if "watchAgents" in data:
-        patterns = data["watchAgents"]
-        if not isinstance(patterns, list) or not 1 <= len(patterns) <= MAX_WATCH_AGENTS:
-            raise ValueError(f"watchAgents debe ser una lista de 1 a {MAX_WATCH_AGENTS} patrones")
-        options["watchAgents"] = list(dict.fromkeys(validate_agent_watch_pattern(pattern) for pattern in patterns))
+    if data.get("controller") is True:
+        options["controller"] = True
     return options
 
 
@@ -473,7 +521,7 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
                "started_at": now, "updated_at": now, "status": "running", "step_text": "", "pending": None, "error": None}
     upsert_run_state(payload)
     watch_run_exit(proc.pid, payload["pid_start"], proc)
-    data = json.dumps(request, ensure_ascii=False).encode("utf-8")
+    data = format_run_request(request).encode("utf-8")
 
     def write_request():
         # Hasta RUN_FILE_MAX_BYTES no caben en la tubería: la escritura espera a que el hijo lea, fuera de este hilo.

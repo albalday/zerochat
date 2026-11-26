@@ -477,10 +477,13 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(zerochat.save_conversation({"id": "session_agente", "agent": "informes.semanal"}, new_messages)["agent"], "informes.diario")
         self.assertEqual(zerochat.save_conversation({"id": "session_agente"}, new_messages)["agent"], "informes.diario")
         self.assertEqual(next(c for c in zerochat.list_conversations() if c["id"] == "session_agente")["agent"], "informes.diario")
-        # Formato <subconjunto>.<nombre> con tope en el borde exacto: MAX_AGENT_ID_LENGTH caracteres sí y uno más no.
-        at_limit = "a." + "b" * (zerochat.MAX_AGENT_ID_LENGTH - 2)
-        self.assertEqual(zerochat.validate_agent_id(at_limit), at_limit)
-        for invalid in (at_limit + "b", "informes", "a.b.c", "Informes.diario", "informes.", ".diario", "inf ormes.d", 3):
+        # Formato <nombre> o <subconjunto>.<nombre> con tope en el borde exacto: MAX_AGENT_ID_LENGTH caracteres sí y uno más no.
+        for at_limit in ("a." + "b" * (zerochat.MAX_AGENT_ID_LENGTH - 2), "b" * zerochat.MAX_AGENT_ID_LENGTH):
+            self.assertEqual(zerochat.validate_agent_id(at_limit), at_limit)
+            with self.assertRaisesRegex(ValueError, "agent debe ser"):
+                zerochat.validate_agent_id(at_limit + "b")
+        self.assertEqual(zerochat.validate_agent_id("informes"), "informes")
+        for invalid in ("a.b.c", "Informes.diario", "informes.", ".diario", "inf ormes.d", "", 3):
             with self.assertRaisesRegex(ValueError, "agent debe ser"):
                 zerochat.save_conversation({"id": "session_agente_mal", "agent": invalid}, new_messages)
         self.assertTrue(zerochat.delete_conversation("session_agente"))

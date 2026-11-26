@@ -26,7 +26,7 @@ fs.mkdirSync(bin);
 fs.mkdirSync(path.join(project, 'agents'), { recursive: true });
 fs.writeFileSync(path.join(bin, 'zerochat'), [
   '#!/usr/bin/env bash',
-  '[ "$1 $2" = "--run-file agents/diario.json" ] || exit 99',
+  '[ "$1 $2" = "--run-file agents/diario.md" ] || exit 99',
   'echo "salida del agente"',
   'echo "[run] conversation_id=conv_9 new=true" >&2',
   'exit "$FAKE_RC"',

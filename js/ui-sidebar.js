@@ -96,7 +96,7 @@
     limit: { icon: 'pause-circle', className: 'limit', titleKey: 'sidebar_run_limit_title' }
   };
 
-  // La conversación de un agente se nombra por su agente (<subconjunto>.<nombre>) y su título queda de descripción:
+  // La conversación de un agente se nombra por su agente (<nombre> o <subconjunto>.<nombre>) y su título queda de descripción:
   // no se renombra, porque el nombre visible no cambiaría.
   function renderChatItem(session, date, isActive, runStatus = null) {
     const conversationTitle = escapeHtml(session.title || t('chat_untitled'));

@@ -258,7 +258,7 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     session = current_run_session()
     patterns = session.watch_agents if session is not None else ()
     if not patterns or ctx is None:
-        return _tool_error("check_agents is only available in a --run-file run with watchAgents.")
+        return _tool_error("check_agents is only available in a --run-file run with controller: true.")
     own_id = session.conversation_id or session.new_conversation_id or ""
     try:
         ctx = _target_project(ctx, project, "RW" if prune_keep is not None else "R")
@@ -320,9 +320,9 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
     session = current_run_session()
     patterns = session.watch_agents if session is not None else ()
     if not patterns or ctx is None:
-        return _tool_error("launch_agent is only available in a --run-file run with watchAgents.")
+        return _tool_error("launch_agent is only available in a --run-file run with controller: true.")
     if not isinstance(run_file, str) or not run_file.strip():
-        return _tool_error("run_file is required: the path of the agent's run-file JSON in the project, such as agents/report.json.")
+        return _tool_error("run_file is required: the path of the agent's run-file in the project, such as agents/report.md.")
     try:
         # Lanzar en otra carpeta es ejecutar en ella: el agente corre con su entorno y sus permisos, y prompt
         # sustituye las instrucciones del run-file.
@@ -343,8 +343,10 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
 
 def _launch(request: dict, prompt: str | None, target: SecurityContext, patterns: tuple[str, ...], own_id: str) -> str:
     agent = request.get("agent")
-    if not agent or not agent_matches(agent, patterns):
-        raise ValueError("The run-file must set an agent that matches this run's watchAgents.")
+    if not agent:
+        raise ValueError("The run-file must set an agent.")
+    if not agent_matches(agent, patterns):
+        raise ValueError(f"This run cannot launch the agent {agent}.")
     if prompt is not None:
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("prompt must be a non-empty text.")
