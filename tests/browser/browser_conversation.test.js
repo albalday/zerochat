@@ -445,8 +445,8 @@ test('Browser UI - borrar respuesta respeta bloqueo en streaming y, al parar, el
     // Durante streaming el borrado no modifica DOM ni almacenamiento.
     const duringStreaming = await page.evaluate(async id => {
       window.ChatState.set('streaming', { isGenerating: true });
+      // removeLastTurn sale en el acto con la conversación ocupada: tras el clic no queda nada pendiente.
       document.querySelectorAll('.message-wrapper.user .btn-delete')[1].click();
-      await new Promise(resolve => setTimeout(resolve, 100));
       const persisted = await window.ChatStorage.getConversation(id);
       const stateIds = window.ChatState.get('messages').map(message => message.id);
       window.ChatState.set('streaming', { isGenerating: false });

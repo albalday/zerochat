@@ -22,27 +22,32 @@ test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables',
   assert.equal(ChatUtils.sanitizeImageUrl('blob:https://example.test/1234 onerror=alert(1)'), '');
 });
 
-test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo', async () => {
+test('ChatUtils - fetchWithTimeout combina la señal de quien llama con el plazo', async t => {
   const originalFetch = global.fetch;
   const signals = [];
   global.fetch = async (_url, options) => { signals.push(options.signal); return { ok: true }; };
+  // Reloj simulado: el plazo vence al avanzarlo, sin esperas reales.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   try {
     const caller = new AbortController();
     await ChatUtils.fetchWithTimeout('http://x', { signal: caller.signal }, 20);
-    await new Promise(resolve => setTimeout(resolve, 40));
+    t.mock.timers.tick(40);
     assert.equal(signals[0].aborted, false, 'Terminada la petición, el plazo ya no la cancela');
 
     global.fetch = (_url, options) => new Promise((_resolve, reject) => {
       options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
     });
     const withCaller = new AbortController();
-    await assert.rejects(ChatUtils.fetchWithTimeout('http://x', { signal: withCaller.signal }, 20), /abort/i, 'El plazo se aplica aunque haya señal propia');
+    const timedOut = ChatUtils.fetchWithTimeout('http://x', { signal: withCaller.signal }, 20);
+    t.mock.timers.tick(20);
+    await assert.rejects(timedOut, /abort/i, 'El plazo se aplica aunque haya señal propia');
 
     const cancelled = new AbortController();
     const pending = ChatUtils.fetchWithTimeout('http://x', { signal: cancelled.signal }, 0);
     let settled = false;
     pending.catch(() => {}).finally(() => { settled = true; });
-    await new Promise(resolve => setTimeout(resolve, 30));
+    t.mock.timers.tick(10 ** 6);
+    await Promise.resolve();
     assert.equal(settled, false, 'Con plazo 0 solo cancela quien llama');
     cancelled.abort();
     await assert.rejects(pending);

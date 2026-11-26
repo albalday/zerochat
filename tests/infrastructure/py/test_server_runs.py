@@ -849,14 +849,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             if "--run-file" not in cmd:
                 return real_popen(cmd, **kwargs)  # Otros procesos (p. ej. ps en macOS para la huella de arranque).
             seen.update(cmd=cmd, **kwargs)
-            # Hace de zerochat --run-file -: guarda lo que recibe por stdin, su carpeta y su entorno. Escribe en un temporal
-            # y lo renombra: la prueba espera a que exista el fichero y no debe leerlo a medio escribir (Windows).
-            partial = f"{received}.part"
-            script = (f"import json, os, sys; f = open({partial!r}, 'w'); json.dump({{'request': json.load(sys.stdin), "
+            # Hace de zerochat --run-file -: guarda lo que recibe por stdin, su carpeta y su entorno; la prueba espera a que termine.
+            script = (f"import json, os, sys; f = open({str(received)!r}, 'w'); json.dump({{'request': json.load(sys.stdin), "
                       "'cwd': os.getcwd(), 'run_id': os.environ.get('ZEROCHAT_RUN_ID'), "
-                      "'security': os.environ.get('ZEROCHAT_RUN_SECURITY')}, f); "
-                      f"f.close(); os.replace({partial!r}, {str(received)!r})")
-            return real_popen([sys.executable, "-c", script], **kwargs)
+                      "'security': os.environ.get('ZEROCHAT_RUN_SECURITY')}, f); f.close()")
+            seen["proc"] = real_popen([sys.executable, "-c", script], **kwargs)
+            return seen["proc"]
 
         request = {"agent": "informes.diario", "prompt": "Hola", "conversation_id": "session_lanzada"}
         with mock.patch.object(zerochat.subprocess, "Popen", side_effect=fake_popen), \
@@ -867,9 +865,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(seen["start_new_session"], os.name != "nt", "Sigue aunque termine el master")
         row = zerochat.get_run_state("session_lanzada")
         self.assertEqual((row["status"], row["run_id"], row["pid"]), ("running", launched["run_id"], launched["pid"]))
-        deadline = time.monotonic() + 10
-        while not received.exists() and time.monotonic() < deadline:
-            time.sleep(0.05)
+        self.assertEqual(seen["proc"].wait(timeout=10), 0)
         got = json.loads(received.read_text())
         self.assertEqual(got, {"request": request, "cwd": str(ctx.workspace_dir), "run_id": launched["run_id"], "security": None})
         # Otra vez la misma conversación en marcha: no se lanza.
