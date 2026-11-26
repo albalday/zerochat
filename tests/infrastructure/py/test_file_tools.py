@@ -118,7 +118,8 @@ class DiagnosticsTest(unittest.TestCase):
         big = self.project / "big.json"
         with patch.object(zerochat, "DIAGNOSTICS_MAX_FILE_BYTES", limit):
             for size, skipped in ((limit, []), (limit + 1, ["big.json"])):
-                big.write_text("[" + " " * (size - 3) + "]\n", encoding="utf-8")
+                # En bytes: write_text pondría \r\n en Windows y el fichero tendría un byte más.
+                big.write_bytes(("[" + " " * (size - 3) + "]\n").encode())
                 result = json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))
                 self.assertEqual((result["files_checked"], [Path(p).name for p in result["skipped_too_large"]]), (4 - len(skipped), skipped), size)
 

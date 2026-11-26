@@ -1162,7 +1162,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         """N-1 vivas dejan lanzar, N no (ni desde la interfaz ni desde un agente); las muertas y las terminadas no cuentan."""
         zerochat.save_general_profile({"name": "valid-profile", "settings": {}})
         zerochat.save_conversation({"id": "conv_nueva", "title": "N"}, [])
-        alive = {"status": "running", "pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
+        start_token = zerochat._process_start_token(os.getpid())
+        alive = {"status": "running", "pid": os.getpid(), "pid_start": start_token}
         for i in range(zerochat.MAX_CONCURRENT_RUNS - 1):
             upsert_run({"run_id": f"r{i}", "conversation_id": f"viva{i}", **alive})
         upsert_run({"run_id": "r_muerta", "conversation_id": "muerta", "status": "running", "pid": 2**22 + 12345})
@@ -1172,7 +1173,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         full = f"Too many runs in progress \\({zerochat.MAX_CONCURRENT_RUNS} at a time"
         with self.assertRaisesRegex(ValueError, full):
             zerochat.check_run_capacity()
-        with mock.patch("subprocess.Popen") as popen:
+        # Popen falso para todo subprocess: la huella de arranque, que fuera de Linux usa ps, se toma antes.
+        with mock.patch.object(zerochat, "_process_start_token", return_value=start_token), mock.patch("subprocess.Popen") as popen:
             with self.assertRaisesRegex(ValueError, full):
                 zerochat.start_server_run({"conversation_id": "conv_nueva", "profile": "valid-profile"})
             with self.assertRaisesRegex(ValueError, full):
