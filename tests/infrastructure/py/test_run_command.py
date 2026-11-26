@@ -110,15 +110,6 @@ class RunCommandTest(unittest.TestCase):
         self.assertRegex(result["output"], r"^fin \d+\n$")
         wait_dead(int(result["output"].split()[1]))
 
-    def test_la_salida_recortada_por_lineas_no_supera_max_chars_con_lineas_largas(self):
-        long_lines = "".join(f"{index} {'x' * 500}\n" for index in range(100))
-        output, truncated = zerochat.truncate_terminal_output(long_lines)
-        self.assertTrue(truncated)
-        self.assertLess(len(output), 8000 + 200, "50 + 30 líneas de 500 caracteres superarían max_chars")
-        short_lines = "".join(f"{index:05}{'y' * 85}\n" for index in range(100))
-        output, truncated = zerochat.truncate_terminal_output(short_lines)
-        self.assertTrue(truncated and output.startswith("00000") and "omitted 20 lines" in output)
-
     def test_la_salida_larga_se_trunca_y_el_log_conserva_comienzo_y_final(self):
         result = run("python3 -c \"print('x' * 5000000)\"", timeout_seconds=30)
         self.assertIs(result["success"], True)
@@ -126,6 +117,12 @@ class RunCommandTest(unittest.TestCase):
         self.assertLess(len(result["output"]), 20000)
         log_file = Path(result["log_file"])
         self.assertEqual(log_file.stat().st_size, 5000001)
+
+        # El recorte por líneas (50 + 30) solo vale si esas líneas caben en max_chars; con líneas largas, por caracteres.
+        output, truncated = zerochat.truncate_terminal_output("".join(f"{index} {'x' * 500}\n" for index in range(100)))
+        self.assertTrue(truncated and len(output) < 8000 + 200)
+        output, truncated = zerochat.truncate_terminal_output("".join(f"{index:05}{'y' * 85}\n" for index in range(100)))
+        self.assertTrue(truncated and output.startswith("00000") and "omitted 20 lines" in output)
 
         # Un log que supera el tope conserva comienzo y final, con una marca en medio.
         with patch.object(zerochat, "JOB_LOG_HEAD_BYTES", 1000), patch.object(zerochat, "JOB_LOG_TAIL_BYTES", 1000):
