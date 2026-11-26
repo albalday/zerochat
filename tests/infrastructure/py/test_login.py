@@ -85,3 +85,12 @@ class LoginTest(unittest.TestCase):
         self.assertEqual(self.attempt().data, {"retryAfter": 1})
         self.clock += 0.5
         self.assertIn("token", self.attempt())
+
+
+@unittest.skipUnless(zerochat.os.name == "nt", "LogonUserW de Windows")
+class WindowsLogonTest(unittest.TestCase):
+    """LogonUserW real: una contraseña incorrecta se rechaza sin excepción (la correcta no está en el CI)."""
+
+    def test_una_contrasena_incorrecta_de_la_cuenta_del_sistema_da_false(self):
+        wrong = "zerochat-" + zerochat.secrets.token_hex(16)
+        self.assertIs(zerochat.check_system_password(zerochat.system_account(), wrong), False)
