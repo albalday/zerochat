@@ -151,3 +151,25 @@ class PersistentBrowserSessionTest(unittest.TestCase):
         broken = self.session_with('import sys; sys.stderr.write("motivo del fallo\\n" * 5000); sys.exit(1)')
         failed = broken.execute({"action": "navigate"})
         self.assertIn("motivo del fallo", failed["error"])
+
+
+class BrowserActionUrlTest(unittest.TestCase):
+    def test_solo_abre_http_y_https_admite_localhost_y_nunca_metadatos_ni_enlace_local(self):
+        public = [(None, None, None, "", ("93.184.216.34", 0))]
+        metadata = [(None, None, None, "", ("169.254.169.254", 0))]
+        with patch.object(zerochat.socket, "getaddrinfo", return_value=public):
+            for url in ("http://localhost:5173/", "http://127.0.0.1:8000/app", "http://192.168.1.10/", "https://example.com/"):
+                with self.subTest(url=url):
+                    self.assertIsNone(zerochat.browser_url_error(url))
+            for url in ("file:///etc/passwd", "data:text/html,<b>x</b>", "javascript:alert(1)", "chrome://settings",
+                        "http://169.254.169.254/latest/", "http://metadata.google.internal./", "http://[fe80::1]/",
+                        "http://[::ffff:169.254.169.254]/", "http://2852039166/", "http:///sin-host"):
+                with self.subTest(url=url):
+                    self.assertIsNotNone(zerochat.browser_url_error(url))
+        # Un nombre que resuelve a los metadatos tampoco pasa.
+        with patch.object(zerochat.socket, "getaddrinfo", return_value=metadata):
+            self.assertIsNotNone(zerochat.browser_url_error("http://trampa.example/"))
+        with patch.object(zerochat, "_BROWSER_SESSION") as session:
+            result = zerochat.browser_action("navigate", url="file:///etc/passwd")
+        session.execute.assert_not_called()
+        self.assertIn("error", result)

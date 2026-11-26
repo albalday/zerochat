@@ -22,7 +22,7 @@
       <p>En <strong>Ajustes › Navegador</strong> eliges cómo navega el modelo. Necesita el servidor local (<code>zerochat</code>) con Node.js y <code>npm</code>; en Windows, consulta <a href="mcp.html#nodejs-windows">Instalar Node.js en Windows</a>. En Termux no es posible usar Playwright actualmente, así que en Android no hay navegador del modelo. Ninguna opción controla la pestaña de ZeroChat.</p>
       <ul>
         <li><strong>Ninguna:</strong> el modelo no maneja un navegador, aunque sigue pudiendo buscar y leer páginas.</li>
-        <li><strong><code>browser_action</code>:</strong> herramienta del servidor local, sin opciones, que abre páginas, pulsa, escribe y hace capturas en un Chromium sin ventana. Usa el Playwright que instala el servicio Playwright MCP, así que inícialo una vez en Ajustes › MCP para instalarlo.</li>
+        <li><strong><code>browser_action</code>:</strong> herramienta del servidor local, sin opciones, que abre páginas, pulsa, escribe y hace capturas en un Chromium sin ventana. Usa el Playwright que instala el servicio Playwright MCP, así que inícialo una vez en Ajustes › MCP para instalarlo. Solo abre direcciones <code>http://</code> y <code>https://</code>, también <code>localhost</code> y la red local para probar webs en desarrollo, y nunca los metadatos de la nube ni direcciones de enlace local.</li>
         <li><strong>Playwright MCP:</strong> el juego completo de herramientas de Playwright, con el navegador que elijas debajo. Al guardar esta opción, Playwright MCP se inicia si está detenido (y se detiene al elegir otra opción).</li>
       </ul>
       <p>Solo se ofrece al modelo una de las dos: aunque Playwright MCP esté en marcha, sus herramientas no se ofrecen si eliges <code>browser_action</code> o ninguna. La elección pertenece al entorno del proyecto activo (o <code>general</code> sin proyecto), no al perfil de conexión, y al cambiar de proyecto ajusta si Playwright MCP arranca o se detiene. Las capturas válidas se muestran en la tarjeta de la herramienta y se entregan al modelo como evidencia visual.</p>
@@ -58,7 +58,7 @@
     </div>
 
     <div class="alert alert-warning">
-      <strong>Privacidad y seguridad:</strong> el modelo puede visitar URLs y ejecutar acciones web. Con <strong>Tu navegador</strong> actúa con tus cuentas: puede leer lo que veas y enviar formularios en tu nombre. Mantén la política de permisos en “Preguntar” y no automatices cuentas o formularios sensibles sin revisarlos.
+      <strong>Privacidad y seguridad:</strong> el modelo puede visitar URLs y ejecutar acciones web. Con <strong>Tu navegador</strong> actúa con tus cuentas: puede leer lo que veas y enviar formularios en tu nombre. Mantén la política de permisos en “Preguntar” y no automatices cuentas o formularios sensibles sin revisarlos. En las ejecuciones desatendidas el navegador no se autoriza solo: sin una autorización guardada, la ejecución se pausa hasta que la apruebes.
     </div>
 
     <nav class="page-navigation" aria-label="Navegación de ayuda">

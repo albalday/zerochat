@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import threading
+import urllib.parse
 
 from browser.engines import (
     ENGINE_CACHE_ENTRIES,
@@ -20,6 +21,7 @@ from browser.engines import (
 from core.environment import DETECTED_OS
 from core.process import _kill_process_tree
 from tools.common import _tool_error
+from web.fetch import is_metadata_host
 
 BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
 # Plazo de cada respuesta del proceso del navegador (y de su arranque): sus acciones tienen ya plazos de 15-30 s,
@@ -276,6 +278,20 @@ def playwright_status() -> dict:
     return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
 
 
+def browser_url_error(url: str) -> str | None:
+    """Por qué browser_action no abre la URL, o None: solo http(s), y nunca metadatos cloud ni enlace local.
+    localhost y la red privada sí, para probar webs en desarrollo. Solo se valida la URL pedida: lo que la
+    página abra después queda fuera."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return f"browser_action only opens http:// and https:// URLs, not '{parsed.scheme or url}'."
+    if not parsed.hostname:
+        return "The URL has no valid host name."
+    if is_metadata_host(parsed.hostname):
+        return "Access blocked: the URL points to cloud metadata or a link-local address."
+    return None
+
+
 def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
     """Control a headless browser for UI testing and visual inspection."""
     try:
@@ -286,6 +302,9 @@ def browser_action(action: str, url: str | None = None, selector: str | None = N
         cmd = {"action": act}
         if url:
             cmd["url"] = str(url).strip()
+            error = browser_url_error(cmd["url"])
+            if error:
+                return _tool_error(error)
         if selector:
             cmd["selector"] = str(selector).strip()
         if value is not None:

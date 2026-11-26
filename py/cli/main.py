@@ -55,12 +55,7 @@ from mcp.manager import GLOBAL_MCP_MANAGER
 from run_mode.supervisor import launch_node_runner, run_supervisor
 from security.context import SecurityContext, project_context, set_default_project_dir
 from security.controller import ACCESS_CONTROLLER
-from security.rules import (
-    COMMAND_TOOL,
-    POLICY_ALLOW,
-    POLICY_DENY,
-    get_integrated_path_access,
-)
+from security.rules import POLICY_ALLOW, POLICY_DENY
 from server.handler import ZeroChatHTTPServer, ZeroChatServerHandler
 from server.state import (
     DEFAULT_HEARTBEAT_GRACE,
@@ -84,7 +79,6 @@ from tools.agents import MASTER_TOOLS
 from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
 from tools.jobs import cleanup_orphan_jobs, run_command
-from tools.registry import LOCAL_TOOL_HANDLERS
 
 
 def remote_exposure_warning(host: str) -> str | None:
@@ -351,16 +345,15 @@ def reset_session_authorizations():
                 tool_name = tool_decision.get("toolName") or ""
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
+        # Ninguna herramienta se autoriza sola por ser una ejecución desatendida: siguen las reglas guardadas, y lo que
+        # pediría permiso pausa la ejecución (needs_input). Solo las de master, que el run-file pide con watchAgents.
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
             "allowAll": False,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
-                for name in LOCAL_TOOL_HANDLERS
-                if name != COMMAND_TOOL
-                and (name not in MASTER_TOOLS or session.watch_agents)
-                and not get_integrated_path_access(name)
-                and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
+                for name in (MASTER_TOOLS if session.watch_agents else ())
+                if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
             }
         }, ctx)
 

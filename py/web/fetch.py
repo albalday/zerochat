@@ -75,26 +75,53 @@ def _is_public_ip(address: str) -> bool:
 _NUMERIC_HOST = re.compile(r"(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+)){0,3}")
 
 
+def _canonical_host(hostname: str) -> str | None:
+    """Host en minúsculas, sin corchetes ni punto final; None si es una notación numérica no canónica (127.1,
+    2130706433, 0x7f.1, 0177.0.0.1), que cada resolvedor interpreta a su manera."""
+    clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
+    if _NUMERIC_HOST.fullmatch(clean_host):
+        try:
+            ipaddress.IPv4Address(clean_host)
+        except ValueError:
+            return None
+    return clean_host
+
+
+def _resolved_addresses(clean_host: str) -> list[str]:
+    """Direcciones a las que resuelve el host; sin resolución, ninguna (la conexión fallará por sí misma)."""
+    try:
+        return [str(info[4][0]) for info in socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)]
+    except (socket.gaierror, UnicodeError):
+        return []
+
+
 def is_dangerous_host(hostname: str) -> bool:
     """Riesgo de SSRF: metadatos cloud, nombres locales o cualquier dirección resuelta no pública."""
-    clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
+    clean_host = _canonical_host(hostname)
     if not clean_host or clean_host in METADATA_HOSTS or clean_host == "localhost":
         return True
     if clean_host.endswith((".localhost", ".local", ".internal")):
         return True
-    if _NUMERIC_HOST.fullmatch(clean_host):
-        # Abreviadas, enteras, hexadecimales u octales (127.1, 2130706433, 0x7f.1, 0177.0.0.1): cada
-        # resolvedor las interpreta a su manera, así que solo se admite la forma canónica.
-        try:
-            ipaddress.IPv4Address(clean_host)
-        except ValueError:
-            return True
+    return any(not _is_public_ip(address) for address in _resolved_addresses(clean_host))
+
+
+def _is_metadata_ip(address: str) -> bool:
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_link_local or str(ip) in METADATA_HOSTS
+
+
+def is_metadata_host(hostname: str) -> bool:
+    """Metadatos cloud o enlace local (169.254.0.0/16, fe80::/10), también tras resolver el nombre: lo que ni
+    browser_action alcanza, aunque admita localhost y la red privada para probar webs en desarrollo."""
+    clean_host = _canonical_host(hostname)
+    if not clean_host or clean_host in METADATA_HOSTS:
+        return True
     try:
-        infos = socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)
-    except (socket.gaierror, UnicodeError):
-        # Sin resolución no hay conexión posible: la petición fallará por sí misma.
-        return False
-    return any(not _is_public_ip(info[4][0]) for info in infos)
+        return _is_metadata_ip(clean_host)
+    except ValueError:
+        return any(_is_metadata_ip(address) for address in _resolved_addresses(clean_host))
 
 
 def _validate_web_url(url: str) -> str:

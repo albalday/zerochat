@@ -22,7 +22,7 @@
       <p>In <strong>Settings › Browser</strong> you choose how the model browses. It needs the local server (<code>zerochat</code>) with Node.js and <code>npm</code>; on Windows, see <a href="mcp.html#nodejs-windows">Installing Node.js on Windows</a>. Playwright cannot currently be used on Termux, so there is no model browser on Android. No option controls the ZeroChat tab.</p>
       <ul>
         <li><strong>None:</strong> the model does not drive a browser, although it can still search and read pages.</li>
-        <li><strong><code>browser_action</code>:</strong> a local server tool without options that opens pages, clicks, types and takes screenshots in a windowless Chromium. It uses the Playwright installed by the Playwright MCP service, so start that service once in Settings › MCP to install it.</li>
+        <li><strong><code>browser_action</code>:</strong> a local server tool without options that opens pages, clicks, types and takes screenshots in a windowless Chromium. It uses the Playwright installed by the Playwright MCP service, so start that service once in Settings › MCP to install it. It only opens <code>http://</code> and <code>https://</code> addresses, including <code>localhost</code> and the local network to test sites in development, and never cloud metadata or link-local addresses.</li>
         <li><strong>Playwright MCP:</strong> the complete Playwright toolset, with the browser you choose below. When you save this option, Playwright MCP starts if it is stopped (and stops when switching to another option).</li>
       </ul>
       <p>Only one of the two is offered to the model: even if Playwright MCP is running, its tools are not offered if you choose <code>browser_action</code> or none. The choice belongs to the active project’s environment (or <code>general</code> without a project), not the connection profile, and switching projects reconciles whether Playwright MCP starts or stops. Valid screenshots are shown in the tool card and handed to the model as visual evidence.</p>
@@ -58,7 +58,7 @@
     </div>
 
     <div class="alert alert-warning">
-      <strong>Privacy and security:</strong> the model can visit URLs and perform web actions. With <strong>Your browser</strong> it acts with your accounts: it can read what you see and submit forms on your behalf. Keep the permission policy on “Ask” and do not automate sensitive accounts or forms without reviewing them.
+      <strong>Privacy and security:</strong> the model can visit URLs and perform web actions. With <strong>Your browser</strong> it acts with your accounts: it can read what you see and submit forms on your behalf. Keep the permission policy on “Ask” and do not automate sensitive accounts or forms without reviewing them. In unattended runs the browser is not authorized on its own: without a saved authorization, the run pauses until you approve it.
     </div>
 
     <nav class="page-navigation" aria-label="Help navigation">

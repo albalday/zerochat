@@ -1,6 +1,6 @@
 # Current state
 - Milestone: M95 Auditoría 10.48.1
-- Next task: M95-T30 CONSULTA AL USUARIO — browser_action y ejecuciones desatendidas (F-01, F-25): ¿se permite localhost/red privada para probar webs locales o solo http(s) público con el anti-SSRF de py/web/fetch.py? ¿browser_action y browser_fill_secret salen del auto-allow de reset_session_authorizations (los runs sin interfaz ya no podrían usarlas sin regla previa)? ¿tope de intentos fallidos de browser_fill_secret por turno?
+- Next task: M95-T31 CONSULTA AL USUARIO — copias de perfiles cifradas (F-08): pasar a PBKDF2 con sal y >=210000 iteraciones (sobre version 2); ¿deben seguir abriéndose las copias version 1 ya exportadas o se aceptan como ilegibles (AGENTS.md §2 no admite compatibilidad sin petición expresa)?
 - Also open: M94 (Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-25 — M94-T1)
 - Last closed: M93 (2026-11-25)
 - Last updated: 2026-11-26

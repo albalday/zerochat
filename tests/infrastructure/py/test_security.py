@@ -944,10 +944,12 @@ class SessionLifecycleTest(HandlerTestCase):
         })
         zerochat.reset_session_authorizations()
 
-        for tool in ("browser_action", "custom_tool"):
-            self.assertEqual(tool_entry(self.controller, tool)["policy"], "allow", tool)
-        for tool in ("read_file", "write_file", "edit_file", "run_command"):
+        self.assertEqual(tool_entry(self.controller, "custom_tool")["policy"], "allow")
+        # Ser una ejecución desatendida no autoriza nada por sí solo: las herramientas del navegador piden permiso como en la interfaz.
+        for tool in ("browser_action", "browser_fill_secret", "read_file", "write_file", "edit_file", "run_command", "check_agents"):
             self.assertIsNone(tool_entry(self.controller, tool), tool)
+        for tool in ("browser_action", "browser_fill_secret"):
+            self.assertEqual(self.evaluate(tool, {}).status, zerochat.POLICY_ASK, tool)
         self.assertEqual(tool_entry(self.controller, "db_tool")["policy"], "deny")
         self.assertFalse(allow_all_of(self.controller))
         self.assertTrue(self.evaluate("custom_tool").allowed)

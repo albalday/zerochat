@@ -6411,287 +6411,6 @@ def _atomic_write_text(target: Path, text: str):
     finally:
         temp_path.unlink(missing_ok=True)
 
-# --- tools.browser_action ---
-"""Herramienta browser_action: una sesión persistente de Playwright con los motores propios o el navegador del sistema."""
-
-
-
-
-BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
-# Plazo de cada respuesta del proceso del navegador (y de su arranque): sus acciones tienen ya plazos de 15-30 s,
-# así que pasado este el proceso está colgado y se termina.
-BROWSER_ACTION_TIMEOUT_SECONDS = 60
-# Últimas líneas de stderr que se conservan para explicar un arranque fallido.
-BROWSER_STDERR_TAIL_LINES = 20
-
-
-class PersistentBrowserSession:
-    """Manages a persistent headless browser session (Playwright) for browser_action."""
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._process: subprocess.Popen | None = None
-        self._stderr_tail: collections.deque[str] = collections.deque(maxlen=BROWSER_STDERR_TAIL_LINES)
-        atexit.register(self.close)
-
-    @staticmethod
-    def _drain_stderr(proc: subprocess.Popen, tail: collections.deque):
-        """Lee stderr entero (sin leerlo, el proceso se bloquearía al llenarse la tubería) y guarda su final."""
-        try:
-            for line in proc.stderr:
-                tail.append(line.rstrip())
-        except (OSError, ValueError, TypeError):
-            pass
-
-    def _read_line(self, proc: subprocess.Popen) -> str | None:
-        """Una línea de stdout ("" si el proceso la cerró), o None si no llega en el plazo: el proceso se termina."""
-        box: list[str] = []
-        reader = threading.Thread(target=lambda: box.append(proc.stdout.readline()), daemon=True)
-        reader.start()
-        reader.join(BROWSER_ACTION_TIMEOUT_SECONDS)
-        if reader.is_alive():
-            self._close_locked()
-            return None
-        return box[0] if box else ""
-
-    def _ensure_running(self) -> subprocess.Popen:
-        if self._process is not None and self._process.poll() is None:
-            return self._process
-
-        node = shutil.which("node")
-        if not node:
-            raise RuntimeError("Node.js is not installed or not found in system PATH.")
-
-        runner_js = """
-const readline = require('readline');
-let playwright;
-try {
-  playwright = require(process.env.ZEROCHAT_PLAYWRIGHT_MODULE);
-} catch (e) {
-  console.log(JSON.stringify({
-    success: false,
-    error: "Playwright is not available. Start the Playwright service once in Settings > MCP to install it."
-  }));
-  process.exit(1);
-}
-
-(async () => {
-  let browser, context, page;
-  try {
-    const candidates = [
-      {},                      // 1. Playwright bundled Chromium
-      { channel: 'chrome' },   // 2. System Google Chrome
-      { channel: 'msedge' },   // 3. System Microsoft Edge
-      { channel: 'chromium' }  // 4. Playwright full Chromium, if only the headless shell is missing
-    ];
-    let lastErr = null;
-    for (const cand of candidates) {
-      try {
-        browser = await playwright.chromium.launch({ ...cand, headless: true });
-        if (browser) break;
-      } catch (e) {
-        lastErr = e;
-      }
-    }
-    if (!browser) {
-      throw lastErr || new Error('No Chromium-based browser found (Playwright, Chrome, Edge, or Chromium).');
-    }
-    context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-    page = await context.newPage();
-  } catch (err) {
-    console.log(JSON.stringify({ success: false, error: 'Failed to start browser: ' + err.message }));
-    process.exit(1);
-  }
-
-  console.log(JSON.stringify({ ready: true }));
-
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
-  for await (const line of rl) {
-    if (!line.trim()) continue;
-    let req;
-    try {
-      req = JSON.parse(line);
-    } catch (e) {
-      console.log(JSON.stringify({ success: false, error: 'Invalid command JSON' }));
-      continue;
-    }
-
-    try {
-      const act = req.action;
-      if (act === 'navigate') {
-        if (!req.url) throw new Error("Parameter 'url' is required for action 'navigate'");
-        await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        console.log(JSON.stringify({
-          success: true,
-          action: 'navigate',
-          url: page.url(),
-          title: await page.title()
-        }));
-      } else if (act === 'screenshot') {
-        if (req.url && req.url !== page.url()) {
-          await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        }
-        // Con la máquina cargada, Chromium puede no haber pintado aún ningún fotograma:
-        // esperar dos fotogramas garantiza que hay algo que capturar.
-        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-        const buf = await page.screenshot({ fullPage: false });
-        console.log(JSON.stringify({
-          success: true,
-          action: 'screenshot',
-          image_base64: buf.toString('base64'),
-          mime_type: 'image/png',
-          url: page.url(),
-          title: await page.title()
-        }));
-      } else if (act === 'click') {
-        if (!req.selector) throw new Error("Parameter 'selector' is required for action 'click'");
-        await page.click(req.selector, { timeout: 15000 });
-        console.log(JSON.stringify({
-          success: true,
-          action: 'click',
-          selector: req.selector,
-          url: page.url()
-        }));
-      } else if (act === 'fill') {
-        if (!req.selector) throw new Error("Parameter 'selector' is required for action 'fill'");
-        await page.fill(req.selector, req.value || '', { timeout: 15000 });
-        console.log(JSON.stringify({
-          success: true,
-          action: 'fill',
-          selector: req.selector,
-          value: req.value || '',
-          url: page.url()
-        }));
-      } else if (act === 'close') {
-        await browser.close();
-        console.log(JSON.stringify({ success: true, action: 'close' }));
-        process.exit(0);
-      } else {
-        console.log(JSON.stringify({ success: false, error: 'Unsupported action: ' + act }));
-      }
-    } catch (err) {
-      console.log(JSON.stringify({ success: false, error: err.message, action: req.action }));
-    }
-  }
-})();
-"""
-        proc = subprocess.Popen(
-            [node, "-e", runner_js],
-            env={**os.environ, "ZEROCHAT_PLAYWRIGHT_MODULE": str(playwright_service_module())},
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            bufsize=1,
-            # Grupo propio: al terminarlo se termina también Chromium.
-            start_new_session=DETECTED_OS != "windows",
-        )
-        self._process = proc
-        self._stderr_tail.clear()
-        drain = threading.Thread(target=self._drain_stderr, args=(proc, self._stderr_tail), daemon=True)
-        drain.start()
-        first_line = self._read_line(proc)
-        if first_line is None:
-            raise RuntimeError(f"The headless browser did not start within {BROWSER_ACTION_TIMEOUT_SECONDS} s.")
-        if not first_line:
-            drain.join(1)
-            err = "\n".join(self._stderr_tail)
-            self._process = None
-            raise RuntimeError(f"Failed to initialize headless browser: {err or 'process terminated unexpectedly'}")
-        data = json.loads(first_line)
-        if not data.get("ready"):
-            self._process = None
-            raise RuntimeError(data.get("error", "Unknown error starting browser"))
-
-        return proc
-
-    def execute(self, command: dict) -> dict:
-        with self._lock:
-            try:
-                proc = self._ensure_running()
-            except Exception as e:
-                return {"success": False, "error": str(e)}
-
-            req_json = json.dumps(command, ensure_ascii=False) + "\n"
-            try:
-                proc.stdin.write(req_json)
-                proc.stdin.flush()
-                resp_line = self._read_line(proc)
-                if resp_line is None:
-                    return {"success": False, "error": f"The browser did not answer within {BROWSER_ACTION_TIMEOUT_SECONDS} s and was closed."}
-                if not resp_line:
-                    self._close_locked()
-                    return {"success": False, "error": "Browser process closed unexpectedly."}
-                return json.loads(resp_line)
-            except Exception as e:
-                self._close_locked()
-                return {"success": False, "error": f"Error executing browser action: {e}"}
-
-    def close(self):
-        with self._lock:
-            self._close_locked()
-
-    def _close_locked(self):
-        """Cierra el navegador con self._lock tomado: se lo pide y, si no termina, termina su grupo de procesos."""
-        proc, self._process = self._process, None
-        if proc is None or proc.poll() is not None:
-            return
-        try:
-            proc.stdin.write(json.dumps({"action": "close"}) + "\n")
-            proc.stdin.flush()
-            proc.wait(timeout=2)
-        except (OSError, ValueError, subprocess.SubprocessError):
-            _kill_process_tree(proc)
-
-
-_BROWSER_SESSION = PersistentBrowserSession()
-
-
-def close_browser_session():
-    """Cierra el navegador de browser_action, si está abierto (al detener el servidor)."""
-    _BROWSER_SESSION.close()
-
-
-def browser_action_availability() -> dict:
-    """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
-    if not shutil.which("node"):
-        return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
-    # Solo el Playwright del servicio, no el node_modules de la carpeta desde la que arranca el servidor.
-    if not playwright_service_cli().is_file():
-        return {"available": False, "error": "Playwright is not available."}
-    # El runner prueba las entradas de Chromium de Playwright y los canales chrome y msedge.
-    browsers = system_browsers()
-    if cached_engine_entries() & set(ENGINE_CACHE_ENTRIES["chromium"]) or browsers["chrome"] or browsers["msedge"]:
-        return {"available": True}
-    return {"available": False, "error": "Playwright Chromium is not installed."}
-
-
-def playwright_status() -> dict:
-    """Playwright del servicio y browser_action tal como están ahora, para el latido del cliente."""
-    return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
-
-
-def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
-    """Control a headless browser for UI testing and visual inspection."""
-    try:
-        act = (action or "").strip().lower()
-        if act not in BROWSER_ACTIONS:
-            return _tool_error(f"Invalid browser action: '{action}'. Valid actions: {', '.join(BROWSER_ACTIONS)}.")
-
-        cmd = {"action": act}
-        if url:
-            cmd["url"] = str(url).strip()
-        if selector:
-            cmd["selector"] = str(selector).strip()
-        if value is not None:
-            cmd["value"] = str(value)
-
-        result = _BROWSER_SESSION.execute(cmd)
-        return json.dumps(result, ensure_ascii=False, indent=2)
-    except Exception as e:
-        return _tool_error(str(e))
-
 # --- tools.browser_secret ---
 """Relleno seguro de secretos del proyecto en Playwright MCP sin exponer valores al modelo."""
 
@@ -9007,467 +8726,6 @@ class AccessController:
 
 ACCESS_CONTROLLER = AccessController()
 
-# --- server.state ---
-"""Estado del servidor local en marcha: presencia del navegador por latido, auto-cierre, apagado, préstamo del navegador y estado vivo que publica el latido."""
-
-
-
-
-DEFAULT_HEARTBEAT_TIMEOUT = 60.0
-DEFAULT_HEARTBEAT_GRACE = 45.0
-# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite. Su final llega sin sondeo (se
-# espera su PID, watch_run_exit), pero no su progreso (step_text): el latido en espera relee cada tanto mientras
-# la interfaz muestra la conversación de una en marcha. Donde no se puede esperar un PID, el latido y el
-# vigilante releen así con cualquiera en marcha.
-_EXTERNAL_RUN_POLL_SECONDS = 1.0
-_WATCHDOG_RUN_RECHECK_SECONDS = 1.0
-# Campos de cada comando que cambian sin parar mientras corre: no cuentan en la firma `rev` (si no, cada
-# línea de salida despertaría a todos los latidos) y se refrescan al vencer cada espera.
-_VOLATILE_JOB_FIELDS = frozenset({"elapsed_s", "output_bytes", "last_line"})
-HEARTBEAT_LAST_SEEN = 0.0
-HEARTBEAT_INITIALIZED = False
-HEARTBEAT_WATCHDOG_STOP = threading.Event()
-_LIVE_STATE_COND = threading.Condition()
-_LIVE_STATE_SEQ = 0
-_WATCHDOG_COND = threading.Condition()
-_SERVER_SHUTTING_DOWN = threading.Event()
-_SHUTDOWN_LOCK = threading.Lock()
-_SHUTDOWN_LISTENERS: set[threading.Event] = set()
-# Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
-EXIT_ON_CLOSE = False
-
-
-def register_shutdown_event(event: threading.Event) -> None:
-    """Registra un evento que se activa al iniciar el apagado del servidor."""
-    with _SHUTDOWN_LOCK:
-        if _SERVER_SHUTTING_DOWN.is_set():
-            event.set()
-        else:
-            _SHUTDOWN_LISTENERS.add(event)
-
-
-def unregister_shutdown_event(event: threading.Event) -> None:
-    with _SHUTDOWN_LOCK:
-        _SHUTDOWN_LISTENERS.discard(event)
-
-
-def set_exit_on_close(value: bool):
-    """Fija si cerrar el navegador detiene el servidor (sin --keep-server)."""
-    global EXIT_ON_CLOSE
-    EXIT_ON_CLOSE = value
-
-
-# Un navegador lo usa una conversación cada vez; queda libre tras este tiempo sin que lo use. Cubre lo que
-# el modelo tarda en razonar entre dos acciones, no la espera a otra petición del usuario.
-BROWSER_LEASE_IDLE_SECONDS = 60.0
-
-
-class BrowserLease:
-    """
-    Reserva de los navegadores (browser_action y Playwright MCP): la conversación que los usa los conserva
-    mientras siga usándolos; otra recibe un error claro hasta que pasen BROWSER_LEASE_IDLE_SECONDS sin uso.
-    Sin cola: compartir la página haría que una conversación actuase sobre la de otra.
-    """
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._holders: dict[str, tuple[str, float]] = {}
-
-    def acquire(self, resource: str, conversation_id: str) -> bool:
-        now = time.monotonic()
-        with self._lock:
-            holder = self._holders.get(resource)
-            if holder and holder[0] != conversation_id and now - holder[1] < BROWSER_LEASE_IDLE_SECONDS:
-                return False
-            self._holders[resource] = (conversation_id, now)
-            return True
-
-
-BROWSER_LEASES = BrowserLease()
-
-
-def notify_live_state_changed() -> None:
-    """Despierta a los latidos en espera y al watchdog ante cambios del estado vivo."""
-    global _LIVE_STATE_SEQ
-    with _LIVE_STATE_COND:
-        _LIVE_STATE_SEQ += 1
-        _LIVE_STATE_COND.notify_all()
-    with _WATCHDOG_COND:
-        _WATCHDOG_COND.notify_all()
-
-
-on_live_change(notify_live_state_changed)
-
-
-def mark_browser_active():
-    """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
-    token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
-    global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
-    with _WATCHDOG_COND:
-        HEARTBEAT_LAST_SEEN = time.monotonic()
-        HEARTBEAT_INITIALIZED = True
-        _WATCHDOG_COND.notify_all()
-
-
-def heartbeat_initialized() -> bool:
-    """Si el navegador ha dado ya alguna señal de vida."""
-    return HEARTBEAT_INITIALIZED
-
-
-def _live_state_rev(state: dict) -> str:
-    stable = {
-        **state,
-        "jobs": [{k: v for k, v in job.items() if k not in _VOLATILE_JOB_FIELDS} for job in state["jobs"]],
-    }
-    encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()[:16]
-
-
-def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
-    """
-    Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
-    cwd, el proyecto de la pestaña que pregunta (su cabecera X-ZeroChat-Project); jobs, los comandos en
-    marcha con su última línea de salida, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
-    se puede navegar aunque se haya instalado o quitado durante la sesión; servers, los servicios
-    MCP externos aunque otra pestaña los cambie o su proceso muera; runs, lista ligera de ejecuciones
-    en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
-    """
-    runs, focus_run = list_server_runs(focus_conversation_id)
-    state = {
-        "serverId": get_server_id(),
-        "cwd": str(ctx.workspace_dir),
-        "jobs": JOBS.running_summaries(ctx.key),
-        "exit_on_close": EXIT_ON_CLOSE,
-        "playwright": playwright_status(),
-        "servers": GLOBAL_MCP_MANAGER.list_servers(),
-        "externalTools": GLOBAL_MCP_MANAGER.tools(),
-        "runs": runs,
-        "focus_run": focus_run,
-        "conversations_rev": conversations_revision()
-    }
-    state["rev"] = _live_state_rev(state)
-    return state
-
-
-def wait_live_state(
-    ctx: SecurityContext,
-    focus_conversation_id: str | None = None,
-    since_rev: str | None = None,
-    wait_ms: int = 0,
-) -> dict:
-    """Devuelve el estado vivo; con since_rev y wait_ms espera a que cambie su firma sin sondeo activo."""
-    deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
-    while True:
-        with _LIVE_STATE_COND:
-            seq = _LIVE_STATE_SEQ
-        state = live_state(ctx, focus_conversation_id)
-        if not since_rev or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
-            return state
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return state
-        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if _rereads_runs(state) else remaining
-        with _LIVE_STATE_COND:
-            if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
-                _LIVE_STATE_COND.wait(slice_s)
-
-
-def _rereads_runs(state: dict) -> bool:
-    """Si el latido en espera debe releer SQLite cada _EXTERNAL_RUN_POLL_SECONDS (ver arriba)."""
-    focus = state.get("focus_run")
-    if isinstance(focus, dict) and focus.get("status") == "running":
-        return True
-    return not pid_exit_waitable() and any(r.get("status") == "running" for r in state["runs"])
-
-
-def stop_zerochat_server(server: ThreadingHTTPServer):
-    """Detiene limpiamente el servidor y todos los subsistemas evitando reentradas."""
-    if _SERVER_SHUTTING_DOWN.is_set():
-        return
-    _SERVER_SHUTTING_DOWN.set()
-    with _SHUTDOWN_LOCK:
-        for listener in list(_SHUTDOWN_LISTENERS):
-            listener.set()
-    HEARTBEAT_WATCHDOG_STOP.set()
-    notify_live_state_changed()
-    running = JOBS.running(None)
-    if running:
-        console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
-    JOBS.stop_all("shutdown")
-    GLOBAL_MCP_MANAGER.close()
-    BROWSER_ENGINES.close()
-    close_browser_session()
-    threading.Thread(target=server.shutdown, daemon=True).start()
-
-
-def _watchdog_wait_step(
-    start_time: float,
-    initial_grace_seconds: float,
-    inactivity_timeout_seconds: float,
-    require_initial_connection: bool,
-) -> str | None:
-    """Espera en _WATCHDOG_COND hasta que venza el plazo actual; devuelve el mensaje de cierre o None."""
-    with _WATCHDOG_COND:
-        while not HEARTBEAT_WATCHDOG_STOP.is_set():
-            if not HEARTBEAT_INITIALIZED:
-                if not require_initial_connection:
-                    _WATCHDOG_COND.wait()
-                    continue
-                remaining = start_time + initial_grace_seconds - time.monotonic()
-                if remaining <= 0:
-                    return f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat..."
-                _WATCHDOG_COND.wait(remaining)
-                continue
-            remaining = HEARTBEAT_LAST_SEEN + inactivity_timeout_seconds - time.monotonic()
-            if remaining > 0:
-                _WATCHDOG_COND.wait(remaining)
-                continue
-            return "Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat..."
-    return None
-
-
-def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float = DEFAULT_HEARTBEAT_GRACE, inactivity_timeout_seconds: float = DEFAULT_HEARTBEAT_TIMEOUT, require_initial_connection: bool = True):
-    """
-    Supervisa la presencia de la pestaña del navegador mediante latidos HTTP.
-    Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
-    """
-    start_time = time.monotonic()
-    run_recheck_seconds = min(_WATCHDOG_RUN_RECHECK_SECONDS, max(0.05, inactivity_timeout_seconds))
-    while not HEARTBEAT_WATCHDOG_STOP.is_set():
-        reason = _watchdog_wait_step(start_time, initial_grace_seconds, inactivity_timeout_seconds, require_initial_connection)
-        if reason is None:
-            return
-        if HEARTBEAT_INITIALIZED:
-            with _LIVE_STATE_COND:
-                seq = _LIVE_STATE_SEQ
-            runs, _ = list_server_runs()
-            if any(r.get("status") == "running" for r in runs):
-                # Hasta que termine alguna (lo avisa watch_run_exit, que list_server_runs pone en marcha) o vuelva el navegador.
-                with _WATCHDOG_COND:
-                    if not pid_exit_waitable():
-                        _WATCHDOG_COND.wait(run_recheck_seconds)
-                    elif _LIVE_STATE_SEQ == seq and not HEARTBEAT_WATCHDOG_STOP.is_set():
-                        _WATCHDOG_COND.wait()
-                continue
-        log_event(reason)
-        stop_zerochat_server(server)
-        return
-
-# --- cli.console ---
-"""Consola interactiva del servidor: una línea de ayuda tras un rato sin actividad y órdenes de teclado (abrir la interfaz, salir)."""
-
-
-
-
-CONSOLE_STATUS_IDLE_SECONDS = 8.0
-
-
-class ConsoleControl:
-    """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
-    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
-        self.server = server
-        self.parser = parser
-        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
-        self.launch_url = launch_url
-        self.last_activity = time.monotonic()
-        self.lock = threading.Lock()
-        self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
-        self._keyboard_enabled = bool(getattr(sys.stdin, "isatty", lambda: False)())
-        self._idle_timer: threading.Timer | None = None
-        self._keyboard_stop = threading.Event()
-        self._keyboard_thread: threading.Thread | None = None
-        self._timer_generation = 0
-        self._closed = False
-
-    def start(self):
-        if self.enabled:
-            self._reset_idle_timer()
-        if self._keyboard_enabled:
-            self._keyboard_thread = threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True)
-            self._keyboard_thread.start()
-
-    def close(self):
-        with self.lock:
-            self._closed = True
-            self._keyboard_stop.set()
-            if self._idle_timer:
-                self._idle_timer.cancel()
-                self._idle_timer = None
-
-    def _reset_idle_timer(self):
-        with self.lock:
-            if self._closed:
-                return
-            self.last_activity = time.monotonic()
-            self._timer_generation += 1
-            if self._idle_timer:
-                self._idle_timer.cancel()
-            generation = self._timer_generation
-            self._idle_timer = threading.Timer(CONSOLE_STATUS_IDLE_SECONDS, self._show_commands_once, args=(generation,))
-            self._idle_timer.daemon = True
-            self._idle_timer.start()
-
-    def _show_commands_once(self, generation: int):
-        with self.lock:
-            if self._closed or generation != self._timer_generation:
-                return
-            commands = "[h] ayuda · [n] Navegador"
-            if get_notices():
-                commands += " · [i] información"
-            print(f"Comandos de consola: {commands} · [x] salir ordenadamente", flush=True)
-            self._idle_timer = None
-
-    def log(self, message: str, *, flush: bool = True):
-        print(message, flush=flush)
-        if self.enabled:
-            self._reset_idle_timer()
-
-    def show_help(self):
-        print(self.parser.format_help().rstrip(), flush=True)
-
-    def show_notices(self):
-        notices = get_notices()
-        if not notices:
-            return
-        print("Información:", flush=True)
-        for notice in notices:
-            print(f"- {notice}", flush=True)
-
-    def _handle_command(self, command: str):
-        key = command.strip().lower()
-        if key == "h":
-            self.show_help()
-        elif key == "n" and self.launch_url:
-            launch_browser(self.launch_url())
-        elif key == "i":
-            self.show_notices()
-        elif key == "x":
-            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
-            stop_zerochat_server(self.server)
-
-    def _keyboard_loop(self):
-        """Lee comandos normales terminados con Intro, sin alterar el terminal."""
-        while not self._keyboard_stop.is_set():
-            line = sys.stdin.readline()
-            if not line:
-                return
-            self._handle_command(line)
-
-# --- run_mode.supervisor ---
-"""Supervisión de la ejecución desatendida: plazos, final del runner y arranque del runner de Node."""
-
-
-
-
-
-# Final de la salida de error del runner que acompaña al motivo de un final sin resultado.
-RUNNER_ERROR_TAIL_BYTES = 2000
-
-
-def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> str:
-    """Por qué terminó el runner sin resultado: su código de salida y el final de su salida de error."""
-    tail = ""
-    if stderr_log is not None:
-        try:
-            size = stderr_log.seek(0, os.SEEK_END)
-            stderr_log.seek(max(0, size - RUNNER_ERROR_TAIL_BYTES))
-            tail = stderr_log.read().decode("utf-8", "replace").strip()
-        except (OSError, ValueError):
-            tail = ""
-    reason = f"El runner de Node.js terminó con el código {proc.returncode} sin resultado"
-    return f"{reason}: {tail}" if tail else f"{reason}."
-
-
-def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
-                   runner_log: IO[bytes] | None = None):
-    """Detiene el servidor al recibir el resultado, si termina el runner propio o al vencer el timeout de --run-file,
-    contado desde el arranque del proceso: entonces termina el runner, y lo hecho ya está grabado. Sin timeout, lo que
-    dura una ejecución lo decide quien la lanza (la cancela o la interrumpe)."""
-    wake = threading.Event()
-    proc_done = threading.Event()
-    session.set_wake_event(wake)
-    register_shutdown_event(wake)
-    try:
-        if runner_proc is not None:
-            def _watch_proc():
-                runner_proc.wait()
-                proc_done.set()
-                wake.set()
-            threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
-        deadline = None if session.timeout_seconds is None else session.started_at / 1000 + session.timeout_seconds
-        woken = wake.wait(None if deadline is None else max(0.0, deadline - time.time()))
-        # El latido o una señal ya detienen el servidor: el resultado queda vacío y el runner no sigue por su cuenta.
-        if _SERVER_SHUTTING_DOWN.is_set():
-            if runner_proc is not None:
-                _kill_process_tree(runner_proc, grace_seconds=1.0)
-            return
-        if not woken and session.reach_limit(f"Límite de {session.timeout_seconds} s alcanzado."):
-            if runner_proc is not None:
-                _kill_process_tree(runner_proc, grace_seconds=1.0)
-        if proc_done.is_set() and not session.finished.wait(0.2):
-            if runner_proc is not None:
-                session.stop_reason = runner_exit_reason(runner_proc, runner_log)
-    finally:
-        unregister_shutdown_event(wake)
-        session.set_wake_event(None)
-    if session.result is None:
-        with session.lock:
-            session.status = "error"
-            session.error = session.stop_reason or ("El runner se cerró sin resultado." if runner_proc else "La ejecución se interrumpió sin resultado.")
-            write_run_state(session)
-    if session.runner_token:
-        revoke_token(session.runner_token)
-    stop_zerochat_server(server)
-
-
-def _runner_cache_file() -> Path:
-    """La caché de los módulos del runner, en una carpeta privada que es lo único del disco que puede tocar."""
-    cache_dir = get_data_dir() / "cache" / "runner"
-    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if os.name != "nt":
-        try:
-            cache_dir.chmod(0o700)
-        except OSError:
-            pass
-    return cache_dir / "modules.json"
-
-
-def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
-    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node; devuelve el proceso
-    y su salida de error, en un fichero temporal sin nombre, para explicar un final sin resultado (runner_exit_reason).
-
-    El cargador (runner_loader.py) descarga los módulos de la interfaz de url y solo puede leer y escribir su caché.
-    Hereda el entorno de quien lanza zerochat (NODE_EXTRA_CA_CERTS, TZ, LANG...): ejecuta código propio, no el del
-    modelo, que va al sandbox sin entorno; un runner alterado vendría con una interfaz alterada que ya puede más."""
-    node = find_node_executable()
-    if not node:
-        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida.")
-        return None
-    try:
-        cache_file = _runner_cache_file()
-    except OSError as exc:
-        run_error(f"No se pudo preparar la caché del runner de Node.js: {exc}")
-        return None
-    log_event("Iniciando runner de Node.js...")
-    cache_dir = cache_file.parent
-    # En desarrollo los módulos cambian sin subir la versión: se descargan siempre.
-    cache_policy = RUNNER_CACHE_ALWAYS_DOWNLOAD if get_dev_root() is not None else RUNNER_CACHE_BY_VERSION
-    cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
-           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url, cache_policy]
-    try:
-        stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,  # Nunca se escribe: al cerrarse porque este proceso muere, el runner termina.
-            stdout=subprocess.DEVNULL,
-            stderr=stderr_log,
-            start_new_session=True,
-        )
-        return proc, stderr_log
-    except OSError as error:
-        run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
-        return None
-
 # --- tools.agents ---
 """check_agents y launch_agent: los agentes que vigila y lanza un agente master, solo en la ejecución --run-file con
 watchAgents.
@@ -10623,6 +9881,1125 @@ def dispatch_files(method: str, params: dict, ctx: SecurityContext) -> tuple[dic
     except (ValueError, OSError) as exc:
         return None, {"code": -32602, "message": str(exc)}, str(exc)
 
+# --- tools.sandbox_script ---
+"""Proceso hijo de execute_javascript en Node. Generated from scripts/sandbox-child.js by scripts/build-sandbox-script.mjs. Do not edit."""
+
+
+NODE_SANDBOX_ARGS = ["--permission","--disallow-code-generation-from-strings"]
+NODE_SANDBOX_SCRIPT = "'use strict';\n// Proceso hijo de execute_javascript en Node: ejecuta el c\u00f3digo del modelo en un contexto de node:vm.\n// Fuente \u00fanica: scripts/build-sandbox-script.mjs genera de aqu\u00ed py/tools/sandbox_script.py y\n// js/sandbox-node-script.js. Se lanza con `node --permission --disallow-code-generation-from-strings -e`.\n//\n// node:vm no es una frontera de seguridad, as\u00ed que hay tres capas:\n//  1. El contexto no recibe ning\u00fan objeto de este proceso: trae sus propios Object, Array, Promise\u2026, y\n//     console y el formato del resultado se definen dentro. Entre los dos lados solo cruzan cadenas, y\n//     el resultado se recoge por sondeo: ni siquiera se espera su promesa, que entregar\u00eda funciones de\n//     este lado a su `then`.\n//  2. Nadie genera c\u00f3digo desde cadenas: ni el contexto (codeGeneration) ni este proceso (el indicador\n//     de arranque). Si un objeto de aqu\u00ed se filtrara (un error de import()), su constructor de funciones\n//     no servir\u00eda para ejecutar nada.\n//  3. Antes de ejecutar el c\u00f3digo, este proceso se queda sin process, require ni module en su global.\nconst vm = require('node:vm');\n\nconst POLL_MS = 5;\nconst stdin = process.stdin;\nconst writeOut = process.stdout.write.bind(process.stdout);\n\nasync function readStdin() {\n  const chunks = [];\n  for await (const chunk of stdin) chunks.push(chunk);\n  return Buffer.concat(chunks).toString('utf8');\n}\n\nconst positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);\n\n// Se ejecuta dentro del contexto: todo lo que crea pertenece al contexto. Guarda las funciones que usa\n// antes de que el c\u00f3digo del modelo pueda cambiarlas.\nconst prelude = (maxOutputLength, maxLogEntries) => `(() => {\n  \"use strict\";\n  const stringify = JSON.stringify;\n  const toText = String;\n  const resolved = Promise.resolve.bind(Promise);\n  const then = Function.prototype.call.bind(Promise.prototype.then);\n  const push = Function.prototype.call.bind(Array.prototype.push);\n  const join = Function.prototype.call.bind(Array.prototype.join);\n  const map = Function.prototype.call.bind(Array.prototype.map);\n  const slice = Function.prototype.call.bind(String.prototype.slice);\n  const maxOut = ${maxOutputLength};\n  const maxLogs = ${maxLogEntries};\n  const logs = [];\n  let outcome;\n\n  function formatValue(value) {\n    if (value === null) return \"null\";\n    if (value === undefined) return \"undefined\";\n    if (typeof value === \"bigint\") return value.toString();\n    if (typeof value !== \"object\") return toText(value);\n    try {\n      return stringify(value, (_key, item) => (typeof item === \"bigint\" ? item.toString() : item), 2);\n    } catch {\n      return toText(value);\n    }\n  }\n  const truncate = text => (text.length > maxOut ? slice(text, 0, maxOut) + \"... [output truncated]\" : text);\n  function addLog(prefix, args) {\n    if (logs.length >= maxLogs) return;\n    const text = join(map(args, formatValue), \" \");\n    push(logs, truncate(prefix ? \"[\" + prefix + \"] \" + text : text));\n  }\n  const finish = value => {\n    outcome = stringify({\n      success: true,\n      result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? join(logs, \"\\\\n\") : \"undefined\"),\n      logs\n    });\n  };\n  const fail = error => {\n    let message;\n    try {\n      message = error && error.message ? toText(error.message) : toText(error);\n    } catch {\n      message = \"Error\";\n    }\n    outcome = stringify({ success: false, result: \"\", logs, error: message });\n  };\n\n  globalThis.console = {\n    log: (...args) => addLog(\"\", args),\n    info: (...args) => addLog(\"INFO\", args),\n    warn: (...args) => addLog(\"WARN\", args),\n    error: (...args) => addLog(\"ERROR\", args)\n  };\n  Object.defineProperty(globalThis, \"__sandbox\", {\n    value: Object.freeze({\n      run(fn) {\n        try {\n          then(resolved(fn()), finish, fail);\n        } catch (error) {\n          fail(error);\n        }\n      },\n      outcome: () => outcome\n    })\n  });\n})();`;\n\n(async () => {\n  const started = Date.now();\n  const payload = JSON.parse(await readStdin());\n  const code = String(payload.code ?? '');\n  const timeoutMs = positiveInt(payload.timeoutMs, 2500);\n  const maxOutputLength = positiveInt(payload.maxOutputLength, 30000);\n  const maxLogEntries = positiveInt(payload.maxLogEntries, 200);\n\n  const respond = result => writeOut(JSON.stringify({ ...result, executionTimeMs: Date.now() - started }));\n  const failure = error => respond({ success: false, result: '', logs: [], error });\n\n  // Capa 3: lo que un c\u00f3digo que alcanzara este global usar\u00eda para abrir una conexi\u00f3n o cargar m\u00f3dulos.\n  for (const key of ['process', 'require', 'module', 'exports', '__filename', '__dirname', 'fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource']) {\n    delete globalThis[key];\n  }\n\n  const trimmed = code.trim();\n  const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed)\n    || trimmed.includes(';') || trimmed.includes('\\n') || trimmed.includes('return');\n  const body = isStatement ? `\"use strict\";\\n${trimmed}` : `\"use strict\"; return (${trimmed});`;\n  const wrapper = `__sandbox.run(${/\\bawait\\b/.test(trimmed) ? 'async ' : ''}function () {\\n${body}\\n});`;\n\n  const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false } });\n  vm.runInContext(prelude(maxOutputLength, maxLogEntries), context);\n  try {\n    new vm.Script(wrapper).runInContext(context, { timeout: timeoutMs });\n  } catch (err) {\n    const timedOut = err && err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';\n    failure(timedOut ? `Execution timed out after ${timeoutMs}ms and was terminated.` : (err && err.message ? String(err.message) : String(err)));\n    return;\n  }\n\n  // El resultado es una cadena que deja el contexto; quien lanza este proceso lo mata al vencer el plazo.\n  const readOutcome = new vm.Script('__sandbox.outcome()');\n  const poll = setInterval(() => {\n    let raw;\n    try {\n      raw = readOutcome.runInContext(context, { timeout: 100 });\n    } catch {\n      return;\n    }\n    if (typeof raw !== 'string') return;\n    clearInterval(poll);\n    let parsed;\n    try {\n      parsed = JSON.parse(raw);\n    } catch {\n      parsed = null;\n    }\n    if (!parsed || typeof parsed !== 'object') {\n      failure('The sandbox returned an unreadable result.');\n      return;\n    }\n    const logs = Array.isArray(parsed.logs) ? parsed.logs.filter(item => typeof item === 'string').slice(0, maxLogEntries) : [];\n    if (parsed.success === true) respond({ success: true, result: String(parsed.result ?? ''), logs });\n    else respond({ success: false, result: '', logs, error: String(parsed.error ?? 'Error') });\n  }, POLL_MS);\n})();"
+
+# --- tools.sandbox ---
+"""Ejecución aislada de JavaScript en un subproceso Node sin credenciales ni permisos."""
+
+
+
+
+DEFAULT_SANDBOX_TIMEOUT_MS = 2500
+MAX_SANDBOX_TIMEOUT_MS = 30000
+MAX_SANDBOX_OUTPUT_LENGTH = 30000
+MAX_SANDBOX_LOG_ENTRIES = 200
+
+def _normalize_timeout_ms(timeout_ms: int | float | None) -> int:
+    """Valida y acota el timeout del sandbox en milisegundos."""
+    if timeout_ms is None:
+        return DEFAULT_SANDBOX_TIMEOUT_MS
+    # json.loads admite Infinity y NaN: int() los rechazaría con OverflowError/ValueError sin este mensaje.
+    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or not math.isfinite(timeout_ms) or timeout_ms <= 0:
+        raise ValueError("timeout_ms debe ser un número positivo")
+    return min(int(timeout_ms), MAX_SANDBOX_TIMEOUT_MS)
+
+
+def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict:
+    """Ejecuta código JavaScript en un subproceso de Node sin entorno, con el script y los indicadores de tools.sandbox_script."""
+    if not isinstance(code, str) or not code.strip():
+        return {
+            "success": False,
+            "result": "",
+            "logs": [],
+            "executionTimeMs": 0,
+            "error": "No code provided to execute.",
+        }
+    resolved_timeout = _normalize_timeout_ms(timeout_ms)
+    node_path = find_node_executable()
+    if not node_path:
+        raise RuntimeError(NODE_REQUIRED_MESSAGE)
+
+    payload = json.dumps({
+        "code": code,
+        "timeoutMs": resolved_timeout,
+        "maxOutputLength": MAX_SANDBOX_OUTPUT_LENGTH,
+        "maxLogEntries": MAX_SANDBOX_LOG_ENTRIES,
+    })
+    started = time.monotonic()
+    popen_kwargs = {
+        "stdin": subprocess.PIPE,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "env": minimal_child_env(),
+    }
+    if DETECTED_OS != "windows":
+        popen_kwargs["start_new_session"] = True
+    proc = subprocess.Popen([node_path, *NODE_SANDBOX_ARGS, "-e", NODE_SANDBOX_SCRIPT], **popen_kwargs)
+    try:
+        stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc, grace_seconds=0.05)
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            pass
+        return {
+            "success": False,
+            "result": "",
+            "logs": [],
+            "executionTimeMs": int((time.monotonic() - started) * 1000),
+            "error": f"Execution timed out after {resolved_timeout}ms and was terminated.",
+        }
+
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    raw = (stdout or "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict) and "success" in parsed:
+                return parsed
+        except json.JSONDecodeError:
+            pass
+    err_detail = (stderr or raw or f"Sandbox exited with code {proc.returncode}").strip()
+    return {
+        "success": False,
+        "result": "",
+        "logs": [],
+        "executionTimeMs": elapsed_ms,
+        "error": err_detail,
+    }
+
+# --- web.fetch ---
+"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y frecuencia por dominio."""
+
+
+
+
+METADATA_HOSTS = frozenset({
+    "169.254.169.254",
+    "metadata.google.internal",
+    "instance-data",
+    "100.100.100.200",
+})
+# El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
+# fingerprint); sin frontend (--prompt/--conversation) se usa el último guardado o el por defecto.
+ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
+# Último User-Agent real guardado en SQLite: se lee una sola vez por proceso, no en cada petición web.
+_STORED_USER_AGENT: str | None = None
+_STORED_USER_AGENT_LOADED = False
+
+
+def capture_frontend_user_agent(user_agent: str) -> None:
+    """Adopta y persiste el User-Agent de la primera petición del frontend para las salidas web y Playwright."""
+    global ACTIVE_USER_AGENT, _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED
+    cleaned = user_agent.strip() if isinstance(user_agent, str) else ""
+    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and cleaned:
+        ACTIVE_USER_AGENT = cleaned
+        set_service_user_agent(ACTIVE_USER_AGENT, from_frontend=True)
+        save_last_frontend_user_agent(cleaned)
+        _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED = cleaned, True
+
+
+def effective_user_agent() -> str:
+    """User-Agent activo del servidor o, en desatendido sin frontend, el último capturado del navegador."""
+    global _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED
+    if ACTIVE_USER_AGENT is not DEFAULT_USER_AGENT:
+        return ACTIVE_USER_AGENT
+    if not _STORED_USER_AGENT_LOADED:
+        _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED = load_last_frontend_user_agent(), True
+    return _STORED_USER_AGENT or DEFAULT_USER_AGENT
+
+
+WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
+WEB_FETCH_MAX_REDIRECTS = 5
+WEB_FETCH_READ_CHUNK = 64 * 1024
+TEXT_CONTENT_TYPE_RE = re.compile(
+    r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
+)
+# Frecuencia por dominio frente a retos anti-bot: DuckDuckGo responde con un reto (HTTP 202) a peticiones seguidas o
+# simultáneas, así que van de una en una y con 2 s desde la respuesta anterior. Vale para cualquier herramienta que
+# pida el dominio o un subdominio, no solo para search_web.
+WEB_FETCH_DOMAIN_LIMITS = {
+    "duckduckgo.com": RatePolicy(concurrency=1, min_interval_s=2.0),
+}
+
+
+def _is_public_ip(address: str) -> bool:
+    """Una dirección es pública si es global y no multicast; las IPv4 mapeadas en IPv6 se evalúan como IPv4."""
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_global and not ip.is_multicast
+
+
+# Una dirección IPv4 en notación numérica: partes decimales o hexadecimales (0x…), de una a cuatro.
+_NUMERIC_HOST = re.compile(r"(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+)){0,3}")
+
+
+def _canonical_host(hostname: str) -> str | None:
+    """Host en minúsculas, sin corchetes ni punto final; None si es una notación numérica no canónica (127.1,
+    2130706433, 0x7f.1, 0177.0.0.1), que cada resolvedor interpreta a su manera."""
+    clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
+    if _NUMERIC_HOST.fullmatch(clean_host):
+        try:
+            ipaddress.IPv4Address(clean_host)
+        except ValueError:
+            return None
+    return clean_host
+
+
+def _resolved_addresses(clean_host: str) -> list[str]:
+    """Direcciones a las que resuelve el host; sin resolución, ninguna (la conexión fallará por sí misma)."""
+    try:
+        return [str(info[4][0]) for info in socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)]
+    except (socket.gaierror, UnicodeError):
+        return []
+
+
+def is_dangerous_host(hostname: str) -> bool:
+    """Riesgo de SSRF: metadatos cloud, nombres locales o cualquier dirección resuelta no pública."""
+    clean_host = _canonical_host(hostname)
+    if not clean_host or clean_host in METADATA_HOSTS or clean_host == "localhost":
+        return True
+    if clean_host.endswith((".localhost", ".local", ".internal")):
+        return True
+    return any(not _is_public_ip(address) for address in _resolved_addresses(clean_host))
+
+
+def _is_metadata_ip(address: str) -> bool:
+    ip = ipaddress.ip_address(address.split("%", 1)[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_link_local or str(ip) in METADATA_HOSTS
+
+
+def is_metadata_host(hostname: str) -> bool:
+    """Metadatos cloud o enlace local (169.254.0.0/16, fe80::/10), también tras resolver el nombre: lo que ni
+    browser_action alcanza, aunque admita localhost y la red privada para probar webs en desarrollo."""
+    clean_host = _canonical_host(hostname)
+    if not clean_host or clean_host in METADATA_HOSTS:
+        return True
+    try:
+        return _is_metadata_ip(clean_host)
+    except ValueError:
+        return any(_is_metadata_ip(address) for address in _resolved_addresses(clean_host))
+
+
+def _validate_web_url(url: str) -> str:
+    """Valida esquema y host de una URL de descarga (también de cada redirección)."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"Protocolo no permitido: '{parsed.scheme}'. Solo se admite http y https.")
+    if not parsed.hostname:
+        raise ValueError("URL sin nombre de host válido.")
+    if is_dangerous_host(parsed.hostname):
+        raise PermissionError("Acceso bloqueado: intento de acceso a servicios internos o metadatos de infraestructura (SSRF).")
+    return url
+
+
+class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Sigue redirecciones solo si el destino supera la misma validación anti-SSRF que la URL pedida."""
+    max_redirections = WEB_FETCH_MAX_REDIRECTS
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _validate_web_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_WEB_OPENER = urllib.request.build_opener(_ValidatingRedirectHandler)
+
+
+def _read_limited_body(stream, content_encoding: str, max_bytes: int) -> tuple[bytes, bool]:
+    """Lee el cuerpo ya descomprimido hasta `max_bytes`; indica si había más (truncado)."""
+    encoding = (content_encoding or "").strip().lower()
+    # MAX_WBITS | 32 detecta la cabecera gzip o zlib.
+    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate") else None
+    data = bytearray()
+    while len(data) <= max_bytes:
+        chunk = stream.read(WEB_FETCH_READ_CHUNK)
+        if not chunk:
+            break
+        if decompressor:
+            # La salida se limita al hueco restante: un cuerpo comprimido no puede crecer sin tope.
+            chunk = decompressor.decompress(chunk, max_bytes + 1 - len(data))
+        data += chunk
+    truncated = len(data) > max_bytes
+    return bytes(data[:max_bytes]), truncated
+
+
+def is_text_content_type(content_type: str) -> bool:
+    """Tipos que se devuelven como texto; el resto viaja en base64."""
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return not media_type or bool(TEXT_CONTENT_TYPE_RE.match(media_type))
+
+
+def fetch_web_resource(params: dict) -> dict:
+    """Descarga de forma segura un recurso web vía HTTP/HTTPS para el cliente web."""
+    url = params.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise ValueError("URL no válida o ausente.")
+    url = _validate_web_url(url.strip())
+
+    parsed = urllib.parse.urlsplit(url)
+    hostname = (parsed.hostname or "").lower()
+
+    timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
+    limited = next((domain for domain in WEB_FETCH_DOMAIN_LIMITS if hostname == domain or hostname.endswith("." + domain)), None)
+    if limited is None:
+        return _fetch_web_resource_unpaced(url, params, hostname, parsed, timeout_s)
+    # La espera del turno sale del plazo de la petición: la interfaz no espera más que ese plazo y su margen.
+    try:
+        with RATE_LIMITER.slot(limited, WEB_FETCH_DOMAIN_LIMITS[limited], max_wait_s=timeout_s - 0.5) as waited:
+            return _fetch_web_resource_unpaced(url, params, hostname, parsed, max(0.5, timeout_s - waited))
+    except RateLimitBusy as exc:
+        return {"ok": False, "status": 0, "error": str(exc)}
+
+
+def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, timeout_s: float) -> dict:
+    """Cuerpo de fetch_web_resource sin el control de frecuencia: cabeceras, descarga y respuesta."""
+    max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
+    as_binary = bool(params.get("binary", False))
+    accept = params.get("accept")
+    req_headers = {
+        "User-Agent": effective_user_agent(),
+        "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate",
+        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"',
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    if hostname == "duckduckgo.com" or hostname.endswith(".duckduckgo.com"):
+        req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+
+    # El esquema (http/https) se valida antes, también en cada redirección.
+    req = urllib.request.Request(url, headers=req_headers)  # noqa: S310
+    try:
+        with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
+            content_type = resp.headers.get("Content-Type", "")
+            raw_data, truncated = _read_limited_body(resp, resp.headers.get("Content-Encoding", ""), max_bytes)
+            # Las cabeceras de transporte ya no describen el cuerpo descomprimido.
+            resp_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-encoding", "content-length")}
+            # Respuestas 202 u otros retos anti-bot se marcan como error no exitoso.
+            if resp.status == 202:
+                return {
+                    "ok": False,
+                    "status": resp.status,
+                    "error": "HTTP 202: Reto anti-bot o verificación de anomalía detectada por el servidor remoto.",
+                    "text": raw_data.decode("utf-8", errors="replace")
+                }
+            result = {
+                "ok": True,
+                "status": resp.status,
+                "url": resp.geturl(),
+                "content_type": content_type,
+                "headers": resp_headers,
+                "byte_size": len(raw_data),
+                "truncated": truncated
+            }
+            if as_binary or not is_text_content_type(content_type):
+                result["base64"] = base64.b64encode(raw_data).decode("ascii")
+                return result
+            charset = resp.headers.get_content_charset() or "utf-8"
+            try:
+                result["text"] = raw_data.decode(charset, errors="replace")
+            except LookupError:
+                result["text"] = raw_data.decode("utf-8", errors="replace")
+            return result
+    except urllib.error.HTTPError as he:
+        err_body = ""
+        try:
+            err_body = he.read(2048).decode("utf-8", errors="replace")
+        except OSError:
+            pass
+        return {
+            "ok": False,
+            "status": he.code,
+            "error": f"HTTP {he.code}: {he.reason}",
+            "text": err_body
+        }
+    except PermissionError:
+        # Una redirección hacia un destino bloqueado es el mismo rechazo anti-SSRF que la URL pedida.
+        raise
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status": 0,
+            "error": str(exc)
+        }
+
+# --- tools.browser_action ---
+"""Herramienta browser_action: una sesión persistente de Playwright con los motores propios o el navegador del sistema."""
+
+
+
+
+BROWSER_ACTIONS = ("navigate", "screenshot", "click", "fill")
+# Plazo de cada respuesta del proceso del navegador (y de su arranque): sus acciones tienen ya plazos de 15-30 s,
+# así que pasado este el proceso está colgado y se termina.
+BROWSER_ACTION_TIMEOUT_SECONDS = 60
+# Últimas líneas de stderr que se conservan para explicar un arranque fallido.
+BROWSER_STDERR_TAIL_LINES = 20
+
+
+class PersistentBrowserSession:
+    """Manages a persistent headless browser session (Playwright) for browser_action."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen | None = None
+        self._stderr_tail: collections.deque[str] = collections.deque(maxlen=BROWSER_STDERR_TAIL_LINES)
+        atexit.register(self.close)
+
+    @staticmethod
+    def _drain_stderr(proc: subprocess.Popen, tail: collections.deque):
+        """Lee stderr entero (sin leerlo, el proceso se bloquearía al llenarse la tubería) y guarda su final."""
+        try:
+            for line in proc.stderr:
+                tail.append(line.rstrip())
+        except (OSError, ValueError, TypeError):
+            pass
+
+    def _read_line(self, proc: subprocess.Popen) -> str | None:
+        """Una línea de stdout ("" si el proceso la cerró), o None si no llega en el plazo: el proceso se termina."""
+        box: list[str] = []
+        reader = threading.Thread(target=lambda: box.append(proc.stdout.readline()), daemon=True)
+        reader.start()
+        reader.join(BROWSER_ACTION_TIMEOUT_SECONDS)
+        if reader.is_alive():
+            self._close_locked()
+            return None
+        return box[0] if box else ""
+
+    def _ensure_running(self) -> subprocess.Popen:
+        if self._process is not None and self._process.poll() is None:
+            return self._process
+
+        node = shutil.which("node")
+        if not node:
+            raise RuntimeError("Node.js is not installed or not found in system PATH.")
+
+        runner_js = """
+const readline = require('readline');
+let playwright;
+try {
+  playwright = require(process.env.ZEROCHAT_PLAYWRIGHT_MODULE);
+} catch (e) {
+  console.log(JSON.stringify({
+    success: false,
+    error: "Playwright is not available. Start the Playwright service once in Settings > MCP to install it."
+  }));
+  process.exit(1);
+}
+
+(async () => {
+  let browser, context, page;
+  try {
+    const candidates = [
+      {},                      // 1. Playwright bundled Chromium
+      { channel: 'chrome' },   // 2. System Google Chrome
+      { channel: 'msedge' },   // 3. System Microsoft Edge
+      { channel: 'chromium' }  // 4. Playwright full Chromium, if only the headless shell is missing
+    ];
+    let lastErr = null;
+    for (const cand of candidates) {
+      try {
+        browser = await playwright.chromium.launch({ ...cand, headless: true });
+        if (browser) break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    if (!browser) {
+      throw lastErr || new Error('No Chromium-based browser found (Playwright, Chrome, Edge, or Chromium).');
+    }
+    context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    page = await context.newPage();
+  } catch (err) {
+    console.log(JSON.stringify({ success: false, error: 'Failed to start browser: ' + err.message }));
+    process.exit(1);
+  }
+
+  console.log(JSON.stringify({ ready: true }));
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+  for await (const line of rl) {
+    if (!line.trim()) continue;
+    let req;
+    try {
+      req = JSON.parse(line);
+    } catch (e) {
+      console.log(JSON.stringify({ success: false, error: 'Invalid command JSON' }));
+      continue;
+    }
+
+    try {
+      const act = req.action;
+      if (act === 'navigate') {
+        if (!req.url) throw new Error("Parameter 'url' is required for action 'navigate'");
+        await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'navigate',
+          url: page.url(),
+          title: await page.title()
+        }));
+      } else if (act === 'screenshot') {
+        if (req.url && req.url !== page.url()) {
+          await page.goto(req.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+        }
+        // Con la máquina cargada, Chromium puede no haber pintado aún ningún fotograma:
+        // esperar dos fotogramas garantiza que hay algo que capturar.
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        const buf = await page.screenshot({ fullPage: false });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'screenshot',
+          image_base64: buf.toString('base64'),
+          mime_type: 'image/png',
+          url: page.url(),
+          title: await page.title()
+        }));
+      } else if (act === 'click') {
+        if (!req.selector) throw new Error("Parameter 'selector' is required for action 'click'");
+        await page.click(req.selector, { timeout: 15000 });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'click',
+          selector: req.selector,
+          url: page.url()
+        }));
+      } else if (act === 'fill') {
+        if (!req.selector) throw new Error("Parameter 'selector' is required for action 'fill'");
+        await page.fill(req.selector, req.value || '', { timeout: 15000 });
+        console.log(JSON.stringify({
+          success: true,
+          action: 'fill',
+          selector: req.selector,
+          value: req.value || '',
+          url: page.url()
+        }));
+      } else if (act === 'close') {
+        await browser.close();
+        console.log(JSON.stringify({ success: true, action: 'close' }));
+        process.exit(0);
+      } else {
+        console.log(JSON.stringify({ success: false, error: 'Unsupported action: ' + act }));
+      }
+    } catch (err) {
+      console.log(JSON.stringify({ success: false, error: err.message, action: req.action }));
+    }
+  }
+})();
+"""
+        proc = subprocess.Popen(
+            [node, "-e", runner_js],
+            env={**os.environ, "ZEROCHAT_PLAYWRIGHT_MODULE": str(playwright_service_module())},
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            bufsize=1,
+            # Grupo propio: al terminarlo se termina también Chromium.
+            start_new_session=DETECTED_OS != "windows",
+        )
+        self._process = proc
+        self._stderr_tail.clear()
+        drain = threading.Thread(target=self._drain_stderr, args=(proc, self._stderr_tail), daemon=True)
+        drain.start()
+        first_line = self._read_line(proc)
+        if first_line is None:
+            raise RuntimeError(f"The headless browser did not start within {BROWSER_ACTION_TIMEOUT_SECONDS} s.")
+        if not first_line:
+            drain.join(1)
+            err = "\n".join(self._stderr_tail)
+            self._process = None
+            raise RuntimeError(f"Failed to initialize headless browser: {err or 'process terminated unexpectedly'}")
+        data = json.loads(first_line)
+        if not data.get("ready"):
+            self._process = None
+            raise RuntimeError(data.get("error", "Unknown error starting browser"))
+
+        return proc
+
+    def execute(self, command: dict) -> dict:
+        with self._lock:
+            try:
+                proc = self._ensure_running()
+            except Exception as e:
+                return {"success": False, "error": str(e)}
+
+            req_json = json.dumps(command, ensure_ascii=False) + "\n"
+            try:
+                proc.stdin.write(req_json)
+                proc.stdin.flush()
+                resp_line = self._read_line(proc)
+                if resp_line is None:
+                    return {"success": False, "error": f"The browser did not answer within {BROWSER_ACTION_TIMEOUT_SECONDS} s and was closed."}
+                if not resp_line:
+                    self._close_locked()
+                    return {"success": False, "error": "Browser process closed unexpectedly."}
+                return json.loads(resp_line)
+            except Exception as e:
+                self._close_locked()
+                return {"success": False, "error": f"Error executing browser action: {e}"}
+
+    def close(self):
+        with self._lock:
+            self._close_locked()
+
+    def _close_locked(self):
+        """Cierra el navegador con self._lock tomado: se lo pide y, si no termina, termina su grupo de procesos."""
+        proc, self._process = self._process, None
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            proc.stdin.write(json.dumps({"action": "close"}) + "\n")
+            proc.stdin.flush()
+            proc.wait(timeout=2)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            _kill_process_tree(proc)
+
+
+_BROWSER_SESSION = PersistentBrowserSession()
+
+
+def close_browser_session():
+    """Cierra el navegador de browser_action, si está abierto (al detener el servidor)."""
+    _BROWSER_SESSION.close()
+
+
+def browser_action_availability() -> dict:
+    """Comprueba requisitos locales sin lanzar Node.js ni Chromium."""
+    if not shutil.which("node"):
+        return {"available": False, "error": "Node.js is not installed or not found in system PATH."}
+    # Solo el Playwright del servicio, no el node_modules de la carpeta desde la que arranca el servidor.
+    if not playwright_service_cli().is_file():
+        return {"available": False, "error": "Playwright is not available."}
+    # El runner prueba las entradas de Chromium de Playwright y los canales chrome y msedge.
+    browsers = system_browsers()
+    if cached_engine_entries() & set(ENGINE_CACHE_ENTRIES["chromium"]) or browsers["chrome"] or browsers["msedge"]:
+        return {"available": True}
+    return {"available": False, "error": "Playwright Chromium is not installed."}
+
+
+def playwright_status() -> dict:
+    """Playwright del servicio y browser_action tal como están ahora, para el latido del cliente."""
+    return {"installed": playwright_service_cli().is_file(), "browserAction": browser_action_availability()}
+
+
+def browser_url_error(url: str) -> str | None:
+    """Por qué browser_action no abre la URL, o None: solo http(s), y nunca metadatos cloud ni enlace local.
+    localhost y la red privada sí, para probar webs en desarrollo. Solo se valida la URL pedida: lo que la
+    página abra después queda fuera."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return f"browser_action only opens http:// and https:// URLs, not '{parsed.scheme or url}'."
+    if not parsed.hostname:
+        return "The URL has no valid host name."
+    if is_metadata_host(parsed.hostname):
+        return "Access blocked: the URL points to cloud metadata or a link-local address."
+    return None
+
+
+def browser_action(action: str, url: str | None = None, selector: str | None = None, value: str | None = None) -> str:
+    """Control a headless browser for UI testing and visual inspection."""
+    try:
+        act = (action or "").strip().lower()
+        if act not in BROWSER_ACTIONS:
+            return _tool_error(f"Invalid browser action: '{action}'. Valid actions: {', '.join(BROWSER_ACTIONS)}.")
+
+        cmd = {"action": act}
+        if url:
+            cmd["url"] = str(url).strip()
+            error = browser_url_error(cmd["url"])
+            if error:
+                return _tool_error(error)
+        if selector:
+            cmd["selector"] = str(selector).strip()
+        if value is not None:
+            cmd["value"] = str(value)
+
+        result = _BROWSER_SESSION.execute(cmd)
+        return json.dumps(result, ensure_ascii=False, indent=2)
+    except Exception as e:
+        return _tool_error(str(e))
+
+# --- server.state ---
+"""Estado del servidor local en marcha: presencia del navegador por latido, auto-cierre, apagado, préstamo del navegador y estado vivo que publica el latido."""
+
+
+
+
+DEFAULT_HEARTBEAT_TIMEOUT = 60.0
+DEFAULT_HEARTBEAT_GRACE = 45.0
+# Las ejecuciones --conversation corren en otro proceso y solo se ven en SQLite. Su final llega sin sondeo (se
+# espera su PID, watch_run_exit), pero no su progreso (step_text): el latido en espera relee cada tanto mientras
+# la interfaz muestra la conversación de una en marcha. Donde no se puede esperar un PID, el latido y el
+# vigilante releen así con cualquiera en marcha.
+_EXTERNAL_RUN_POLL_SECONDS = 1.0
+_WATCHDOG_RUN_RECHECK_SECONDS = 1.0
+# Campos de cada comando que cambian sin parar mientras corre: no cuentan en la firma `rev` (si no, cada
+# línea de salida despertaría a todos los latidos) y se refrescan al vencer cada espera.
+_VOLATILE_JOB_FIELDS = frozenset({"elapsed_s", "output_bytes", "last_line"})
+HEARTBEAT_LAST_SEEN = 0.0
+HEARTBEAT_INITIALIZED = False
+HEARTBEAT_WATCHDOG_STOP = threading.Event()
+_LIVE_STATE_COND = threading.Condition()
+_LIVE_STATE_SEQ = 0
+_WATCHDOG_COND = threading.Condition()
+_SERVER_SHUTTING_DOWN = threading.Event()
+_SHUTDOWN_LOCK = threading.Lock()
+_SHUTDOWN_LISTENERS: set[threading.Event] = set()
+# Si el servidor se detiene al cerrar el navegador, cerrar la pestaña detiene también los comandos.
+EXIT_ON_CLOSE = False
+
+
+def register_shutdown_event(event: threading.Event) -> None:
+    """Registra un evento que se activa al iniciar el apagado del servidor."""
+    with _SHUTDOWN_LOCK:
+        if _SERVER_SHUTTING_DOWN.is_set():
+            event.set()
+        else:
+            _SHUTDOWN_LISTENERS.add(event)
+
+
+def unregister_shutdown_event(event: threading.Event) -> None:
+    with _SHUTDOWN_LOCK:
+        _SHUTDOWN_LISTENERS.discard(event)
+
+
+def set_exit_on_close(value: bool):
+    """Fija si cerrar el navegador detiene el servidor (sin --keep-server)."""
+    global EXIT_ON_CLOSE
+    EXIT_ON_CLOSE = value
+
+
+# Un navegador lo usa una conversación cada vez; queda libre tras este tiempo sin que lo use. Cubre lo que
+# el modelo tarda en razonar entre dos acciones, no la espera a otra petición del usuario.
+BROWSER_LEASE_IDLE_SECONDS = 60.0
+
+
+class BrowserLease:
+    """
+    Reserva de los navegadores (browser_action y Playwright MCP): la conversación que los usa los conserva
+    mientras siga usándolos; otra recibe un error claro hasta que pasen BROWSER_LEASE_IDLE_SECONDS sin uso.
+    Sin cola: compartir la página haría que una conversación actuase sobre la de otra.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._holders: dict[str, tuple[str, float]] = {}
+
+    def acquire(self, resource: str, conversation_id: str) -> bool:
+        now = time.monotonic()
+        with self._lock:
+            holder = self._holders.get(resource)
+            if holder and holder[0] != conversation_id and now - holder[1] < BROWSER_LEASE_IDLE_SECONDS:
+                return False
+            self._holders[resource] = (conversation_id, now)
+            return True
+
+
+BROWSER_LEASES = BrowserLease()
+
+
+def notify_live_state_changed() -> None:
+    """Despierta a los latidos en espera y al watchdog ante cambios del estado vivo."""
+    global _LIVE_STATE_SEQ
+    with _LIVE_STATE_COND:
+        _LIVE_STATE_SEQ += 1
+        _LIVE_STATE_COND.notify_all()
+    with _WATCHDOG_COND:
+        _WATCHDOG_COND.notify_all()
+
+
+on_live_change(notify_live_state_changed)
+
+
+def mark_browser_active():
+    """Registra la presencia del navegador ante cualquier petición de un origen permitido, aunque su
+    token haya caducado: el auto-cierre no detiene el servidor ni sus comandos al cambiar el día."""
+    global HEARTBEAT_LAST_SEEN, HEARTBEAT_INITIALIZED
+    with _WATCHDOG_COND:
+        HEARTBEAT_LAST_SEEN = time.monotonic()
+        HEARTBEAT_INITIALIZED = True
+        _WATCHDOG_COND.notify_all()
+
+
+def heartbeat_initialized() -> bool:
+    """Si el navegador ha dado ya alguna señal de vida."""
+    return HEARTBEAT_INITIALIZED
+
+
+def _live_state_rev(state: dict) -> str:
+    stable = {
+        **state,
+        "jobs": [{k: v for k, v in job.items() if k not in _VOLATILE_JOB_FIELDS} for job in state["jobs"]],
+    }
+    encoded = json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def live_state(ctx: SecurityContext, focus_conversation_id: str | None = None) -> dict:
+    """
+    Estado del servidor que la interfaz sigue en vivo, en initialize y en cada zerochat/heartbeat:
+    cwd, el proyecto de la pestaña que pregunta (su cabecera X-ZeroChat-Project); jobs, los comandos en
+    marcha con su última línea de salida, para mostrarlos y avisar antes de cerrar si se detendrían; exit_on_close; playwright, si
+    se puede navegar aunque se haya instalado o quitado durante la sesión; servers, los servicios
+    MCP externos aunque otra pestaña los cambie o su proceso muera; runs, lista ligera de ejecuciones
+    en segundo plano; y focus_run, estado detallado de la ejecución enfocada por el usuario.
+    """
+    runs, focus_run = list_server_runs(focus_conversation_id)
+    state = {
+        "serverId": get_server_id(),
+        "cwd": str(ctx.workspace_dir),
+        "jobs": JOBS.running_summaries(ctx.key),
+        "exit_on_close": EXIT_ON_CLOSE,
+        "playwright": playwright_status(),
+        "servers": GLOBAL_MCP_MANAGER.list_servers(),
+        "externalTools": GLOBAL_MCP_MANAGER.tools(),
+        "runs": runs,
+        "focus_run": focus_run,
+        "conversations_rev": conversations_revision()
+    }
+    state["rev"] = _live_state_rev(state)
+    return state
+
+
+def wait_live_state(
+    ctx: SecurityContext,
+    focus_conversation_id: str | None = None,
+    since_rev: str | None = None,
+    wait_ms: int = 0,
+) -> dict:
+    """Devuelve el estado vivo; con since_rev y wait_ms espera a que cambie su firma sin sondeo activo."""
+    deadline = time.monotonic() + min(max(0, wait_ms), LONG_POLL_MAX_WAIT_MS) / 1000.0
+    while True:
+        with _LIVE_STATE_COND:
+            seq = _LIVE_STATE_SEQ
+        state = live_state(ctx, focus_conversation_id)
+        if not since_rev or state["rev"] != since_rev or _SERVER_SHUTTING_DOWN.is_set():
+            return state
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return state
+        slice_s = min(remaining, _EXTERNAL_RUN_POLL_SECONDS) if _rereads_runs(state) else remaining
+        with _LIVE_STATE_COND:
+            if _LIVE_STATE_SEQ == seq and not _SERVER_SHUTTING_DOWN.is_set():
+                _LIVE_STATE_COND.wait(slice_s)
+
+
+def _rereads_runs(state: dict) -> bool:
+    """Si el latido en espera debe releer SQLite cada _EXTERNAL_RUN_POLL_SECONDS (ver arriba)."""
+    focus = state.get("focus_run")
+    if isinstance(focus, dict) and focus.get("status") == "running":
+        return True
+    return not pid_exit_waitable() and any(r.get("status") == "running" for r in state["runs"])
+
+
+def stop_zerochat_server(server: ThreadingHTTPServer):
+    """Detiene limpiamente el servidor y todos los subsistemas evitando reentradas."""
+    if _SERVER_SHUTTING_DOWN.is_set():
+        return
+    _SERVER_SHUTTING_DOWN.set()
+    with _SHUTDOWN_LOCK:
+        for listener in list(_SHUTDOWN_LISTENERS):
+            listener.set()
+    HEARTBEAT_WATCHDOG_STOP.set()
+    notify_live_state_changed()
+    running = JOBS.running(None)
+    if running:
+        console_log(timestamp_message(f"Deteniendo {len(running)} comando(s) en marcha: " + ", ".join(job.command[:60] for job in running)))
+    JOBS.stop_all("shutdown")
+    GLOBAL_MCP_MANAGER.close()
+    BROWSER_ENGINES.close()
+    close_browser_session()
+    threading.Thread(target=server.shutdown, daemon=True).start()
+
+
+def _watchdog_wait_step(
+    start_time: float,
+    initial_grace_seconds: float,
+    inactivity_timeout_seconds: float,
+    require_initial_connection: bool,
+) -> str | None:
+    """Espera en _WATCHDOG_COND hasta que venza el plazo actual; devuelve el mensaje de cierre o None."""
+    with _WATCHDOG_COND:
+        while not HEARTBEAT_WATCHDOG_STOP.is_set():
+            if not HEARTBEAT_INITIALIZED:
+                if not require_initial_connection:
+                    _WATCHDOG_COND.wait()
+                    continue
+                remaining = start_time + initial_grace_seconds - time.monotonic()
+                if remaining <= 0:
+                    return f"Tiempo de espera del navegador agotado ({initial_grace_seconds:.0f}s). Deteniendo servidor ZeroChat..."
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            remaining = HEARTBEAT_LAST_SEEN + inactivity_timeout_seconds - time.monotonic()
+            if remaining > 0:
+                _WATCHDOG_COND.wait(remaining)
+                continue
+            return "Navegador desconectado (cierre detectado). Deteniendo servidor ZeroChat..."
+    return None
+
+
+def heartbeat_watchdog(server: ThreadingHTTPServer, initial_grace_seconds: float = DEFAULT_HEARTBEAT_GRACE, inactivity_timeout_seconds: float = DEFAULT_HEARTBEAT_TIMEOUT, require_initial_connection: bool = True):
+    """
+    Supervisa la presencia de la pestaña del navegador mediante latidos HTTP.
+    Si el navegador se cierra o deja de emitir latidos, detiene el servidor automáticamente.
+    """
+    start_time = time.monotonic()
+    run_recheck_seconds = min(_WATCHDOG_RUN_RECHECK_SECONDS, max(0.05, inactivity_timeout_seconds))
+    while not HEARTBEAT_WATCHDOG_STOP.is_set():
+        reason = _watchdog_wait_step(start_time, initial_grace_seconds, inactivity_timeout_seconds, require_initial_connection)
+        if reason is None:
+            return
+        if HEARTBEAT_INITIALIZED:
+            with _LIVE_STATE_COND:
+                seq = _LIVE_STATE_SEQ
+            runs, _ = list_server_runs()
+            if any(r.get("status") == "running" for r in runs):
+                # Hasta que termine alguna (lo avisa watch_run_exit, que list_server_runs pone en marcha) o vuelva el navegador.
+                with _WATCHDOG_COND:
+                    if not pid_exit_waitable():
+                        _WATCHDOG_COND.wait(run_recheck_seconds)
+                    elif _LIVE_STATE_SEQ == seq and not HEARTBEAT_WATCHDOG_STOP.is_set():
+                        _WATCHDOG_COND.wait()
+                continue
+        log_event(reason)
+        stop_zerochat_server(server)
+        return
+
+# --- cli.console ---
+"""Consola interactiva del servidor: una línea de ayuda tras un rato sin actividad y órdenes de teclado (abrir la interfaz, salir)."""
+
+
+
+
+CONSOLE_STATUS_IDLE_SECONDS = 8.0
+
+
+class ConsoleControl:
+    """Muestra una sola línea de ayuda tras un periodo de inactividad en consola."""
+    def __init__(self, server: ThreadingHTTPServer, parser: argparse.ArgumentParser, launch_url=None):
+        self.server = server
+        self.parser = parser
+        # Función que da la URL de la interfaz con el token vigente al pulsar n, no el del arranque.
+        self.launch_url = launch_url
+        self.last_activity = time.monotonic()
+        self.lock = threading.Lock()
+        self.enabled = bool(getattr(sys.stdout, "isatty", lambda: False)())
+        self._keyboard_enabled = bool(getattr(sys.stdin, "isatty", lambda: False)())
+        self._idle_timer: threading.Timer | None = None
+        self._keyboard_stop = threading.Event()
+        self._keyboard_thread: threading.Thread | None = None
+        self._timer_generation = 0
+        self._closed = False
+
+    def start(self):
+        if self.enabled:
+            self._reset_idle_timer()
+        if self._keyboard_enabled:
+            self._keyboard_thread = threading.Thread(target=self._keyboard_loop, name="zerochat-console-input", daemon=True)
+            self._keyboard_thread.start()
+
+    def close(self):
+        with self.lock:
+            self._closed = True
+            self._keyboard_stop.set()
+            if self._idle_timer:
+                self._idle_timer.cancel()
+                self._idle_timer = None
+
+    def _reset_idle_timer(self):
+        with self.lock:
+            if self._closed:
+                return
+            self.last_activity = time.monotonic()
+            self._timer_generation += 1
+            if self._idle_timer:
+                self._idle_timer.cancel()
+            generation = self._timer_generation
+            self._idle_timer = threading.Timer(CONSOLE_STATUS_IDLE_SECONDS, self._show_commands_once, args=(generation,))
+            self._idle_timer.daemon = True
+            self._idle_timer.start()
+
+    def _show_commands_once(self, generation: int):
+        with self.lock:
+            if self._closed or generation != self._timer_generation:
+                return
+            commands = "[h] ayuda · [n] Navegador"
+            if get_notices():
+                commands += " · [i] información"
+            print(f"Comandos de consola: {commands} · [x] salir ordenadamente", flush=True)
+            self._idle_timer = None
+
+    def log(self, message: str, *, flush: bool = True):
+        print(message, flush=flush)
+        if self.enabled:
+            self._reset_idle_timer()
+
+    def show_help(self):
+        print(self.parser.format_help().rstrip(), flush=True)
+
+    def show_notices(self):
+        notices = get_notices()
+        if not notices:
+            return
+        print("Información:", flush=True)
+        for notice in notices:
+            print(f"- {notice}", flush=True)
+
+    def _handle_command(self, command: str):
+        key = command.strip().lower()
+        if key == "h":
+            self.show_help()
+        elif key == "n" and self.launch_url:
+            launch_browser(self.launch_url())
+        elif key == "i":
+            self.show_notices()
+        elif key == "x":
+            self.log(timestamp_message("Deteniendo servidor ZeroChat..."))
+            stop_zerochat_server(self.server)
+
+    def _keyboard_loop(self):
+        """Lee comandos normales terminados con Intro, sin alterar el terminal."""
+        while not self._keyboard_stop.is_set():
+            line = sys.stdin.readline()
+            if not line:
+                return
+            self._handle_command(line)
+
+# --- run_mode.supervisor ---
+"""Supervisión de la ejecución desatendida: plazos, final del runner y arranque del runner de Node."""
+
+
+
+
+
+# Final de la salida de error del runner que acompaña al motivo de un final sin resultado.
+RUNNER_ERROR_TAIL_BYTES = 2000
+
+
+def runner_exit_reason(proc: subprocess.Popen, stderr_log: IO[bytes] | None) -> str:
+    """Por qué terminó el runner sin resultado: su código de salida y el final de su salida de error."""
+    tail = ""
+    if stderr_log is not None:
+        try:
+            size = stderr_log.seek(0, os.SEEK_END)
+            stderr_log.seek(max(0, size - RUNNER_ERROR_TAIL_BYTES))
+            tail = stderr_log.read().decode("utf-8", "replace").strip()
+        except (OSError, ValueError):
+            tail = ""
+    reason = f"El runner de Node.js terminó con el código {proc.returncode} sin resultado"
+    return f"{reason}: {tail}" if tail else f"{reason}."
+
+
+def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc: subprocess.Popen | None = None,
+                   runner_log: IO[bytes] | None = None):
+    """Detiene el servidor al recibir el resultado, si termina el runner propio o al vencer el timeout de --run-file,
+    contado desde el arranque del proceso: entonces termina el runner, y lo hecho ya está grabado. Sin timeout, lo que
+    dura una ejecución lo decide quien la lanza (la cancela o la interrumpe)."""
+    wake = threading.Event()
+    proc_done = threading.Event()
+    session.set_wake_event(wake)
+    register_shutdown_event(wake)
+    try:
+        if runner_proc is not None:
+            def _watch_proc():
+                runner_proc.wait()
+                proc_done.set()
+                wake.set()
+            threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
+        deadline = None if session.timeout_seconds is None else session.started_at / 1000 + session.timeout_seconds
+        woken = wake.wait(None if deadline is None else max(0.0, deadline - time.time()))
+        # El latido o una señal ya detienen el servidor: el resultado queda vacío y el runner no sigue por su cuenta.
+        if _SERVER_SHUTTING_DOWN.is_set():
+            if runner_proc is not None:
+                _kill_process_tree(runner_proc, grace_seconds=1.0)
+            return
+        if not woken and session.reach_limit(f"Límite de {session.timeout_seconds} s alcanzado."):
+            if runner_proc is not None:
+                _kill_process_tree(runner_proc, grace_seconds=1.0)
+        if proc_done.is_set() and not session.finished.wait(0.2):
+            if runner_proc is not None:
+                session.stop_reason = runner_exit_reason(runner_proc, runner_log)
+    finally:
+        unregister_shutdown_event(wake)
+        session.set_wake_event(None)
+    if session.result is None:
+        with session.lock:
+            session.status = "error"
+            session.error = session.stop_reason or ("El runner se cerró sin resultado." if runner_proc else "La ejecución se interrumpió sin resultado.")
+            write_run_state(session)
+    if session.runner_token:
+        revoke_token(session.runner_token)
+    stop_zerochat_server(server)
+
+
+def _runner_cache_file() -> Path:
+    """La caché de los módulos del runner, en una carpeta privada que es lo único del disco que puede tocar."""
+    cache_dir = get_data_dir() / "cache" / "runner"
+    cache_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            cache_dir.chmod(0o700)
+        except OSError:
+            pass
+    return cache_dir / "modules.json"
+
+
+def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
+    """Abre el runner de Node.js sin ventana en segundo plano con el modelo de permisos de Node; devuelve el proceso
+    y su salida de error, en un fichero temporal sin nombre, para explicar un final sin resultado (runner_exit_reason).
+
+    El cargador (runner_loader.py) descarga los módulos de la interfaz de url y solo puede leer y escribir su caché.
+    Hereda el entorno de quien lanza zerochat (NODE_EXTRA_CA_CERTS, TZ, LANG...): ejecuta código propio, no el del
+    modelo, que va al sandbox sin entorno; un runner alterado vendría con una interfaz alterada que ya puede más."""
+    node = find_node_executable()
+    if not node:
+        run_error(f"Se necesita {NODE_REQUIRED_MESSAGE} para la ejecución desatendida.")
+        return None
+    try:
+        cache_file = _runner_cache_file()
+    except OSError as exc:
+        run_error(f"No se pudo preparar la caché del runner de Node.js: {exc}")
+        return None
+    log_event("Iniciando runner de Node.js...")
+    cache_dir = cache_file.parent
+    # En desarrollo los módulos cambian sin subir la versión: se descargan siempre.
+    cache_policy = RUNNER_CACHE_ALWAYS_DOWNLOAD if get_dev_root() is not None else RUNNER_CACHE_BY_VERSION
+    cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
+           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url, cache_policy]
+    try:
+        stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
+        proc = subprocess.Popen(
+            cmd,
+            stdin=subprocess.PIPE,  # Nunca se escribe: al cerrarse porque este proceso muere, el runner termina.
+            stdout=subprocess.DEVNULL,
+            stderr=stderr_log,
+            start_new_session=True,
+        )
+        return proc, stderr_log
+    except OSError as error:
+        run_error(f"No se pudo iniciar el proceso de Node.js ({error}).")
+        return None
+
 # --- tools.registry ---
 """Registro de las herramientas locales: definiciones publicadas al modelo, manejadores y validación de argumentos contra su esquema."""
 
@@ -11149,339 +11526,6 @@ def dispatch_security(method: str, params: dict, ctx: SecurityContext) -> RpcOut
         return rpc_error(INVALID_PARAMS, str(exc))
     except Exception as exc:
         return rpc_error(INTERNAL_ERROR, f"Error de seguridad: {exc}", str(exc))
-
-# --- tools.sandbox_script ---
-"""Proceso hijo de execute_javascript en Node. Generated from scripts/sandbox-child.js by scripts/build-sandbox-script.mjs. Do not edit."""
-
-
-NODE_SANDBOX_ARGS = ["--permission","--disallow-code-generation-from-strings"]
-NODE_SANDBOX_SCRIPT = "'use strict';\n// Proceso hijo de execute_javascript en Node: ejecuta el c\u00f3digo del modelo en un contexto de node:vm.\n// Fuente \u00fanica: scripts/build-sandbox-script.mjs genera de aqu\u00ed py/tools/sandbox_script.py y\n// js/sandbox-node-script.js. Se lanza con `node --permission --disallow-code-generation-from-strings -e`.\n//\n// node:vm no es una frontera de seguridad, as\u00ed que hay tres capas:\n//  1. El contexto no recibe ning\u00fan objeto de este proceso: trae sus propios Object, Array, Promise\u2026, y\n//     console y el formato del resultado se definen dentro. Entre los dos lados solo cruzan cadenas, y\n//     el resultado se recoge por sondeo: ni siquiera se espera su promesa, que entregar\u00eda funciones de\n//     este lado a su `then`.\n//  2. Nadie genera c\u00f3digo desde cadenas: ni el contexto (codeGeneration) ni este proceso (el indicador\n//     de arranque). Si un objeto de aqu\u00ed se filtrara (un error de import()), su constructor de funciones\n//     no servir\u00eda para ejecutar nada.\n//  3. Antes de ejecutar el c\u00f3digo, este proceso se queda sin process, require ni module en su global.\nconst vm = require('node:vm');\n\nconst POLL_MS = 5;\nconst stdin = process.stdin;\nconst writeOut = process.stdout.write.bind(process.stdout);\n\nasync function readStdin() {\n  const chunks = [];\n  for await (const chunk of stdin) chunks.push(chunk);\n  return Buffer.concat(chunks).toString('utf8');\n}\n\nconst positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);\n\n// Se ejecuta dentro del contexto: todo lo que crea pertenece al contexto. Guarda las funciones que usa\n// antes de que el c\u00f3digo del modelo pueda cambiarlas.\nconst prelude = (maxOutputLength, maxLogEntries) => `(() => {\n  \"use strict\";\n  const stringify = JSON.stringify;\n  const toText = String;\n  const resolved = Promise.resolve.bind(Promise);\n  const then = Function.prototype.call.bind(Promise.prototype.then);\n  const push = Function.prototype.call.bind(Array.prototype.push);\n  const join = Function.prototype.call.bind(Array.prototype.join);\n  const map = Function.prototype.call.bind(Array.prototype.map);\n  const slice = Function.prototype.call.bind(String.prototype.slice);\n  const maxOut = ${maxOutputLength};\n  const maxLogs = ${maxLogEntries};\n  const logs = [];\n  let outcome;\n\n  function formatValue(value) {\n    if (value === null) return \"null\";\n    if (value === undefined) return \"undefined\";\n    if (typeof value === \"bigint\") return value.toString();\n    if (typeof value !== \"object\") return toText(value);\n    try {\n      return stringify(value, (_key, item) => (typeof item === \"bigint\" ? item.toString() : item), 2);\n    } catch {\n      return toText(value);\n    }\n  }\n  const truncate = text => (text.length > maxOut ? slice(text, 0, maxOut) + \"... [output truncated]\" : text);\n  function addLog(prefix, args) {\n    if (logs.length >= maxLogs) return;\n    const text = join(map(args, formatValue), \" \");\n    push(logs, truncate(prefix ? \"[\" + prefix + \"] \" + text : text));\n  }\n  const finish = value => {\n    outcome = stringify({\n      success: true,\n      result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? join(logs, \"\\\\n\") : \"undefined\"),\n      logs\n    });\n  };\n  const fail = error => {\n    let message;\n    try {\n      message = error && error.message ? toText(error.message) : toText(error);\n    } catch {\n      message = \"Error\";\n    }\n    outcome = stringify({ success: false, result: \"\", logs, error: message });\n  };\n\n  globalThis.console = {\n    log: (...args) => addLog(\"\", args),\n    info: (...args) => addLog(\"INFO\", args),\n    warn: (...args) => addLog(\"WARN\", args),\n    error: (...args) => addLog(\"ERROR\", args)\n  };\n  Object.defineProperty(globalThis, \"__sandbox\", {\n    value: Object.freeze({\n      run(fn) {\n        try {\n          then(resolved(fn()), finish, fail);\n        } catch (error) {\n          fail(error);\n        }\n      },\n      outcome: () => outcome\n    })\n  });\n})();`;\n\n(async () => {\n  const started = Date.now();\n  const payload = JSON.parse(await readStdin());\n  const code = String(payload.code ?? '');\n  const timeoutMs = positiveInt(payload.timeoutMs, 2500);\n  const maxOutputLength = positiveInt(payload.maxOutputLength, 30000);\n  const maxLogEntries = positiveInt(payload.maxLogEntries, 200);\n\n  const respond = result => writeOut(JSON.stringify({ ...result, executionTimeMs: Date.now() - started }));\n  const failure = error => respond({ success: false, result: '', logs: [], error });\n\n  // Capa 3: lo que un c\u00f3digo que alcanzara este global usar\u00eda para abrir una conexi\u00f3n o cargar m\u00f3dulos.\n  for (const key of ['process', 'require', 'module', 'exports', '__filename', '__dirname', 'fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource']) {\n    delete globalThis[key];\n  }\n\n  const trimmed = code.trim();\n  const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed)\n    || trimmed.includes(';') || trimmed.includes('\\n') || trimmed.includes('return');\n  const body = isStatement ? `\"use strict\";\\n${trimmed}` : `\"use strict\"; return (${trimmed});`;\n  const wrapper = `__sandbox.run(${/\\bawait\\b/.test(trimmed) ? 'async ' : ''}function () {\\n${body}\\n});`;\n\n  const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false } });\n  vm.runInContext(prelude(maxOutputLength, maxLogEntries), context);\n  try {\n    new vm.Script(wrapper).runInContext(context, { timeout: timeoutMs });\n  } catch (err) {\n    const timedOut = err && err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';\n    failure(timedOut ? `Execution timed out after ${timeoutMs}ms and was terminated.` : (err && err.message ? String(err.message) : String(err)));\n    return;\n  }\n\n  // El resultado es una cadena que deja el contexto; quien lanza este proceso lo mata al vencer el plazo.\n  const readOutcome = new vm.Script('__sandbox.outcome()');\n  const poll = setInterval(() => {\n    let raw;\n    try {\n      raw = readOutcome.runInContext(context, { timeout: 100 });\n    } catch {\n      return;\n    }\n    if (typeof raw !== 'string') return;\n    clearInterval(poll);\n    let parsed;\n    try {\n      parsed = JSON.parse(raw);\n    } catch {\n      parsed = null;\n    }\n    if (!parsed || typeof parsed !== 'object') {\n      failure('The sandbox returned an unreadable result.');\n      return;\n    }\n    const logs = Array.isArray(parsed.logs) ? parsed.logs.filter(item => typeof item === 'string').slice(0, maxLogEntries) : [];\n    if (parsed.success === true) respond({ success: true, result: String(parsed.result ?? ''), logs });\n    else respond({ success: false, result: '', logs, error: String(parsed.error ?? 'Error') });\n  }, POLL_MS);\n})();"
-
-# --- tools.sandbox ---
-"""Ejecución aislada de JavaScript en un subproceso Node sin credenciales ni permisos."""
-
-
-
-
-DEFAULT_SANDBOX_TIMEOUT_MS = 2500
-MAX_SANDBOX_TIMEOUT_MS = 30000
-MAX_SANDBOX_OUTPUT_LENGTH = 30000
-MAX_SANDBOX_LOG_ENTRIES = 200
-
-def _normalize_timeout_ms(timeout_ms: int | float | None) -> int:
-    """Valida y acota el timeout del sandbox en milisegundos."""
-    if timeout_ms is None:
-        return DEFAULT_SANDBOX_TIMEOUT_MS
-    # json.loads admite Infinity y NaN: int() los rechazaría con OverflowError/ValueError sin este mensaje.
-    if isinstance(timeout_ms, bool) or not isinstance(timeout_ms, (int, float)) or not math.isfinite(timeout_ms) or timeout_ms <= 0:
-        raise ValueError("timeout_ms debe ser un número positivo")
-    return min(int(timeout_ms), MAX_SANDBOX_TIMEOUT_MS)
-
-
-def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict:
-    """Ejecuta código JavaScript en un subproceso de Node sin entorno, con el script y los indicadores de tools.sandbox_script."""
-    if not isinstance(code, str) or not code.strip():
-        return {
-            "success": False,
-            "result": "",
-            "logs": [],
-            "executionTimeMs": 0,
-            "error": "No code provided to execute.",
-        }
-    resolved_timeout = _normalize_timeout_ms(timeout_ms)
-    node_path = find_node_executable()
-    if not node_path:
-        raise RuntimeError(NODE_REQUIRED_MESSAGE)
-
-    payload = json.dumps({
-        "code": code,
-        "timeoutMs": resolved_timeout,
-        "maxOutputLength": MAX_SANDBOX_OUTPUT_LENGTH,
-        "maxLogEntries": MAX_SANDBOX_LOG_ENTRIES,
-    })
-    started = time.monotonic()
-    popen_kwargs = {
-        "stdin": subprocess.PIPE,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        "env": minimal_child_env(),
-    }
-    if DETECTED_OS != "windows":
-        popen_kwargs["start_new_session"] = True
-    proc = subprocess.Popen([node_path, *NODE_SANDBOX_ARGS, "-e", NODE_SANDBOX_SCRIPT], **popen_kwargs)
-    try:
-        stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
-    except subprocess.TimeoutExpired:
-        _kill_process_tree(proc, grace_seconds=0.05)
-        try:
-            proc.wait(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            pass
-        return {
-            "success": False,
-            "result": "",
-            "logs": [],
-            "executionTimeMs": int((time.monotonic() - started) * 1000),
-            "error": f"Execution timed out after {resolved_timeout}ms and was terminated.",
-        }
-
-    elapsed_ms = int((time.monotonic() - started) * 1000)
-    raw = (stdout or "").strip()
-    if raw:
-        try:
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict) and "success" in parsed:
-                return parsed
-        except json.JSONDecodeError:
-            pass
-    err_detail = (stderr or raw or f"Sandbox exited with code {proc.returncode}").strip()
-    return {
-        "success": False,
-        "result": "",
-        "logs": [],
-        "executionTimeMs": elapsed_ms,
-        "error": err_detail,
-    }
-
-# --- web.fetch ---
-"""Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y frecuencia por dominio."""
-
-
-
-
-METADATA_HOSTS = frozenset({
-    "169.254.169.254",
-    "metadata.google.internal",
-    "instance-data",
-    "100.100.100.200",
-})
-# El User-Agent activo se sustituye por el de la primera petición del frontend (variabilidad de
-# fingerprint); sin frontend (--prompt/--conversation) se usa el último guardado o el por defecto.
-ACTIVE_USER_AGENT = DEFAULT_USER_AGENT
-# Último User-Agent real guardado en SQLite: se lee una sola vez por proceso, no en cada petición web.
-_STORED_USER_AGENT: str | None = None
-_STORED_USER_AGENT_LOADED = False
-
-
-def capture_frontend_user_agent(user_agent: str) -> None:
-    """Adopta y persiste el User-Agent de la primera petición del frontend para las salidas web y Playwright."""
-    global ACTIVE_USER_AGENT, _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED
-    cleaned = user_agent.strip() if isinstance(user_agent, str) else ""
-    if ACTIVE_USER_AGENT is DEFAULT_USER_AGENT and cleaned:
-        ACTIVE_USER_AGENT = cleaned
-        set_service_user_agent(ACTIVE_USER_AGENT, from_frontend=True)
-        save_last_frontend_user_agent(cleaned)
-        _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED = cleaned, True
-
-
-def effective_user_agent() -> str:
-    """User-Agent activo del servidor o, en desatendido sin frontend, el último capturado del navegador."""
-    global _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED
-    if ACTIVE_USER_AGENT is not DEFAULT_USER_AGENT:
-        return ACTIVE_USER_AGENT
-    if not _STORED_USER_AGENT_LOADED:
-        _STORED_USER_AGENT, _STORED_USER_AGENT_LOADED = load_last_frontend_user_agent(), True
-    return _STORED_USER_AGENT or DEFAULT_USER_AGENT
-
-
-WEB_FETCH_MAX_BYTES = 10 * 1024 * 1024
-WEB_FETCH_MAX_REDIRECTS = 5
-WEB_FETCH_READ_CHUNK = 64 * 1024
-TEXT_CONTENT_TYPE_RE = re.compile(
-    r"^(text/|application/(json|xml|xhtml\+xml|javascript|x-javascript|ecmascript)$|[a-z]+/[^;]*\+(json|xml)$)"
-)
-# Frecuencia por dominio frente a retos anti-bot: DuckDuckGo responde con un reto (HTTP 202) a peticiones seguidas o
-# simultáneas, así que van de una en una y con 2 s desde la respuesta anterior. Vale para cualquier herramienta que
-# pida el dominio o un subdominio, no solo para search_web.
-WEB_FETCH_DOMAIN_LIMITS = {
-    "duckduckgo.com": RatePolicy(concurrency=1, min_interval_s=2.0),
-}
-
-
-def _is_public_ip(address: str) -> bool:
-    """Una dirección es pública si es global y no multicast; las IPv4 mapeadas en IPv6 se evalúan como IPv4."""
-    ip = ipaddress.ip_address(address.split("%", 1)[0])
-    if ip.version == 6 and ip.ipv4_mapped:
-        ip = ip.ipv4_mapped
-    return ip.is_global and not ip.is_multicast
-
-
-# Una dirección IPv4 en notación numérica: partes decimales o hexadecimales (0x…), de una a cuatro.
-_NUMERIC_HOST = re.compile(r"(?:0x[0-9a-f]*|\d+)(?:\.(?:0x[0-9a-f]*|\d+)){0,3}")
-
-
-def is_dangerous_host(hostname: str) -> bool:
-    """Riesgo de SSRF: metadatos cloud, nombres locales o cualquier dirección resuelta no pública."""
-    clean_host = (hostname or "").strip().lower().strip("[]").rstrip(".")
-    if not clean_host or clean_host in METADATA_HOSTS or clean_host == "localhost":
-        return True
-    if clean_host.endswith((".localhost", ".local", ".internal")):
-        return True
-    if _NUMERIC_HOST.fullmatch(clean_host):
-        # Abreviadas, enteras, hexadecimales u octales (127.1, 2130706433, 0x7f.1, 0177.0.0.1): cada
-        # resolvedor las interpreta a su manera, así que solo se admite la forma canónica.
-        try:
-            ipaddress.IPv4Address(clean_host)
-        except ValueError:
-            return True
-    try:
-        infos = socket.getaddrinfo(clean_host, None, proto=socket.IPPROTO_TCP)
-    except (socket.gaierror, UnicodeError):
-        # Sin resolución no hay conexión posible: la petición fallará por sí misma.
-        return False
-    return any(not _is_public_ip(info[4][0]) for info in infos)
-
-
-def _validate_web_url(url: str) -> str:
-    """Valida esquema y host de una URL de descarga (también de cada redirección)."""
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"Protocolo no permitido: '{parsed.scheme}'. Solo se admite http y https.")
-    if not parsed.hostname:
-        raise ValueError("URL sin nombre de host válido.")
-    if is_dangerous_host(parsed.hostname):
-        raise PermissionError("Acceso bloqueado: intento de acceso a servicios internos o metadatos de infraestructura (SSRF).")
-    return url
-
-
-class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Sigue redirecciones solo si el destino supera la misma validación anti-SSRF que la URL pedida."""
-    max_redirections = WEB_FETCH_MAX_REDIRECTS
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _validate_web_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-_WEB_OPENER = urllib.request.build_opener(_ValidatingRedirectHandler)
-
-
-def _read_limited_body(stream, content_encoding: str, max_bytes: int) -> tuple[bytes, bool]:
-    """Lee el cuerpo ya descomprimido hasta `max_bytes`; indica si había más (truncado)."""
-    encoding = (content_encoding or "").strip().lower()
-    # MAX_WBITS | 32 detecta la cabecera gzip o zlib.
-    decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate") else None
-    data = bytearray()
-    while len(data) <= max_bytes:
-        chunk = stream.read(WEB_FETCH_READ_CHUNK)
-        if not chunk:
-            break
-        if decompressor:
-            # La salida se limita al hueco restante: un cuerpo comprimido no puede crecer sin tope.
-            chunk = decompressor.decompress(chunk, max_bytes + 1 - len(data))
-        data += chunk
-    truncated = len(data) > max_bytes
-    return bytes(data[:max_bytes]), truncated
-
-
-def is_text_content_type(content_type: str) -> bool:
-    """Tipos que se devuelven como texto; el resto viaja en base64."""
-    media_type = (content_type or "").split(";", 1)[0].strip().lower()
-    return not media_type or bool(TEXT_CONTENT_TYPE_RE.match(media_type))
-
-
-def fetch_web_resource(params: dict) -> dict:
-    """Descarga de forma segura un recurso web vía HTTP/HTTPS para el cliente web."""
-    url = params.get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise ValueError("URL no válida o ausente.")
-    url = _validate_web_url(url.strip())
-
-    parsed = urllib.parse.urlsplit(url)
-    hostname = (parsed.hostname or "").lower()
-
-    timeout_s = max(0.5, min(float(params.get("timeout_s", 10.0)), 30.0))
-    limited = next((domain for domain in WEB_FETCH_DOMAIN_LIMITS if hostname == domain or hostname.endswith("." + domain)), None)
-    if limited is None:
-        return _fetch_web_resource_unpaced(url, params, hostname, parsed, timeout_s)
-    # La espera del turno sale del plazo de la petición: la interfaz no espera más que ese plazo y su margen.
-    try:
-        with RATE_LIMITER.slot(limited, WEB_FETCH_DOMAIN_LIMITS[limited], max_wait_s=timeout_s - 0.5) as waited:
-            return _fetch_web_resource_unpaced(url, params, hostname, parsed, max(0.5, timeout_s - waited))
-    except RateLimitBusy as exc:
-        return {"ok": False, "status": 0, "error": str(exc)}
-
-
-def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, timeout_s: float) -> dict:
-    """Cuerpo de fetch_web_resource sin el control de frecuencia: cabeceras, descarga y respuesta."""
-    max_bytes = max(1024, min(int(params.get("max_bytes", 2 * 1024 * 1024)), WEB_FETCH_MAX_BYTES))
-    as_binary = bool(params.get("binary", False))
-    accept = params.get("accept")
-    req_headers = {
-        "User-Agent": effective_user_agent(),
-        "Accept": accept if isinstance(accept, str) and accept else "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "es-ES,es;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate",
-        "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="131", "Google Chrome";v="131"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Windows"',
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1",
-    }
-    if hostname == "duckduckgo.com" or hostname.endswith(".duckduckgo.com"):
-        req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
-
-    # El esquema (http/https) se valida antes, también en cada redirección.
-    req = urllib.request.Request(url, headers=req_headers)  # noqa: S310
-    try:
-        with _WEB_OPENER.open(req, timeout=timeout_s) as resp:
-            content_type = resp.headers.get("Content-Type", "")
-            raw_data, truncated = _read_limited_body(resp, resp.headers.get("Content-Encoding", ""), max_bytes)
-            # Las cabeceras de transporte ya no describen el cuerpo descomprimido.
-            resp_headers = {k: v for k, v in resp.getheaders() if k.lower() not in ("content-encoding", "content-length")}
-            # Respuestas 202 u otros retos anti-bot se marcan como error no exitoso.
-            if resp.status == 202:
-                return {
-                    "ok": False,
-                    "status": resp.status,
-                    "error": "HTTP 202: Reto anti-bot o verificación de anomalía detectada por el servidor remoto.",
-                    "text": raw_data.decode("utf-8", errors="replace")
-                }
-            result = {
-                "ok": True,
-                "status": resp.status,
-                "url": resp.geturl(),
-                "content_type": content_type,
-                "headers": resp_headers,
-                "byte_size": len(raw_data),
-                "truncated": truncated
-            }
-            if as_binary or not is_text_content_type(content_type):
-                result["base64"] = base64.b64encode(raw_data).decode("ascii")
-                return result
-            charset = resp.headers.get_content_charset() or "utf-8"
-            try:
-                result["text"] = raw_data.decode(charset, errors="replace")
-            except LookupError:
-                result["text"] = raw_data.decode("utf-8", errors="replace")
-            return result
-    except urllib.error.HTTPError as he:
-        err_body = ""
-        try:
-            err_body = he.read(2048).decode("utf-8", errors="replace")
-        except OSError:
-            pass
-        return {
-            "ok": False,
-            "status": he.code,
-            "error": f"HTTP {he.code}: {he.reason}",
-            "text": err_body
-        }
-    except PermissionError:
-        # Una redirección hacia un destino bloqueado es el mismo rechazo anti-SSRF que la URL pedida.
-        raise
-    except Exception as exc:
-        return {
-            "ok": False,
-            "status": 0,
-            "error": str(exc)
-        }
 
 # --- server.rpc ---
 """Métodos JSON-RPC del servidor local: una tabla por método exacto y otra por grupo (prefijo).
@@ -12441,16 +12485,15 @@ def reset_session_authorizations():
                 tool_name = tool_decision.get("toolName") or ""
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
+        # Ninguna herramienta se autoriza sola por ser una ejecución desatendida: siguen las reglas guardadas, y lo que
+        # pediría permiso pausa la ejecución (needs_input). Solo las de master, que el run-file pide con watchAgents.
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
             "allowAll": False,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
-                for name in LOCAL_TOOL_HANDLERS
-                if name != COMMAND_TOOL
-                and (name not in MASTER_TOOLS or session.watch_agents)
-                and not get_integrated_path_access(name)
-                and (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
+                for name in (MASTER_TOOLS if session.watch_agents else ())
+                if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
             }
         }, ctx)
 
