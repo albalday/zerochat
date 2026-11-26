@@ -5338,7 +5338,9 @@ RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
 RUN_FILE_HEADER_KEYS = ("agent", "conversation_id", "profile", "controller", "projectMode", "reasoning", "disabledTools") + tuple(RUN_FILE_LIMIT_KEYS)
 RUN_FILE_SECTIONS = {"system": "systemDataPrompt", "prompt": "prompt"}
 _RUN_FILE_BOOLEAN_KEYS = ("controller", "projectMode")
-_RUN_FILE_SECTION = re.compile(r"^<!--[ \t]*(system|prompt)[ \t]*-->[ \t]*$", re.MULTILINE)
+_RUN_FILE_SECTION = re.compile(r"<!--[ \t]*(system|prompt)[ \t]*-->[ \t]*")
+_MARKDOWN_FENCE = re.compile(r"[ ]{0,3}(`{3,}|~{3,})(.*)")
+_MARKDOWN_FENCE_CLOSE = re.compile(r"[ ]{0,3}(`{3,}|~{3,})[ \t]*")
 # Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
 RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "controller", "reasoning", "disabledTools") + tuple(RUN_FILE_LIMIT_KEYS)
 # disabledTools: lo que se le quita a este agente del entorno guardado de su proyecto, separado por comas en la cabecera.
@@ -5380,6 +5382,44 @@ def _header_value(key: str, raw: str):
     return raw
 
 
+def _next_fence(line: str, fence: tuple[str, int] | None) -> tuple[str, int] | None:
+    """Actualiza el estado de un bloque cercado Markdown (``` o ~~~, según CommonMark)."""
+    if fence is None:
+        match = _MARKDOWN_FENCE.fullmatch(line)
+        if not match:
+            return None
+        marker, info = match.groups()
+        # Una cerca con acentos graves no admite más acentos en la línea de apertura (evita ```código``` en línea).
+        return (marker[0], len(marker)) if marker[0] == "~" or "`" not in info else None
+    match = _MARKDOWN_FENCE_CLOSE.fullmatch(line)
+    if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1]:
+        return None
+    return fence
+
+
+def _split_run_sections(lines: list[str]) -> tuple[str, list[tuple[str, str]], bool]:
+    """Parte las líneas del cuerpo por <!-- system --> / <!-- prompt --> fuera de bloques cercados, e indica si quedó
+    una cerca sin cerrar."""
+    lead, sections, current, buf, fence = "", [], None, [], None
+    for line in lines:
+        if fence is None:
+            section = _RUN_FILE_SECTION.fullmatch(line)
+            if section:
+                if current is None:
+                    lead = "\n".join(buf)
+                else:
+                    sections.append((current, "\n".join(buf)))
+                current, buf = section.group(1), []
+                continue
+        fence = _next_fence(line, fence)
+        buf.append(line)
+    if current is None:
+        lead = "\n".join(buf)
+    else:
+        sections.append((current, "\n".join(buf)))
+    return lead, sections, fence is not None
+
+
 def _run_request_object(raw: bytes) -> dict:
     """Los campos del run-file Markdown, sin pasar del tope ni llevar claves fuera de RUN_FILE_HEADER_KEYS."""
     if len(raw) > RUN_FILE_MAX_BYTES:
@@ -5401,9 +5441,8 @@ def _run_request_object(raw: bytes) -> dict:
         if key in data:
             raise ValueError(f"{key} aparece dos veces en la cabecera")
         data[key] = _header_value(key, value)
-    # split con un grupo deja [texto sin marcador, nombre, texto, nombre, texto...].
-    lead, *sections = _RUN_FILE_SECTION.split("\n".join(lines[end + 1:]))
-    for name, content in zip(sections[::2], sections[1::2], strict=True):
+    lead, sections, _ = _split_run_sections(lines[end + 1:])
+    for name, content in sections:
         if RUN_FILE_SECTIONS[name] in data:
             raise ValueError(f"la sección <!-- {name} --> aparece dos veces")
         data[RUN_FILE_SECTIONS[name]] = content
@@ -5427,8 +5466,11 @@ def format_run_request(request: dict) -> str:
     lines.append("---")
     for name, key in RUN_FILE_SECTIONS.items():
         if key in request:
-            if _RUN_FILE_SECTION.search(request[key]):
+            _, sections, unclosed = _split_run_sections(request[key].replace("\r\n", "\n").split("\n"))
+            if sections:
                 raise ValueError(f"{key} no puede tener una línea con el marcador de una sección")
+            if key == "systemDataPrompt" and "prompt" in request and unclosed:
+                raise ValueError(f"{key} no puede dejar un bloque de código sin cerrar")
             lines += [f"<!-- {name} -->", request[key]]
     return "\n".join(lines) + "\n"
 

@@ -365,10 +365,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                           "projectMode": False, "reasoning": "medium"})
         full = {"agent": "informes.diario", "conversation_id": "fija", "profile": "local", "controller": True, "projectMode": True,
                 "reasoning": "high", "disabledTools": ["imap", "run_command"], "maxSteps": 5, "timeout": 60,
-                "systemDataPrompt": "Manual\n\nen dos párrafos", "prompt": "Tarea"}
+                "systemDataPrompt": "Manual con ejemplo:\n```markdown\n<!-- system -->\nEjemplo\n<!-- prompt -->\nHazlo\n```",
+                "prompt": "Tarea con ~~~ y ```\n~~~\n<!-- prompt -->\n~~~"}
         self.assertEqual(zerochat.parse_run_request(zerochat.format_run_request(full).encode()), full)
         self.assertNotIn("controller", parse({"prompt": "Hola", "controller": False}), "Solo se guarda cuando es true")
-        for unsafe in ({"profile": "a\nb"}, {"prompt": "x\n<!-- system -->\ny"}):
+        for unsafe in ({"profile": "a\nb"}, {"prompt": "x\n<!-- system -->\ny"},
+                       {"systemDataPrompt": "```\nSin cerrar", "prompt": "Tarea"}):
             with self.assertRaises(ValueError):
                 zerochat.format_run_request(unsafe)
 
