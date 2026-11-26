@@ -28,5 +28,6 @@ Done when: Las tareas abiertas de M97 quedan resueltas o evaluadas y descartadas
 - [x] M97-T8 Simplificar el controlador interactivo: las herramientas del controlador no piden permiso (lo da «Subagentes» o controller: true) y no aparecen en Ajustes › MCP (2026-11-26)
 - [x] M97-T9 Reducir el controlador de la interfaz a un único estado del servidor (monousuario): sin estado por conversación ni zerochatConversationId en las herramientas del controlador (2026-11-26)
 - [x] M97-T10 Con «Subagentes» encendido, el icono del agente sustituye al medidor del botón de razonamiento en lugar de ir a su lado (2026-11-26)
+- [x] M97-T11 Recuperar el medidor de razonamiento con «Subagentes» y poner el icono del agente a su lado, ensanchando el botón (el selector [data-subagents="true"] nunca casaba) (2026-11-26)
 
 

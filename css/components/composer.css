@@ -341,9 +341,16 @@
   background-color: var(--warning);
 }
 
-/* «Subagentes»: el icono del agente ocupa el lugar del medidor; el nivel sigue en el nombre accesible y el tooltip. */
-.btn-reasoning[data-subagents] .reasoning-gauge {
-  display: none;
+/* «Subagentes»: el botón se ensancha para el icono del agente junto al medidor, a la misma altura y en su color. */
+.btn-reasoning[data-subagents] {
+  width: auto;
+  padding: 0 8px;
+  gap: 3px;
+}
+
+.btn-reasoning .ui-icon.reasoning-subagents-badge {
+  display: block;
+  flex-shrink: 0;
 }
 
 .reasoning-gauge {
