@@ -815,6 +815,44 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.RUN_SESSION = zerochat.RunSession("Otra", conversation_id="otro_controlador", controller=True)
         self.assertEqual(len(check()["agents"]), 1)
 
+    def test_el_controlador_detiene_solo_lo_que_lanzo_y_queda_en_error_con_lo_que_avanzo(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"], start_new_session=os.name != "nt")
+        self.addCleanup(worker.wait)
+        self.addCleanup(worker.kill)
+        running = {"status": "running", "pid": worker.pid, "pid_start": zerochat._process_start_token(worker.pid)}
+
+        def fake_launch(request, _cwd):
+            upsert_run({"run_id": "r_lanzado", "conversation_id": request["conversation_id"], **running})
+            return {"run_id": "r_lanzado", "pid": worker.pid}
+
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
+        with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
+            conv_id = json.loads(zerochat.launch_agent(agent="lector", prompt="Lee", ctx=ctx))["conversation_id"]
+        zerochat.save_conversation({"id": conv_id, "title": "lector", "project": ctx.key, "agent": "lector"},
+                                   [{"id": "u", "role": "user", "content": "Lee"}, {"id": "a", "role": "assistant", "content": "Voy por la mitad."}])
+        # Otro agente en marcha del proyecto (de cron, por ejemplo): no es suyo y no lo para.
+        zerochat.save_conversation({"id": "de_cron", "title": "cron", "project": ctx.key, "agent": "lector"}, [])
+        upsert_run({"run_id": "r_cron", "conversation_id": "de_cron", "status": "running", "pid": os.getpid(),
+                    "pid_start": zerochat._process_start_token(os.getpid())})
+        for invalid, reason in (({"conversation_id": "de_cron", "stop": True}, "only stops the agents it launched"),
+                                ({"stop": True}, "stop goes alone"), ({"agent": "lector", "stop": True}, "stop goes alone"),
+                                ({"conversation_id": conv_id, "stop": True, "wait_seconds": 5}, "stop goes alone")):
+            self.assertIn(reason, check(**invalid)["error"], invalid)
+        self.assertIsNone(worker.poll(), "Nada se ha parado aún")
+
+        stopped = check(conversation_id=conv_id, stop=True)
+        self.assertEqual((stopped["stopped"], stopped["status"], stopped["error"], stopped["result_text"], stopped["partial"]),
+                         (True, "error", "Stopped by its controller.", "Voy por la mitad.", True))
+        self.assertIsNotNone(worker.wait(timeout=10), "Su proceso ha terminado")
+        self.assertEqual(zerochat.get_run_state(conv_id)["status"], "error")
+        self.assertEqual(zerochat.get_run_state("de_cron")["status"], "running")
+        self.assertIn("is not running (status: error)", check(conversation_id=conv_id, stop=True)["error"])
+        zerochat.RUN_SESSION = None
+
     def test_check_agents_borra_solo_a_peticion_las_conversaciones_antiguas_de_los_agentes_vigilados(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)

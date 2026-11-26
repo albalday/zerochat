@@ -8862,6 +8862,9 @@ AGENT_WAIT_RECHECK_SECONDS = 5.0
 AGENT_ATTENTION_STATUSES = ("needs_input", "error")
 # Tope de prune_keep: cuántas conversaciones recientes de cada agente puede pedir conservar el controlador.
 AGENT_PRUNE_KEEP_MAX = 1000
+# Lo que se da al agente para cerrar antes de matarlo al detenerlo (stop), y el error con que queda su ejecución.
+AGENT_STOP_GRACE_SECONDS = 2.0
+AGENT_STOPPED_ERROR = "Stopped by its controller."
 # Estados que la limpieza nunca borra: una ejecución en marcha o una pausa que espera a una persona.
 AGENT_PRUNE_PROTECTED = ("running", "needs_input")
 
@@ -9071,12 +9074,13 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
 
 def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
                  prune_keep: int | None = None, project: str | None = None, offset: int = 0, include_turn: bool = False,
-                 ctx: SecurityContext | None = None) -> str:
+                 stop: bool = False, ctx: SecurityContext | None = None) -> str:
     """Sin argumentos, el estado de cada agente del proyecto (su conversación más reciente) con su respuesta final si cabe;
     con agent o conversation_id, su respuesta final por bloques desde offset y, con include_turn, los mensajes de su
     último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
-    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes (o de agent). Con
-    project, los agentes de esa carpeta en lugar de los del proyecto de la ejecución."""
+    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes (o de agent); con stop, detiene
+    la conversación conversation_id, si la lanzó este controlador y sigue en marcha. Con project, los agentes de esa
+    carpeta en lugar de los del proyecto de la ejecución."""
     session = current_run_session()
     if session is None or not session.controller or ctx is None:
         return _tool_error("check_agents is only available in a --run-file run with controller: true.")
@@ -9090,6 +9094,9 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
         return _tool_error("offset and include_turn go with agent or conversation_id.")
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         return _tool_error("offset must be a non-negative integer.")
+    if stop is not False:
+        alone = stop is True and agent is None and prune_keep is None and not (wait_seconds or offset or include_turn)
+        return _stop_launched(ctx, own_id, conversation_id if alone else None, session.launched_agents)
     if prune_keep is not None:
         if conversation_id is not None or wait_seconds:
             return _tool_error("prune_keep goes alone or with agent, without conversation_id or wait_seconds.")
@@ -9111,6 +9118,26 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     if not detail:
         return json.dumps({"success": True, **_listing(selected), **extra}, ensure_ascii=False)
     return _detail(*selected[0], offset, include_turn, extra)
+
+
+def _stop_launched(ctx: SecurityContext, own_id: str, conversation_id: str | None, launched: dict) -> str:
+    """Detiene una conversación que este controlador lanzó en esta ejecución: mata su proceso con su árbol (runner y
+    servicios MCP) y deja su fila en error, para que el listado la muestre con lo que avanzó (respuesta parcial).
+    conversation_id es None si stop no venía solo con él."""
+    if conversation_id is None:
+        return _tool_error("stop goes alone with conversation_id: check_agents(conversation_id=..., stop=true).")
+    if conversation_id not in launched:
+        return _tool_error("A controller only stops the agents it launched in this run.")
+    selected = _selected(ctx, own_id, None, conversation_id)
+    if selected is None:
+        return _tool_error("That conversation is not an agent of this project.")
+    conv, run = selected[0]
+    if run.get("status") != "running" or not run_process_alive(run):
+        return _tool_error(f"The conversation {conversation_id} is not running (status: {_agent_state(conv, run)['status']}).")
+    _kill_process_tree(run["pid"], grace_seconds=AGENT_STOP_GRACE_SECONDS)
+    now = int(time.time() * 1000)
+    upsert_run_state({**run, "status": "error", "error": AGENT_STOPPED_ERROR, "updated_at": now, "finished_at": now})
+    return _detail(conv, get_run_state(conversation_id) or {}, 0, False, {"stopped": True})
 
 
 def _checked_prune(convs: list[dict], agent: str | None, keep) -> str:
@@ -11397,7 +11424,8 @@ CHECK_AGENTS_DEFINITION = {
         "of them turns needs_input or error (needs_attention) or when the time is up (wait_elapsed); call it again with "
         "wait_seconds while they are still running. Agents started with launch_agent are listed from the start. To clean up old conversations of the agents "
         "(for example, one per scheduled run), give prune_keep=N, optionally with agent: it deletes all but the N most recent "
-        "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped."
+        "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped. "
+        "To stop an agent this run launched that is no longer needed or is stuck, give its conversation_id with stop=true."
     ),
     "inputSchema": {
         "type": "object",
@@ -11408,7 +11436,8 @@ CHECK_AGENTS_DEFINITION = {
             "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
             "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"},
             "offset": {"type": "integer", "description": "With agent or conversation_id: character offset of the final answer to read from (the next_offset of the previous call)", "default": 0},
-            "include_turn": {"type": "boolean", "description": "With agent or conversation_id: also return the messages of its last turn, including tool results", "default": False}
+            "include_turn": {"type": "boolean", "description": "With agent or conversation_id: also return the messages of its last turn, including tool results", "default": False},
+            "stop": {"type": "boolean", "description": "With conversation_id alone: stop that running agent, which this run launched; what it finished is kept and it ends as error", "default": False}
         }
     }
 }
