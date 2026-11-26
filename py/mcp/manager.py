@@ -152,6 +152,8 @@ class McpServiceManager:
         self._starting: set[str] = set()
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
+        # Huella de los service.json con la que se leyó _services en list_servers (ver _service_files_signature).
+        self._services_signature: tuple | None = None
         self._preferences: dict | None = None
 
     def _notify_state_changed(self):
@@ -214,8 +216,26 @@ class McpServiceManager:
         except (OSError, ValueError) as err:
             log_event(f"[zerochat] Advertencia al guardar preferencias MCP en SQLite: {err}")
 
+    def _service_files_signature(self) -> tuple:
+        """Nombre, mtime y tamaño de cada service.json: cambia al instalar, actualizar, añadir o quitar un servicio."""
+        if not self.services_root.is_dir():
+            return ()
+        signature = []
+        for directory in sorted(self.services_root.iterdir()):
+            try:
+                info = (directory / "service.json").stat()
+            except OSError:
+                continue
+            signature.append((directory.name, info.st_mtime_ns, info.st_size))
+        return tuple(signature)
+
     def list_servers(self) -> list[dict]:
-        self.services = self._load_services()
+        # Lo pide cada latido: las definiciones solo se vuelven a leer si cambió algún service.json. Sin _lock, que
+        # start() mantiene durante instalaciones de minutos; _load_services crea otro dict y lo asigna de una vez.
+        signature = self._service_files_signature()
+        if signature != self._services_signature or self._services is None:
+            self.services = self._load_services()
+            self._services_signature = signature
         saved_secrets = secret_names("mcp:")
         result = []
         for server_id, server in self.services.items():

@@ -411,6 +411,21 @@ class ServiceStatusTest(unittest.TestCase):
         # Los estados que clasifica js/mcp-status.js (tests/unit/test_ui_mcp.js).
         self.assertEqual({expected[0] for *_, expected in table}, set(CONTRACT["serviceStatuses"]))
 
+    def test_el_latido_solo_vuelve_a_leer_las_definiciones_si_cambia_algun_service_json(self):
+        root = use_data_dir(self) / "services"
+        write_service(root, "demo", HEALTHY_MCP)
+        manager = zerochat.McpServiceManager(root)
+        self.addCleanup(manager.close)
+        with patch.object(manager, "_load_services", wraps=manager._load_services) as load:
+            manager.list_servers()
+            manager.list_servers()
+            self.assertEqual(load.call_count, 1)
+            definition = root / "demo" / "service.json"
+            definition.write_text(definition.read_text(encoding="utf-8").replace('"demo"', '"demo" ', 1), encoding="utf-8")
+            write_service(root, "otro", HEALTHY_MCP)
+            self.assertEqual([item["id"] for item in manager.list_servers()], ["demo", "otro"])
+            self.assertEqual(load.call_count, 2)
+
     def test_detener_o_cerrar_el_gestor_deja_el_servicio_detenido_y_sin_error(self):
         root = use_data_dir(self) / "services"
         write_service(root, "demo", HEALTHY_MCP)
