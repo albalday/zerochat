@@ -7481,6 +7481,12 @@ def _jobs_base_dir() -> Path:
         owner = re.sub(r"[^A-Za-z0-9_-]", "_", os.environ.get("USERNAME", "user"))
     base = Path(tempfile.gettempdir()) / f"zerochat-jobs-{owner}"
     base.mkdir(mode=0o700, exist_ok=True)
+    # En un /tmp compartido otro usuario podría haberlo creado antes (o como enlace) con un jobs.json cuyos grupos
+    # cleanup_orphan_jobs mataría: solo vale un directorio real, del usuario y cerrado a los demás.
+    if hasattr(os, "getuid"):
+        info = os.lstat(base)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+            raise PermissionError(f"{base} no es un directorio propio con permisos 0700: bórralo para que ZeroChat lo cree de nuevo.")
     return base
 
 

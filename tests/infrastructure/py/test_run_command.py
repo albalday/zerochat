@@ -485,6 +485,25 @@ class OrphanJobsTest(unittest.TestCase):
         (directory / "jobs.json").write_text(json.dumps(jobs), encoding="utf-8")
         return directory
 
+    def test_un_directorio_comun_abierto_a_otros_o_enlazado_no_se_usa(self):
+        orphan, orphan_entry = self.spawn_group()
+        dead_owner = subprocess.Popen(["true"])
+        dead_owner.wait()
+        self.session("dead", {"pid": dead_owner.pid, "start": "x"}, {"1": orphan_entry})
+        self.base.chmod(0o755)
+        with self.assertRaises(PermissionError):
+            zerochat._jobs_base_dir()
+        self.assertEqual(zerochat.cleanup_orphan_jobs(), 0)
+        self.assertIsNone(orphan.poll(), "con el directorio abierto a otros no se mata nada")
+
+        self.base.chmod(0o700)
+        real = self.base.rename(self.base.with_name("ajeno"))
+        self.base.symlink_to(real, target_is_directory=True)
+        with self.assertRaises(PermissionError):
+            zerochat._jobs_base_dir()
+        self.assertEqual(zerochat.cleanup_orphan_jobs(), 0)
+        self.assertIsNone(orphan.poll())
+
     def test_al_arrancar_se_matan_los_comandos_de_instancias_muertas_sin_tocar_las_vivas(self):
         dead_owner = subprocess.Popen(["true"])
         dead_owner.wait()
