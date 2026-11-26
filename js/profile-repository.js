@@ -4,11 +4,11 @@
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
-    module.exports = factory(require('./storage.js'), require('./profile-backup.js'), require('./utils.js'), require('./defaults.js'));
+    module.exports = factory(require('./storage.js'), require('./profile-secrets.js'), require('./utils.js'), require('./defaults.js'));
   } else {
-    root.ChatProfileRepository = factory(root.ChatStorage, root.ChatProfileBackup, root.ChatUtils, root.ChatDefaults);
+    root.ChatProfileRepository = factory(root.ChatStorage, root.ChatProfileSecrets, root.ChatUtils, root.ChatDefaults);
   }
-}(typeof self !== 'undefined' ? self : this, function (Storage, Backup, Utils, Defaults) {
+}(typeof self !== 'undefined' ? self : this, function (Storage, Secrets, Utils, Defaults) {
   'use strict';
 
   const STORAGE_KEY = 'profiles_v1';
@@ -64,7 +64,11 @@
           settings.apiKey = source[key];
           return;
         }
-        Backup.validateApiKeySecret(source[key]);
+        if (Secrets.isOutdatedApiKeySecret(source[key])) {
+          settings.apiKey = null;
+          return;
+        }
+        Secrets.validateApiKeySecret(source[key]);
       }
       if (key === 'contextWindow') {
         if (source[key] === '' || source[key] === null || source[key] === undefined) {
@@ -213,7 +217,7 @@
       return cloned;
     }
     const secret = cloned.settings.apiKey;
-    cloned.settings.apiKey = secret ? await Backup.decryptApiKey(secret, keyMaterial || undefined) : '';
+    cloned.settings.apiKey = secret ? await Secrets.decryptApiKey(secret, keyMaterial || undefined) : '';
     return cloned;
   }
 
@@ -229,7 +233,7 @@
   /** Perfil con su API key descifrada; pide la contraseña si está cifrada con ella. Los fallos se propagan. */
   async function loadUnlocked(id) {
     if (!id) return null;
-    return Backup.withPassword(keyMaterial => load(id, keyMaterial), requestPassword);
+    return Secrets.withPassword(keyMaterial => load(id, keyMaterial), requestPassword);
   }
 
   function findByName(name) {
@@ -266,7 +270,7 @@
   async function saveEditable(record, options = {}) {
     if (typeof record?.settings?.apiKey !== 'string') throw new Error('The profile API key is not valid.');
     const rawKey = record.settings.apiKey;
-    const apiKey = rawKey ? await Backup.encryptApiKey(rawKey) : null;
+    const apiKey = rawKey ? await Secrets.encryptApiKey(rawKey) : null;
     return save({ ...record, hasApiKey: Boolean(rawKey), settings: { ...record.settings, apiKey } }, options);
   }
 
@@ -279,8 +283,8 @@
         rewritten.push(profile);
         continue;
       }
-      const apiKey = await Backup.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
-      const encrypted = await Backup.encryptApiKey(apiKey, nextKeyMaterial);
+      const apiKey = await Secrets.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
+      const encrypted = await Secrets.encryptApiKey(apiKey, nextKeyMaterial);
       rewritten.push({ ...profile, version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
       reciphered += 1;
     }
@@ -292,7 +296,7 @@
     const current = initialize();
     for (const profile of current.profiles) {
       if (profile.id !== READONLY_PROFILE_ID && profile.settings.apiKey) {
-        await Backup.decryptApiKey(profile.settings.apiKey, keyMaterial);
+        await Secrets.decryptApiKey(profile.settings.apiKey, keyMaterial);
       }
     }
     return true;
@@ -309,33 +313,6 @@
     return true;
   }
 
-  function mergeImported(records) {
-    if (!Array.isArray(records) || records.length > 100) throw new Error('The imported profile list is not valid.');
-    const current = initialize();
-    const imported = records.map(rec => normalizeRecord(rec, false)).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
-    if (imported.length !== records.length) throw new Error(`The backup cannot modify the ${MIRROR_PROFILE.name} profile.`);
-    const ids = new Set();
-    const names = new Set();
-    imported.forEach(profile => {
-      if (ids.has(profile.id) || names.has(profile.name)) throw new Error('The backup contains duplicate profiles.');
-      ids.add(profile.id); names.add(profile.name);
-    });
-    const editable = current.profiles.filter(profile => profile.id !== READONLY_PROFILE_ID);
-    const byId = new Map(editable.map(profile => [profile.id, profile]));
-    const existingNames = new Map(editable.map(profile => [profile.name, profile.id]));
-    let added = 0;
-    let replaced = 0;
-    imported.forEach(profile => {
-      const nameOwner = existingNames.get(profile.name);
-      if (nameOwner && nameOwner !== profile.id) throw new Error(`A profile named "${profile.name}" already exists with another identifier.`);
-      if (byId.has(profile.id)) replaced += 1;
-      else added += 1;
-      byId.set(profile.id, { ...profile, synced: false });
-    });
-    writeDocument({ ...current, profiles: [normalizeRecord(MIRROR_PROFILE), ...byId.values()] });
-    return { added, replaced, total: imported.length };
-  }
-
   async function resolveRemoteApiKey(remote, existing, revealRemote) {
     if (!remote.hasApiKey) return null;
     const isNewer = !existing || (validTimestamp(remote.updatedAt, 0) > validTimestamp(existing.updatedAt, 0));
@@ -348,7 +325,7 @@
       throw new Error(`The local server did not return the profile ${remote.name}.`);
     }
     const rawKey = typeof revealed.settings?.apiKey === 'string' ? revealed.settings.apiKey : '';
-    return rawKey ? Backup.encryptApiKey(rawKey) : null;
+    return rawKey ? Secrets.encryptApiKey(rawKey) : null;
   }
 
   async function remoteToLocalRecord(remote, { existing = null, revealRemote = null } = {}) {
@@ -371,8 +348,8 @@
   async function buildRemoteUploadPayload(local, passwordPrompt) {
     const settings = { ...local.settings };
     if (local.settings.apiKey) {
-      settings.apiKey = await Backup.withPassword(
-        keyMaterial => Backup.decryptApiKey(local.settings.apiKey, keyMaterial),
+      settings.apiKey = await Secrets.withPassword(
+        keyMaterial => Secrets.decryptApiKey(local.settings.apiKey, keyMaterial),
         passwordPrompt
       );
     } else if (local.hasApiKey) {
@@ -491,7 +468,7 @@
 
   return {
     STORAGE_KEY, PROFILE_FIELDS, READONLY_PROFILE_ID, NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    createId, initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, mergeImported, syncWithBackend,
+    createId, initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, syncWithBackend,
     registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };
 }));

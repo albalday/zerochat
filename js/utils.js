@@ -67,9 +67,6 @@
     'image/gif'
   ]));
 
-  /** Identificadores efímeros que viajan en el fragmento de arranque (ejecución, transferencia de perfiles). */
-  const EPHEMERAL_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
-
   /**
    * URL del backend (zerochat.py o el proxy inverso que lo publica): solo un origen http(s), sin ruta,
    * credenciales ni consulta, porque el cliente añade las rutas y firma la de cada herramienta. Null si no es válida.
@@ -764,7 +761,6 @@
     sanitizeImageUrl,
     IMAGE_MIME_TYPES,
     SAFE_IMAGE_MIME_TYPES,
-    EPHEMERAL_ID_PATTERN,
     readLaunchFragment,
     projectName,
     joinPath,

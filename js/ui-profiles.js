@@ -12,12 +12,11 @@
 }(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, Defaults) {
   'use strict';
 
-  const { resolveDep, escapeHtml, EPHEMERAL_ID_PATTERN, readLaunchFragment, showTimedStatus } = Utils;
+  const { resolveDep, escapeHtml, showTimedStatus } = Utils;
   const { t } = I18n;
 
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
-  const getProfileBackup = () => resolveDep('ChatProfileBackup', './profile-backup.js');
-  const getProfileExportBundle = () => resolveDep('ChatProfileExportBundle', './profile-export-bundle.js');
+  const getProfileSecrets = () => resolveDep('ChatProfileSecrets', './profile-secrets.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getProfileCheck = () => resolveDep('ChatProfileCheck', './profile-check.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
@@ -255,7 +254,7 @@
       updateEditor({ loadedApiKey: apiKey });
     } catch (error) {
       if (selectedProfileId() !== profileId) return;
-      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+      showProfileFeedback(t('err_profile_api_key', { err: error?.message || t('notice_error') }), 'error');
     }
     syncProfileSaveState();
   }
@@ -580,93 +579,8 @@
       closeProfileMenu();
       await options.inspectProfile(profile);
     } catch (error) {
-      if (!error?.cancelled) showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
+      if (!error?.cancelled) showProfileFeedback(t('err_profile_api_key', { err: error?.message || t('notice_error') }), 'error');
     }
-  }
-
-  async function handleExportProfiles() {
-    const Profiles = getProfiles();
-    const ProfileBackup = getProfileBackup();
-    try {
-      const profiles = Profiles.list().filter(profile => profile.id !== Profiles.READONLY_PROFILE_ID);
-      if (profiles.length === 0) {
-        showProfileFeedback(t('err_no_profiles_to_export'), 'error');
-        return;
-      }
-      const keyMaterial = await resolveCurrentKeyForRecipher();
-      if (keyMaterial === undefined) return;
-      if (keyMaterial) ProfileBackup.cacheKeyMaterial(keyMaterial);
-      const encrypted = await ProfileBackup.encryptProfiles(profiles, keyMaterial);
-      const date = new Date().toISOString().slice(0, 10);
-      const htmlBundle = getProfileExportBundle().generateExportHTML(encrypted, { profileCount: profiles.length, appLocation: window.location });
-      if (!Utils.downloadFile(htmlBundle, `zerochat_profiles_${date}.html`, 'text/html')) {
-        throw new Error('The file could not be downloaded.');
-      }
-      showProfileFeedback(t('msg_profiles_exported_html'), 'success');
-    } catch (error) {
-      showProfileFeedback(t('err_profiles_backup', { err: error?.message || t('notice_error') }), 'error');
-    }
-  }
-
-  /**
-   * Modo importación: un paquete de perfiles exportado abrió esta página (#mode=import) y le envía
-   * sus datos cifrados por postMessage. Devuelve true si la página arrancó en ese modo; al terminar,
-   * bien o mal, se recarga sin el fragmento para arrancar con normalidad.
-   */
-  function startImportMode(elements) {
-    const hashParams = readLaunchFragment(location.hash);
-    if (hashParams.get('mode') !== 'import') return false;
-    const transferId = hashParams.get('transferId') || '';
-    const validTransfer = EPHEMERAL_ID_PATTERN.test(transferId);
-
-    elements.messagesList.hidden = true;
-    elements.chatForm.hidden = true;
-    const banner = document.createElement('div');
-    banner.className = 'import-waiting-banner';
-    banner.innerHTML = `<div class="import-waiting-content">${Icons.get('download', { size: 64 })}
-      <h2>${escapeHtml(t('profile_import_waiting_title'))}</h2>
-      <p>${escapeHtml(t('profile_import_waiting_desc'))}</p></div>`;
-    document.body.appendChild(banner);
-
-    let importInProgress = false;
-    window.addEventListener('message', async event => {
-      const data = event.data;
-      if (!validTransfer || importInProgress || data?.type !== 'import_profiles' ||
-          data.transferId !== transferId || event.source !== window.opener) return;
-      importInProgress = true;
-      const reply = result => {
-        if (!event.source.closed) event.source.postMessage({ type: 'import_result', transferId, ...result }, '*');
-      };
-      try {
-        if (typeof data.payload !== 'string' || !data.payload) throw new Error('Invalid payload format');
-        const Backup = getProfileBackup();
-        const imported = await Backup.withPassword(
-          keyMaterial => Backup.decryptProfiles(data.payload, keyMaterial),
-          requestCurrentPassword
-        );
-        if (!Array.isArray(imported) || imported.length === 0) throw new Error('No valid profiles found in payload');
-        if (!await getDialogs().confirm(t('confirm_auto_import_profiles', { count: imported.length }))) {
-          throw new Error('Import cancelled by user');
-        }
-        const result = getProfiles().mergeImported(imported);
-        reply({ success: true, result: { added: result.added, replaced: result.replaced, total: result.total } });
-        await getDialogs().alert(t('msg_profiles_auto_imported', { added: result.added, replaced: result.replaced }));
-      } catch (error) {
-        console.error('[UIProfiles] Profile import failed:', error);
-        reply({ success: false, error: error.message });
-        await getDialogs().alert(t('err_auto_import_failed', { err: error.message }));
-      } finally {
-        history.replaceState(null, '', location.pathname + location.search);
-        location.reload();
-      }
-    });
-
-    if (validTransfer && window.opener && !window.opener.closed) {
-      const notifyReady = () => window.opener.postMessage({ type: 'zerochat_import_ready', transferId }, '*');
-      if (document.readyState === 'complete') notifyReady();
-      else window.addEventListener('load', notifyReady, { once: true });
-    }
-    return true;
   }
 
   function requestEncryptionPassword(message) {
@@ -685,8 +599,8 @@
   /** Clave actual de las API keys: la guardada en la sesión o la de la contraseña; undefined si se cancela. */
   async function resolveCurrentKeyForRecipher() {
     const Profiles = getProfiles();
-    const Backup = getProfileBackup();
-    const cached = Backup.getCachedKeyMaterial();
+    const Secrets = getProfileSecrets();
+    const cached = Secrets.getCachedKeyMaterial();
     try {
       await Profiles.verifyApiKeyMaterial(cached);
       return cached;
@@ -695,14 +609,14 @@
     }
     const password = await requestCurrentPassword();
     if (password === null) return undefined;
-    const keyMaterial = await Backup.keyMaterialFromPassword(password);
+    const keyMaterial = await Secrets.keyMaterialFromPassword(password);
     await Profiles.verifyApiKeyMaterial(keyMaterial);
     return keyMaterial;
   }
 
   async function handleEncryptionPassword() {
     const Dialogs = getDialogs();
-    const Backup = getProfileBackup();
+    const Secrets = getProfileSecrets();
     const nextPassword = await requestEncryptionPassword(t('crypto_new_password_prompt'));
     if (nextPassword === null) return;
     if (!nextPassword) {
@@ -718,9 +632,9 @@
     try {
       const current = await resolveCurrentKeyForRecipher();
       if (current === undefined) return;
-      const next = await Backup.keyMaterialFromPassword(nextPassword);
+      const next = await Secrets.keyMaterialFromPassword(nextPassword);
       await getProfiles().recipherApiKeys(current, next);
-      Backup.cacheKeyMaterial(next);
+      Secrets.cacheKeyMaterial(next);
       await Dialogs.alert(t('crypto_password_saved'), { type: 'success' });
     } catch (error) {
       await Dialogs.alert(t('crypto_password_error', { err: error?.message || t('notice_error') }), { type: 'error' });
@@ -734,7 +648,7 @@
       const current = await resolveCurrentKeyForRecipher();
       if (current === undefined) return;
       const reciphered = await getProfiles().recipherApiKeys(current, null);
-      getProfileBackup().clearCachedKeyMaterial();
+      getProfileSecrets().clearCachedKeyMaterial();
       await Dialogs.alert(t(reciphered ? 'crypto_default_saved' : 'crypto_default_no_api_keys'), { type: 'success' });
     } catch (error) {
       await Dialogs.alert(t('crypto_password_error', { err: error?.message || t('notice_error') }), { type: 'error' });
@@ -912,7 +826,6 @@
       closeProfileMenu();
       openNewProfileModal();
     });
-    listen(els.btnMenuExportProfiles, 'click', handleExportProfiles);
     listen(els.btnMenuCloseProfiles, 'click', () => {
       closeProfileMenu();
       els.activeProfileTrigger.focus();
@@ -1008,7 +921,6 @@
     activateConnectionProfile,
     handleEncryptionPassword,
     handleUseDefaultEncryptionKey,
-    startImportMode,
     initialEditorState,
     getSaveHint,
     getSaveDecision,

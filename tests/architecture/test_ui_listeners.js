@@ -15,9 +15,6 @@ const EXCEPTIONS = {
   'ui-conversation.js': {
     getScrollState: 'enlaza una vez por contenedor y lo recuerda en scrollStates',
     insertMessage: 'el mensaje es un nodo nuevo y el listener es { once: true }'
-  },
-  'ui-profiles.js': {
-    startImportMode: 'app.js lo llama una vez al arrancar la ventana de importación'
   }
 };
 

@@ -83,7 +83,6 @@
     inspectorProfileName: 'inspector-profile-name',
     btnCloseInspector: 'btn-close-inspector',
     btnMenuNewProfile: 'btn-menu-new-profile',
-    btnMenuExportProfiles: 'btn-menu-export-profiles',
     btnMenuCloseProfiles: 'btn-menu-close-profiles',
     // Telemetría de contexto
     connectionTokensBadge: 'connection-tokens-badge',
@@ -939,9 +938,6 @@
       toolsContainer: elements.mcpToolsContainer, serversList: elements.mcpServersList,
       savedAuthsList: elements.mcpSavedAuthsList, btnClearAuths: elements.btnMcpClearAuths
     });
-
-    // Un paquete de perfiles exportado abre la página para importarlos: no arranca el chat.
-    if (UIProfiles.startImportMode(elements)) return;
 
     MCP.manager.setProfileSyncHandler(async serverId => {
       try {
