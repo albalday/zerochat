@@ -94,11 +94,14 @@ describe('Servidor local zerochat.py', () => {
       const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'zerochat/login', params: { user: '', password: '' } });
       return body.slice(0, -1) + ' '.repeat(size - body.length) + '}';
     };
-    const sendNoToken = body => fetch(baseUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN }, body });
+    const sendNoToken = (body, origin = { Origin: ORIGIN }) => fetch(baseUrl, { method: 'POST', headers: { 'Content-Type': 'application/json', ...origin }, body });
     const atLimit = await sendNoToken(loginBody(4096));
     assert.equal(atLimit.status, 200);
     assert.equal((await atLimit.json()).error?.code, -32602);
     assert.equal((await sendNoToken(loginBody(4097))).status, 401);
+    // Un iframe sandbox de cualquier web llega con Origin: null; la CLI y el runner, sin Origin.
+    assert.equal((await sendNoToken(loginBody(4096), { Origin: 'null' })).status, 403);
+    assert.equal((await (await sendNoToken(loginBody(4096), {})).json()).error?.code, -32602);
     assert.equal((await post('zerochat/heartbeat', {}, { headers: { Authorization: '' } })).status, 401);
 
     const api = await fetch(`${baseUrl}/`, { headers: { 'X-ZeroChat-Token': testToken } });

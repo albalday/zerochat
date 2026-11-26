@@ -11806,8 +11806,11 @@ def static_file_target(root: Path, rel_path: str) -> Path | None:
 
 
 def is_allowed_origin(origin: str | None, require_origin: bool = False) -> bool:
-    """Verifica si el origen CORS está autorizado."""
-    if origin is None or origin == "null":
+    """
+    Verifica si el origen CORS está autorizado. Sin Origin llegan la CLI, el runner y curl; "null" es una
+    página file:// o un iframe sandbox de cualquier web, y ningún flujo de ZeroChat habla así con el servidor.
+    """
+    if origin is None:
         return not require_origin
     origin_lower = origin.lower()
     if origin_lower == "https://albalday.github.io" or origin_lower.startswith("https://albalday.github.io/"):
