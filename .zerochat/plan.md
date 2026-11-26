@@ -20,5 +20,6 @@ Goal: Corregir pequeños desajustes de interfaz, textos y comportamiento en suba
 Done when: Las tareas abiertas de M97 quedan resueltas o evaluadas y descartadas con el usuario, con sus pruebas aplicables de `AGENTS.md` §4 en verde.
 - [ ] M97-T1 Revisar el texto y alcance del interruptor «Subagentes» en el panel de razonamiento (`agent_delegate_task_desc` en `js/i18n.js` ES/EN y `zerochat.html`): verificar con el usuario qué refleja mejor el comportamiento real de `delegate_task` (múltiples subagentes en paralelo dentro del turno, con o sin servidor local, y restricción actual a solo lectura frente a agentes `--run-file`)
 - [ ] M97-T2 Evaluar hacer `delegate_task` asíncrona (pendiente de evaluación: analizar si aporta frente a las llamadas paralelas del mismo turno y frente a `launch_agent`/`check_agents`)
+- [ ] M97-T3 Renombrar la sección de configuración «Agente» a «Herramientas» / «Tools» (zerochat.html, js/i18n.js ES/EN, help/ y referencias en UI/pruebas) porque solo activa/desactiva las herramientas del entorno del proyecto
 
 
