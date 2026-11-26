@@ -77,6 +77,20 @@ test('Markdown - imágenes: base64, rag-image y URLs sin doble escape ni inyecci
   }
 
   {
+    const html = Markdown.parseMarkdown('![a & "b"](https://example.test/i.png)');
+    assert.ok(html.includes('alt="a &amp; &quot;b&quot;"') && html.includes('<figcaption class="chat-image-caption">a &amp; &quot;b&quot;</figcaption>'));
+    assert.ok(!html.includes('&amp;amp;') && !html.includes('&amp;quot;'));
+  }
+
+  {
+    // Los marcadores internos \u0001/\u0002 escritos por el modelo no reinsertan marcado ni tablas ya procesados.
+    const html = Markdown.parseMarkdown('**x** \u00010\u0001\n\n| c |\n|---|\n| d |\n\n\u00020\u0002');
+    assert.equal(html.match(/<strong>/g).length, 1);
+    assert.equal(html.match(/<table/g).length, 1);
+    assert.ok(!/[\u0000-\u0002]/.test(html));
+  }
+
+  {
     const html = Markdown.parseMarkdown('![a](https://example.test/i.png"onerror="alert(1))');
     assert.ok(!html.includes('"onerror') && !html.includes(' onerror='));
   }

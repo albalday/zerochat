@@ -40,20 +40,22 @@
   // Celdas de tabla: su código en línea ya lo apartó parseTextMarkdown.
   /**
    * Imagen Markdown: en línea (celdas de tabla) o como figura con su pie. Las rag-image:// se
-   * muestran con un marcador hasta que attachContentListeners las carga.
+   * muestran con un marcador hasta que attachContentListeners las carga. altText llega ya escapado
+   * (parseTextMarkdown escapa todo el texto antes de las reglas); solo se escapan los textos de I18n.
    */
   function renderImage(altText, url, inline) {
     const safeSrc = sanitizeImageUrl(url);
     if (!safeSrc) return altText || '';
-    const alt = altText?.trim() || I18n.t('md_image_alt');
+    const alt = altText?.trim() || escapeHtml(I18n.t('md_image_alt'));
     const isRag = safeSrc.startsWith('rag-image://');
     const cachedUrl = isRag ? resolvedRagImagesCache.get(safeSrc) : null;
     const classes = ['chat-embedded-image', inline ? 'inline-image' : '', cachedUrl ? 'rag-resolved-image' : ''].filter(Boolean).join(' ');
     const source = isRag ? `data-rag-src="${safeSrc}" src="${cachedUrl || RAG_IMG_PLACEHOLDER}"` : `src="${safeSrc}"`;
-    const title = altText?.trim() ? `${altText.trim()} — ${I18n.t('image_open_tab')}` : I18n.t('image_open_tab');
-    const img = `<img class="${classes}" ${source} alt="${escapeHtml(alt)}" title="${escapeHtml(title)}" loading="lazy" />`;
+    const openTab = escapeHtml(I18n.t('image_open_tab'));
+    const title = altText?.trim() ? `${altText.trim()} — ${openTab}` : openTab;
+    const img = `<img class="${classes}" ${source} alt="${alt}" title="${title}" loading="lazy" />`;
     if (inline) return img;
-    const caption = altText && !altText.trim().startsWith('#img') ? `<figcaption class="chat-image-caption">${escapeHtml(altText.trim())}</figcaption>` : '';
+    const caption = altText && !altText.trim().startsWith('#img') ? `<figcaption class="chat-image-caption">${altText.trim()}</figcaption>` : '';
     return `\n<figure class="chat-image-figure">${img}${caption}</figure>\n`;
   }
 
@@ -462,7 +464,8 @@
   function parseTextMarkdown(text) {
     if (!text) return '';
 
-    let p = escapeHtml(text).replace(/\u0000/g, '');
+    // \u0000-\u0002 marcan los fragmentos apartados (código, marcado en línea, tablas): el texto no los trae.
+    let p = escapeHtml(text).replace(/[\u0000-\u0002]/g, '');
     const codes = [];
 
     // Reglas horizontales (---, ***, ___)

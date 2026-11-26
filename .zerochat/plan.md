@@ -22,7 +22,7 @@ Done when: cada tarea está hecha o descartada con motivo, cada corrección llev
 - [x] M95-T2 Higiene simple de pruebas: incluir files.html en tests/architecture/test_csp.js y retirar la excepción obsoleta de py/core/environment.py en test_backend_hygiene.js (F-24, parte 1) (2026-11-26)
 - [x] M95-T3 check_agents(include_turn=True): no tomar como inicio del turno los mensajes user sintéticos con _toolEvidence, igual que js/context-manager.js (F-27) (2026-11-26)
 - [x] M95-T4 MCP de correo: normalizar In-Reply-To/References plegados (\r\n\t) antes de asignarlos al EmailMessage al responder, con prueba (F-21) (2026-11-26)
-- [ ] M95-T5 js/markdown.js: limpiar también los placeholders \u0001/\u0002 del texto del modelo y quitar el doble escape de altText en renderImage (F-17)
+- [x] M95-T5 js/markdown.js: limpiar también los placeholders \u0001/\u0002 del texto del modelo y quitar el doble escape de altText en renderImage (F-17) (2026-11-26)
 - [ ] M95-T6 McpServiceManager._expand: sustituir ${option:*}/${secret:*} en una sola pasada para que una opción con texto ${secret:X} no se expanda al secreto (F-09)
 - [ ] M95-T7 zerochat/login: rechazar \x00 en usuario y contraseña con -32602 y capturar el error de forma controlada en rpc_login/_serve_login (F-28)
 - [ ] M95-T8 OAuth MCP: extraer oauth_url de la línea de stderr sin redactar (redactar solo el trace) y abrirla en js/mcp-external.js solo si es http(s) y con noopener,noreferrer (F-11)
