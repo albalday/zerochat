@@ -260,3 +260,38 @@ test('xlsx con imágenes de la hoja: incrustada, enlazada fuera del paquete y co
   assert.match(text, /\[Image omitted: Image 3 \(sheet "Fotos"\)\]/);
   assert.doesNotMatch(text, /example\.com/);
 });
+
+/**
+ * El documento con entradas de relleno sin comprimir cuyo tamaño declarado suma `extra` bytes: fflate
+ * copia una entrada sin comprimir tal cual, así que se prueba el tope sin reservar cientos de MB.
+ */
+function withDeclaredPadding(name, extra) {
+  const fflate = require('fflate');
+  const entries = { ...fflate.unzipSync(new Uint8Array(readFixture(name))) };
+  const sizes = [];
+  for (let left = extra; left > 0; left -= sizes.at(-1)) sizes.push(Math.min(left, 50 * 1024 * 1024));
+  sizes.forEach((_, i) => { entries[`pad${i}.xml`] = [new Uint8Array(1), { level: 0 }]; });
+  const zip = fflate.zipSync(entries);
+  const view = new DataView(zip.buffer);
+  const nameAt = (start, length) => Buffer.from(zip.subarray(start, start + length)).toString();
+  for (let i = 0; i < zip.length - 46; i++) {
+    const signature = view.getUint32(i, true);
+    const [sizeOffset, nameLength, nameOffset] = signature === 0x04034b50 ? [22, 26, 30] : signature === 0x02014b50 ? [24, 28, 46] : [];
+    const match = sizeOffset && /^pad(\d+)\.xml$/.exec(nameAt(i + nameOffset, view.getUint16(i + nameLength, true)));
+    if (match) view.setUint32(i + sizeOffset, sizes[Number(match[1])], true);
+  }
+  return zip.buffer;
+}
+
+test('ZIP-bomb: lo descomprimido por documento se corta en 200 MB (N pasa, N+1 se rechaza), también en docx', async () => {
+  const fflate = require('fflate');
+  const max = 200 * 1024 * 1024;
+  for (const name of ['libreoffice.docx', 'libreoffice.xlsx']) {
+    let real = 0;
+    fflate.unzipSync(new Uint8Array(readFixture(name)), { filter: file => { real += file.originalSize; return false; } });
+    const { text } = await OfficeParser.parseOfficeDocument(withDeclaredPadding(name, max - real), name);
+    assert.match(text, /Café/, name);
+    await assert.rejects(OfficeParser.parseOfficeDocument(withDeclaredPadding(name, max - real + 1), name),
+      /The document unpacks to more than 200 MB and cannot be read\./, name);
+  }
+});

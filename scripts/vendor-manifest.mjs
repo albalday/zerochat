@@ -23,7 +23,7 @@ export const VENDORS = [
   {
     id: 'fflate',
     package: 'fflate',
-    exports: ['unzipSync', 'strFromU8'],
+    exports: ['unzipSync', 'zipSync', 'strFromU8'],
     onDemand: true
   }
 ];

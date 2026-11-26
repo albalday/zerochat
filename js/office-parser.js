@@ -88,6 +88,10 @@
   const MAX_IMAGES = 40;
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
   const MAX_XML_BYTES = 50 * 1024 * 1024;
+  // Tope de lo descomprimido por documento (ZIP-bomb): suma de los tamaños declarados de las entradas
+  // que se leen. Es un tope real porque fflate descomprime cada entrada en un búfer de su tamaño
+  // declarado y no lo agranda.
+  const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
 
   const omittedImage = label => `[Image omitted: ${label}]`;
   const externalImage = label => `[Image not shown: ${label} (linked external image)]`;
@@ -212,11 +216,24 @@
 
   // --- Paquetes ZIP ---------------------------------------------------------
 
+  /** Entradas del paquete descomprimidas con los topes por entrada y por documento. */
+  function unzipPackage(fflate, arrayBuffer) {
+    let total = 0;
+    return fflate.unzipSync(new Uint8Array(arrayBuffer), {
+      filter: file => {
+        if (file.originalSize > (/\.(?:xml|rels)$/i.test(file.name) ? MAX_XML_BYTES : MAX_IMAGE_BYTES)) return false;
+        total += file.originalSize;
+        if (total > MAX_PACKAGE_BYTES) {
+          throw Object.assign(new Error(`The document unpacks to more than ${MAX_PACKAGE_BYTES / 1024 / 1024} MB and cannot be read.`), { code: 'PACKAGE_TOO_LARGE' });
+        }
+        return true;
+      }
+    });
+  }
+
   async function openPackage(arrayBuffer) {
     const fflate = await VendorLoader.load('fflate');
-    const files = fflate.unzipSync(new Uint8Array(arrayBuffer), {
-      filter: file => file.originalSize <= (/\.(?:xml|rels)$/i.test(file.name) ? MAX_XML_BYTES : MAX_IMAGE_BYTES)
-    });
+    const files = unzipPackage(fflate, arrayBuffer);
     return {
       text: path => (files[path] ? fflate.strFromU8(files[path]) : ''),
       bytes: path => files[path] || null
@@ -346,6 +363,10 @@
   }
 
   async function parseDocx(arrayBuffer) {
+    // mammoth descomprime con JSZip, sin topes: recibe el paquete ya descomprimido con los de fflate
+    // y empaquetado de nuevo sin comprimir.
+    const fflate = await VendorLoader.load('fflate');
+    const stored = fflate.zipSync(unzipPackage(fflate, arrayBuffer), { level: 0 });
     const mammoth = await VendorLoader.load('mammoth');
     const collector = createImageCollector();
     let index = 0;
@@ -362,7 +383,7 @@
       const { id, markdown } = collector.add({ base64, extension, label });
       return id ? { src: `rag-image://__DOC_ID__:${id}`, alt: label } : { src: '', alt: markdown };
     });
-    const result = await mammoth.convertToHtml({ arrayBuffer }, { convertImage });
+    const result = await mammoth.convertToHtml({ arrayBuffer: stored.buffer.slice(stored.byteOffset, stored.byteOffset + stored.byteLength) }, { convertImage });
     return { text: htmlToMarkdown(result.value), images: collector.images };
   }
 
@@ -897,7 +918,7 @@
     try {
       result = await parse(arrayBuffer);
     } catch (error) {
-      if (error?.code === 'VENDOR_UNAVAILABLE') throw error;
+      if (error?.code === 'VENDOR_UNAVAILABLE' || error?.code === 'PACKAGE_TOO_LARGE') throw error;
       throw new Error(`The ${getOfficeDocumentKind(format)} could not be read. It may be damaged or password protected.`, { cause: error });
     }
     const images = await Promise.all(result.images.map(toVisionImageRecord));
