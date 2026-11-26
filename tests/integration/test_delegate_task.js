@@ -3,12 +3,9 @@ const assert = require('node:assert/strict');
 
 const AgentCore = require('../../js/agent-core.js');
 const ChatAPI = require('../../js/api.js');
-const ToolSecurity = require('../../js/tool-security.js');
 
 const { Tool, ToolRegistry, ToolExecutor, AgentRuntime } = AgentCore;
 
-// Como al conectar el backend local, que informa de su directorio de trabajo.
-ToolSecurity.manager.applyPolicies({ directoryRules: ['RWX:/home/user/proj/**'] });
 const delegateTask = AgentCore.registry.getTool('delegate_task');
 
 function localTool(name, execute = async () => ({ success: true }), mcpServerId = 'mcp_proxy') {
@@ -19,6 +16,11 @@ function localTool(name, execute = async () => ({ success: true }), mcpServerId 
     settings: { showInSettings: false },
     execute
   });
+}
+
+/** Una nativa de lectura (por su nombre) sin red ni efectos. */
+function readTool(name, execute) {
+  return new Tool({ definition: { name, description: `Native ${name}` }, settings: { showInSettings: false }, execute });
 }
 
 function call(id, name, args = {}) {
@@ -40,9 +42,9 @@ function stubApi(t, respond) {
 function createHarness(executed) {
   const registry = new ToolRegistry();
   registry.unregisterProvider('builtin');
-  registry.registerTool(localTool('read_file', async args => {
-    executed.push(`read_file:${args.path}`);
-    return { success: true, content: 'export const answer = 42;' };
+  registry.registerTool(readTool('fetch_web_page', async args => {
+    executed.push(`fetch_web_page:${args.url}`);
+    return { success: true, content: 'answer = 42' };
   }));
   registry.registerTool(localTool('write_file', async () => {
     executed.push('write_file');
@@ -59,11 +61,9 @@ function createHarness(executed) {
   return { registry, runtime, services, context: { services, agent: { resolveToolDefinitions } } };
 }
 
-test('delegate_task - solo ofrece al subagente herramientas de lectura', async t => {
+test('delegate_task - solo ofrece al subagente herramientas nativas de lectura', async t => {
   const registry = new ToolRegistry();
-  for (const name of ['read_file', 'list_directory', 'search_files', 'get_diagnostics', 'write_file', 'edit_file', 'run_command', 'check_command', 'browser_action']) {
-    registry.registerTool(localTool(name));
-  }
+  for (const name of ['read_file', 'write_file', 'run_command', 'browser_action']) registry.registerTool(localTool(name));
   registry.registerTool(localTool('remote_read_file', undefined, 'remote_server'));
   const offered = [];
   stubApi(t, async params => {
@@ -78,23 +78,22 @@ test('delegate_task - solo ofrece al subagente herramientas de lectura', async t
 
   assert.equal(result.success, true);
   assert.deepEqual(offered.sort(), [
-    'download_doc', 'download_image', 'execute_javascript', 'fetch_web_page', 'get_diagnostics', 'list_directory', 'list_documents',
-    'read_file', 'read_knowledge_chunk', 'read_knowledge_image', 'search_files', 'search_knowledge_base', 'search_web'
-  ], 'Fuera quedan las que escriben, ask_user, render_chart, delegate_task y los MCP externos');
+    'download_doc', 'download_image', 'execute_javascript', 'fetch_web_page', 'list_documents',
+    'read_knowledge_chunk', 'read_knowledge_image', 'search_knowledge_base', 'search_web'
+  ], 'Fuera quedan las que escriben, ask_user, render_chart, delegate_task y toda MCP, local o externa');
 });
 
 test('delegate_task - el subagente trabaja con contexto propio y devuelve solo su informe', async t => {
-  // Recorrido completo por el agente real: las herramientas del servidor local se registran en
-  // su registro y se retiran al terminar.
+  // Recorrido completo por el agente real: la nativa de lectura no sale a la red y la de escritura se registra en su
+  // registro y se retira al terminar.
   const executed = [];
-  const fakeTools = [
-    localTool('read_file', async args => { executed.push(`read_file:${args.path}`); return { success: true, content: 'export const answer = 42;' }; }),
-    localTool('write_file', async () => { executed.push('write_file'); return { success: true }; })
-  ];
-  fakeTools.forEach(tool => AgentCore.registry.registerTool(tool));
-  t.after(() => fakeTools.forEach(tool => AgentCore.registry.unregisterTool(tool.name)));
+  const fetchTool = AgentCore.registry.getTool('fetch_web_page');
+  t.mock.method(fetchTool, 'execute', async args => { executed.push(`fetch_web_page:${args.url}`); return { success: true, content: 'answer = 42' }; });
+  const writeTool = localTool('write_file', async () => { executed.push('write_file'); return { success: true }; });
+  AgentCore.registry.registerTool(writeTool);
+  t.after(() => AgentCore.registry.unregisterTool(writeTool.name));
   const runtime = AgentCore.runtime;
-  const context = { resolveToolDefinitions: () => [...fakeTools, delegateTask].map(tool => tool.getDefinition()) };
+  const context = { resolveToolDefinitions: () => [fetchTool, writeTool, delegateTask].map(tool => tool.getDefinition()) };
   const controller = new AbortController();
   const subagentRequests = [];
   let parentRequests = 0;
@@ -104,13 +103,13 @@ test('delegate_task - el subagente trabaja con contexto propio y devuelve solo s
       subagentRequests.push({ ...params, messages: [...params.messages] });
       assert.equal(params.signal, controller.signal, 'El subagente hereda la cancelación del agente principal');
       if (subagentRequests.length === 1) {
-        return { accumulatedText: 'Leo el fichero.', toolCalls: [call('s1', 'read_file', { path: 'a.js' }), call('s2', 'write_file', { path: 'a.js' })], stats: null };
+        return { accumulatedText: 'Leo la página.', toolCalls: [call('s1', 'fetch_web_page', { url: 'https://a.test' }), call('s2', 'write_file', { path: 'a.js' })], stats: null };
       }
-      return { accumulatedText: 'answer vale 42 (a.js:1).', toolCalls: [], stats: null };
+      return { accumulatedText: 'answer vale 42 (https://a.test).', toolCalls: [], stats: null };
     }
     parentRequests++;
     if (parentRequests === 1) {
-      return { accumulatedText: '', toolCalls: [call('p1', 'delegate_task', { task: 'Find the value of answer in a.js.' })], stats: null };
+      return { accumulatedText: '', toolCalls: [call('p1', 'delegate_task', { task: 'Find the value of answer in https://a.test.' })], stats: null };
     }
     return { accumulatedText: 'Vale 42.', toolCalls: [], stats: null };
   });
@@ -123,19 +122,19 @@ test('delegate_task - el subagente trabaja con contexto propio y devuelve solo s
 
   assert.equal(result.status, 'completed');
   assert.equal(result.finalText, 'Vale 42.');
-  assert.deepEqual(executed, ['read_file:a.js'], 'write_file nunca se ejecuta aunque el subagente la pida');
+  assert.deepEqual(executed, ['fetch_web_page:https://a.test'], 'write_file nunca se ejecuta aunque el subagente la pida');
 
   const firstSubRequest = subagentRequests[0];
-  assert.deepEqual(firstSubRequest.tools.map(definition => definition.function.name), ['read_file']);
+  assert.deepEqual(firstSubRequest.tools.map(definition => definition.function.name), ['fetch_web_page']);
   assert.equal(firstSubRequest.messages.length, 1, 'El subagente no ve la conversación principal');
-  assert.match(firstSubRequest.messages[0].content, /Task:\nFind the value of answer in a\.js\.$/);
+  assert.match(firstSubRequest.messages[0].content, /Task:\nFind the value of answer in https:\/\/a\.test\.$/);
 
   const deniedWrite = subagentRequests[1].messages.find(message => message.role === 'tool' && message.name === 'write_file');
   assert.match(deniedWrite.content, /not available to the subagent/);
 
   const delegated = result.history.find(message => message.role === 'tool' && message.name === 'delegate_task');
-  assert.equal(delegated.content, 'answer vale 42 (a.js:1).', 'Al agente principal solo llega el informe');
-  assert.equal(result.history.some(message => message.name === 'read_file'), false);
+  assert.equal(delegated.content, 'answer vale 42 (https://a.test).', 'Al agente principal solo llega el informe');
+  assert.equal(result.history.some(message => message.name === 'fetch_web_page'), false);
 });
 
 test('delegate_task - valida encargo, herramientas requeridas, fallos del proveedor y truncado del informe', async t => {
@@ -161,7 +160,7 @@ test('delegate_task - valida encargo, herramientas requeridas, fallos del provee
   assert.match(long.report, /\[Report truncated at 20000 characters\.\]$/);
 
   const countBeforeNoTools = requests;
-  registry.unregisterTool('read_file');
+  registry.unregisterTool('fetch_web_page');
   const noTools = await delegateTask.execute({ task: 'Investigate' }, context);
   assert.equal(noTools.success, false);
   assert.match(noTools.error, /No read-only tools/);
@@ -224,15 +223,4 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
   services.profiles = { list: () => { throw new Error('corrupt storage'); } };
   assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /profiles could not be read: corrupt storage/);
   assert.equal(requests.length, 2);
-
-  // En una ejecución en el servidor, el perfil Subagente de sesión (del servidor) va antes que uno guardado con el mismo nombre.
-  const loadedIds = [];
-  services.profiles = {
-    listSessionProfiles: () => [{ id: 'server:Subagente', name: 'Subagente', settings: {} }],
-    list: () => [{ id: 'profile:Subagente', name: 'Subagente', settings: {} }],
-    loadUnlocked: async id => { loadedIds.push(id); return { settings: { apiUrl: 'http://srv/v1', apiType: 'openai', model: 'srv-model' } }; }
-  };
-  assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
-  assert.deepEqual(loadedIds, ['server:Subagente']);
-  assert.equal(requests[2].model, 'srv-model');
 });

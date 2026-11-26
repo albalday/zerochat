@@ -1,4 +1,7 @@
-/** Herramienta nativa delegate_task: delega una investigación a un subagente de solo lectura con contexto propio. */
+/**
+ * Herramienta nativa delegate_task: delega una investigación a un subagente de solo lectura con contexto propio. Es
+ * «Subagentes» sin servidor local: con él, el interruptor da las herramientas del controlador (launch_agent…).
+ */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('../../utils.js'), require('../../i18n.js'), require('../../icons.js'));
   else root.ChatBuiltinDelegateTaskTool = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
@@ -12,14 +15,12 @@
   const MAX_REPORT_LENGTH = 20000;
   const TASK_PREVIEW_LENGTH = 600;
 
-  // El subagente solo recibe herramientas que leen; nunca delegate_task, ask_user ni render_chart.
+  // El subagente solo recibe herramientas nativas que leen; nunca delegate_task, ask_user ni render_chart. Las MCP
+  // quedan fuera: las externas no declaran si escriben y las del servidor local no están activas sin él.
   const READ_ONLY_BUILTIN_TOOLS = new Set([
     'search_web', 'fetch_web_page', 'download_doc', 'download_image', 'execute_javascript',
     'list_documents', 'search_knowledge_base', 'read_knowledge_chunk', 'read_knowledge_image'
   ]);
-  // Del servidor local, solo las de lectura. Los MCP externos quedan fuera: no declaran si escriben.
-  const READ_ONLY_LOCAL_TOOLS = new Set(['read_file', 'list_directory', 'search_files', 'get_diagnostics']);
-  const LOCAL_SERVER_ID = 'mcp_proxy';
   // Un perfil con este nombre (sin distinguir mayúsculas) da al subagente otro modelo.
   const SUBAGENT_PROFILE_NAMES = new Set(['subagente', 'subagent']);
 
@@ -38,11 +39,7 @@
   const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
   const BOT_ICON_SVG = Icons.get('bot', { size: 14 });
 
-  function isReadOnlyTool(tool) {
-    if (!tool) return false;
-    if (tool.category === 'mcp') return tool.metadata?.mcpServerId === LOCAL_SERVER_ID && READ_ONLY_LOCAL_TOOLS.has(tool.name);
-    return READ_ONLY_BUILTIN_TOOLS.has(tool.name);
-  }
+  const isReadOnlyTool = tool => Boolean(tool) && tool.category !== 'mcp' && READ_ONLY_BUILTIN_TOOLS.has(tool.name);
 
   function normalizeTask(value) {
     const task = typeof value === 'string' ? value.trim() : '';
@@ -126,10 +123,7 @@
     };
     let match;
     try {
-      // Como switch_model: en una ejecución en el servidor, sus perfiles (de sesión) van primero.
-      const repository = context.services.profiles;
-      const session = repository.listSessionProfiles?.() || [];
-      match = [...session, ...repository.list().filter(profile => !session.some(item => item.id === profile.id))]
+      match = context.services.profiles.list()
         .find(profile => SUBAGENT_PROFILE_NAMES.has(String(profile?.name || '').trim().toLowerCase()));
     } catch (error) {
       return { error: `The profiles could not be read: ${error?.message || String(error)}` };
@@ -296,10 +290,10 @@
   return {
     definition,
     category: 'agent',
-    // Se enciende con «Subagentes» en el panel de razonamiento, no en Ajustes › Agente; una ejecución en el servidor
-    // lo apaga (js/run-mode.js): tiene launch_agent si es controladora.
+    // Se enciende con «Subagentes» en el panel de razonamiento, no en Ajustes › Agente, y solo sin las herramientas del
+    // servidor local: con ellas, «Subagentes» da las del controlador (js/mcp.js). Una ejecución en el servidor nunca la tiene.
     settings: { showInSettings: false },
-    isAvailable: config => config.subagents === true,
+    isAvailable: config => config.subagents === true && !resolveDep('ChatMCP', './mcp.js').localToolsAvailable(),
     promptGuide: '- `delegate_task(task="...")`: Delegates a self-contained research task to a read-only subagent with a fresh context and returns only its final report. Use it for broad investigations that need many reads; it cannot see this conversation.',
     execute: runSubagent,
     result: {

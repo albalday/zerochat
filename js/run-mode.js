@@ -148,8 +148,8 @@
       } = await send('zerochat/run/prompt');
       // --run-file decide si se inyectan las normas y el estado del proyecto; --prompt y --conversation, no (null).
       if (typeof projectMode === 'boolean') getConfig().updateRuntime({ projectMode });
-      // Solo las ejecuciones interactivas lanzadas desde la interfaz con «Subagentes» encendido conservan delegate_task;
-      // --run-file (que usa launch_agent) y --prompt lo apagan siempre.
+      // «Subagentes» solo en una ejecución controladora (controller: true o un chat lanzado con «Subagentes»): ofrece las
+      // herramientas del controlador que publica su servidor. Nunca delegate_task, que no se ofrece con servidor local.
       getConfig().updateRuntime({ subagents: subagents === true });
 
       const isConversationMode = Boolean(conversationId);

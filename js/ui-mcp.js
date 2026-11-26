@@ -128,6 +128,8 @@
     const plug16 = Icons.get('plug', { size: 15 });
     const badgeHtml = showBadge ? `<span class="mcp-tool-badge">${escapeHtml(t('mcp_tool_badge'))}</span>` : '';
     const checked = AgentCore.isToolEnabled(appConfig?.enabledTools, tool.name, tool.defaultEnabled !== false);
+    // Sin interruptor propio: las de navegador se eligen en Ajustes › Navegador y las del controlador, con «Subagentes».
+    const switchHint = browser ? 'mcp_tool_browser_setting' : (tool.metadata?.controller ? 'mcp_tool_subagents_setting' : null);
     return `
       <div class="mcp-tool-card" data-tool-id="${escapeHtml(tool.name)}">
         <div class="mcp-tool-info">
@@ -139,9 +141,9 @@
           </div>
           ${tool.description ? `<p class="mcp-tool-desc">${escapeHtml(tool.description)}</p>` : ''}
           ${paramsHint ? `<div class="mcp-tool-params"><code>${escapeHtml(paramsHint)}</code></div>` : ''}
-          ${browser ? `<p class="label-hint">${escapeHtml(t('mcp_tool_browser_setting'))}</p>` : ''}
+          ${switchHint ? `<p class="label-hint">${escapeHtml(t(switchHint))}</p>` : ''}
         </div>
-        ${browser ? '' : `<div class="mcp-tool-action">
+        ${switchHint ? '' : `<div class="mcp-tool-action">
           <label class="switch switch-sm">
             <input type="checkbox" class="agent-tool-checkbox mcp-tool-checkbox" data-tool-id="${escapeHtml(tool.name)}" ${checked ? 'checked' : ''}>
             <span class="slider"></span>
@@ -151,8 +153,8 @@
   }
 
   /**
-   * Lista de herramientas MCP con su interruptor; las de navegador (browser_action y Playwright MCP)
-   * no tienen interruptor propio porque se eligen en Ajustes › Navegador.
+   * Lista de herramientas MCP con su interruptor; las de navegador (browser_action y Playwright MCP) y las del
+   * controlador no tienen interruptor propio: se eligen en Ajustes › Navegador y con «Subagentes».
    */
   function renderToolsList(container, tools, appConfig) {
     if (tools.length === 0) {

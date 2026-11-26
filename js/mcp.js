@@ -316,7 +316,8 @@
       metadata: {
         mcpServerName: tool.metadata.mcpServerName,
         mcpServerId: tool.metadata.mcpServerId,
-        originalName: tool.metadata.originalName
+        originalName: tool.metadata.originalName,
+        controller: tool.metadata.controller
       }
     };
   }
@@ -355,6 +356,9 @@
         const isLocalWait = isProxy && toolName === LOCAL_WAIT_TOOL;
         const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
         const usesBrowser = isBrowserAction || (isProxy && toolName === 'browser_fill_secret') || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
+        // check_agents, launch_agent…: el servidor las marca; se encienden con «Subagentes», no en Ajustes, y actúan
+        // como controlador de la conversación que las llama.
+        const isController = isProxy && rt.metadata?.controller === true;
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
         if (toolInstances.some(tool => tool.name === namespacedName)) throw new Error('Duplicate MCP public name');
@@ -373,9 +377,10 @@
           category: 'mcp',
           // Una espera tiene que verse sin desplegarla.
           displayMode: isLocalWait ? 'expanded' : undefined,
-          isAvailable: () => (!isProxy || localToolsAvailable()) && (!isBrowserAction || browserActionAvailable()),
+          isAvailable: config => (!isProxy || localToolsAvailable()) && (!isBrowserAction || browserActionAvailable())
+            && (!isController || config?.subagents === true),
           // Un servicio externo declara en su service.json si la herramienta empieza activada.
-          settings: { showInSettings: true, defaultEnabled: !external || rt.metadata?.enabledByDefault !== false },
+          settings: { showInSettings: !isController, defaultEnabled: !external || rt.metadata?.enabledByDefault !== false },
           metadata: {
             iconSvg: Icons.get('plug', { size: 14 }),
             mcpServerName: serverName,
@@ -384,13 +389,15 @@
             mcpServerId: sourceServer,
             // Herramientas nativas que esta sustituye mientras está activa (AgentCore.ToolRegistry.replacementOf).
             replaces,
+            controller: isController,
             localCommand: isLocalCommand,
             description: rt.description || ''
           },
           execute: async (args, context) => {
             const jobKey = isLocalCommand || isLocalWait ? context.invocationId : null;
-            // Un navegador lo usa una conversación cada vez: el servidor necesita saber cuál lo pide.
-            const conversationId = usesBrowser ? getState().get('sessions').activeId : null;
+            // Un navegador lo usa una conversación cada vez, y cada conversación es su propio controlador: el servidor
+            // necesita saber cuál lo pide.
+            const conversationId = usesBrowser || isController ? getState().get('sessions').activeId : null;
             const meta = { ...(jobKey ? { zerochatJobKey: jobKey } : {}), ...(conversationId ? { zerochatConversationId: conversationId } : {}) };
             try {
               return await withCommandJobStop(this.client, jobKey, context.signal, () => this.client.callTool(rt.name, args, {
@@ -1154,6 +1161,7 @@
     publicToolName,
     playwrightInstalled,
     browserActionAvailable,
+    localToolsAvailable,
     manager,
     projectOfDirectory,
     directoryOfProject,

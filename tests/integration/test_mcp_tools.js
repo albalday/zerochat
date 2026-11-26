@@ -311,3 +311,50 @@ test('MCP Tools - respuesta a retos de autorización mediante executeToolCall y 
     ToolSecurity.manager.setMcpClient(null);
   }
 });
+
+test('MCP Tools - «Subagentes» da las herramientas del controlador con el servidor local y delegate_task solo sin él', async () => {
+  const originalFetch = global.fetch;
+  const previousMcp = ChatState.get('mcp');
+  const previousSessions = ChatState.get('sessions');
+  const calls = [];
+  const reply = result => ({ ok: true, status: 200, json: async () => ({ jsonrpc: '2.0', id: calls.at(-1).id, result }) });
+  try {
+    global.fetch = async (_url, options) => {
+      const body = JSON.parse(options.body || '{}');
+      calls.push(body);
+      if (body.method === 'tools/list') {
+        return reply({ tools: [
+          { name: 'read_file', description: 'Read', inputSchema: { type: 'object', properties: {} } },
+          { name: 'check_agents', description: 'Agents', inputSchema: { type: 'object', properties: {} }, metadata: { controller: true } }
+        ] });
+      }
+      return reply({ content: [{ type: 'text', text: '{"success": true}' }], isError: false });
+    };
+    const ChatConfig = require('../../js/config-store.js');
+    const client = new MCP.McpClient({ id: 'mcp_proxy', name: 'ZeroChat Local Server', url: 'http://127.0.0.1:6388' });
+    const tools = await new MCP.McpToolProvider(client).discoverTools();
+    const readFile = tools.find(tool => tool.name === 'read_file');
+    const checkAgents = tools.find(tool => tool.name === 'check_agents');
+    const delegate = AgentCore.registry.getTool('delegate_task');
+    const enabled = config => [readFile, checkAgents, delegate].map(tool => AgentCore.registry.isToolEnabledNow(tool, config));
+    const on = ChatConfig.normalize({ subagents: true });
+    const off = ChatConfig.normalize({ subagents: false, enabledTools: { check_agents: true } });
+
+    assert.equal(checkAgents.settings.showInSettings, false, 'Sin interruptor en Ajustes: lo enciende «Subagentes»');
+    ChatState.set('sessions', { ...previousSessions, activeId: 'conv-chat' });
+    ChatState.set('mcp', { status: 'connected', serverInfo: { cwd: '/home/user/proj' } });
+    assert.deepEqual(enabled(on), [true, true, false], 'Con servidor local, agentes del controlador y nunca delegate_task');
+    assert.deepEqual(enabled(off), [true, false, false], 'Apagado, ni un enabledTools guardado las enciende');
+    ChatState.set('mcp', { status: 'disconnected' });
+    assert.deepEqual(enabled(on), [false, false, true], 'Sin servidor local, delegate_task');
+
+    // Cada conversación es su propio controlador: la llamada dice cuál.
+    calls.length = 0;
+    await checkAgents.execute({}, { invocationId: 'inv-agentes-1', signal: new AbortController().signal });
+    assert.deepEqual(calls.find(call => call.method === 'tools/call').params._meta, { zerochatConversationId: 'conv-chat' });
+  } finally {
+    global.fetch = originalFetch;
+    ChatState.set('mcp', previousMcp);
+    ChatState.set('sessions', previousSessions);
+  }
+});
