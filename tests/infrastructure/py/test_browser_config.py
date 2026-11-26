@@ -238,14 +238,6 @@ class PlaywrightLaunchTest(unittest.TestCase):
             with self.subTest(token=token), self.assertRaisesRegex(ValueError, "extensionToken"):
                 zerochat.validate_browser_config({"extensionToken": token})
 
-    def test_borrar_los_datos_quita_solo_el_perfil_de_ese_motor_con_playwright_detenido(self):
-        for engine in ("chromium", "firefox", "webkit"):
-            (self.own / engine).mkdir(parents=True)
-        (self.own / "chromium" / "Cookies").write_text("x")
-        with playwright_running("starting"), self.assertRaisesRegex(ValueError, "Detén Playwright MCP"):
-            zerochat.clear_own_browser_data("chromium")
-        self.assertEqual(zerochat.clear_own_browser_data("chromium"), {"cleared": "chromium"})
-        self.assertEqual(sorted(path.name for path in self.own.iterdir()), ["firefox", "webkit"])
 
 
 class UserBrowserExtensionTest(unittest.TestCase):

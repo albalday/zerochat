@@ -10,14 +10,12 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from core.environment import get_data_dir
 from core.logging import log_event
 from storage.db import get_secret, get_setting, set_setting
 
 
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
-# Modo propio: un motor de Playwright o canal del sistema en memoria (--isolated), o con almacenamiento
-# persistente con nombre en ~/zerochat/playwright/profile/<motor>/<nombre>.
+# Modo propio: un motor de Playwright o canal del sistema en memoria (--isolated), sin datos guardados al cerrar.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
@@ -63,10 +61,6 @@ def sets_user_agent(config: dict) -> bool:
     """Solo los motores de Playwright llevan el User-Agent de ZeroChat: los navegadores instalados y el
     del usuario son navegadores reales y actualizados que envían el suyo."""
     return config["mode"] == "own" and config["engine"] in OWN_BROWSER_ENGINES
-
-
-def own_browser_profile_dir(engine: str) -> Path:
-    return get_data_dir() / "playwright" / "profile" / engine
 
 
 def _validate_user_agent(value) -> str:

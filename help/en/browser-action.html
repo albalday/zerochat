@@ -33,11 +33,10 @@
       <p>Playwright MCP opens a separate in-memory browser (<code>--isolated</code>), apart from yours: it keeps cookies and sessions while the session lasts, saves nothing to disk on close, and supports concurrent <code>zerochat</code> runs, including unattended runs without a graphical session.</p>
       <ul>
         <li><strong>Playwright engines and system browsers:</strong> Chromium, Firefox or WebKit (downloaded to the Playwright cache; Chromium is installed with the service, <strong>Install</strong> downloads the others showing progress, and <strong>Remove</strong> deletes them from the cache), or the browsers detected on the system (<strong>Google Chrome</strong>, <strong>Microsoft Edge</strong> or <strong>System Chromium</strong>) launched in an isolated ZeroChat profile without needing the extension: it is a new empty profile that does not see your cookies or sessions (to use them, choose <a href="#extension">Your browser</a>).</li>
-        <li><strong>Browser data:</strong> <strong>Clear</strong> deletes all saved persistent storages of the chosen engine in <code>~/zerochat/playwright/profile/&lt;engine&gt;</code>. You will have to sign in to those sites again.</li>
         <li><strong>User-Agent</strong> (only with Playwright’s Chromium, Firefox or WebKit; system Chrome, Edge and Chromium are real, up-to-date browsers and send their own): <strong>Automatic</strong> reuses the last real User-Agent captured from your browser and stored in SQLite (also in unattended runs), <strong>Rotate on each launch</strong> picks a different modern browser User-Agent on each session, and <strong>Custom</strong> uses the string you enter (up to 512 characters).</li>
         <li><strong>Show the window:</strong> by default the browser runs without a window (<code>--headless</code>); check it to watch what the model does.</li>
       </ul>
-      <p>Removing an engine or clearing its data stops Playwright MCP if it is running and starts it again when done.</p>
+      <p>Removing an engine stops Playwright MCP if it is running and starts it again when done.</p>
     </div>
 
     <div class="card" id="extension">

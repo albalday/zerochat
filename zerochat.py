@@ -4077,8 +4077,7 @@ def has_nested_project_data(project_key: str) -> bool:
 
 
 # Configuración del navegador de Playwright MCP (sección Navegador de Ajustes).
-# Modo propio: un motor de Playwright o canal del sistema en memoria (--isolated), o con almacenamiento
-# persistente con nombre en ~/zerochat/playwright/profile/<motor>/<nombre>.
+# Modo propio: un motor de Playwright o canal del sistema en memoria (--isolated), sin datos guardados al cerrar.
 # Modo del usuario: su Chrome, Edge o Chromium mediante la extensión de Playwright (--extension).
 BROWSER_MODES = ("own", "user")
 OWN_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
@@ -4124,10 +4123,6 @@ def sets_user_agent(config: dict) -> bool:
     """Solo los motores de Playwright llevan el User-Agent de ZeroChat: los navegadores instalados y el
     del usuario son navegadores reales y actualizados que envían el suyo."""
     return config["mode"] == "own" and config["engine"] in OWN_BROWSER_ENGINES
-
-
-def own_browser_profile_dir(engine: str) -> Path:
-    return get_data_dir() / "playwright" / "profile" / engine
 
 
 def _validate_user_agent(value) -> str:
@@ -4315,17 +4310,6 @@ def on_playwright_status(check):
 
 def _playwright_active() -> bool:
     return any(check() for check in PLAYWRIGHT_STATUS_CHECK)
-
-
-def clear_own_browser_data(engine) -> dict:
-    """Borra el perfil persistente del motor (cookies, sesiones, almacenamiento de los sitios)."""
-    if engine not in ALL_OWN_ENGINES:
-        raise ValueError(f"engine debe ser uno de: {', '.join(ALL_OWN_ENGINES)}")
-    # El navegador abierto tiene el perfil bloqueado y volvería a escribirlo.
-    if _playwright_active():
-        raise ValueError("Detén Playwright MCP antes de borrar los datos del navegador.")
-    shutil.rmtree(own_browser_profile_dir(engine), ignore_errors=True)
-    return {"cleared": engine}
 
 
 # Motores propios de Playwright: cada uno se compone de las entradas de la caché que instala
@@ -4566,7 +4550,7 @@ class BrowserEngines:
 BROWSER_ENGINES = BrowserEngines()
 
 # --- browser.rpc ---
-"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
+"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración y motores propios de Playwright."""
 
 
 
@@ -4583,7 +4567,6 @@ def _engines_list(params: dict) -> RpcOutcome:
 
 BROWSER_METHODS = {
     "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
-    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
     "zerochat/browser/engines/list": _engines_list,
     "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
     "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),

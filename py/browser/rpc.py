@@ -1,11 +1,11 @@
-"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración, datos y motores propios de Playwright."""
+"""Métodos JSON-RPC de la sección Navegador de Ajustes: configuración y motores propios de Playwright."""
 
 from __future__ import annotations
 
 import subprocess
 
 from browser.config import save_browser_config
-from browser.engines import BROWSER_ENGINES, clear_own_browser_data
+from browser.engines import BROWSER_ENGINES
 from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, parse_nonneg_int, parse_optional_nonneg_int, rpc_error, rpc_result
 
 
@@ -20,7 +20,6 @@ def _engines_list(params: dict) -> RpcOutcome:
 
 BROWSER_METHODS = {
     "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
-    "zerochat/browser/data/clear": lambda params: rpc_result(clear_own_browser_data(params.get("engine"))),
     "zerochat/browser/engines/list": _engines_list,
     "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
     "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),

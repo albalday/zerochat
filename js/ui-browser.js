@@ -140,7 +140,6 @@
   }
 
   function renderOwnMode() {
-    const engineName = ownEngineName(section.config.engine);
     const uaMode = section.config.userAgentMode || 'auto';
     const uaOptions = USER_AGENT_MODES.map(mode =>
       `<option value="${escapeHtml(mode)}"${uaMode === mode ? ' selected' : ''}>${escapeHtml(t(`browser_user_agent_mode_${mode}`))}</option>`
@@ -157,10 +156,6 @@
     return `${choice('browser-mode', 'own', section.config.mode === 'own', t('browser_mode_own'), t('browser_mode_own_hint'))}
       <div class="browser-card-body">
         <span class="label-hint">${escapeHtml(t('browser_engines_hint'))}</span>${section.engines.engines.map(renderEngine).join('')}${OWN_SYSTEM_ENGINES.map(renderSystemEngine).join('')}
-        <div class="browser-row">
-          <span class="browser-row-text"><strong>${escapeHtml(t('browser_data_title'))}</strong><span class="label-hint">${escapeHtml(t('browser_data_hint', { name: engineName }))}</span></span>
-          <button type="button" class="btn-secondary" data-browser-action="clear">${escapeHtml(t('browser_data_clear'))}</button>
-        </div>
         ${setsUserAgent(section.config) ? `<div class="form-field">
           <label for="browser-user-agent-mode"><strong>${escapeHtml(t('browser_user_agent_mode'))}</strong><span class="label-hint">${escapeHtml(t('browser_user_agent_mode_hint'))}</span></label>
           <select id="browser-user-agent-mode" name="browser-user-agent-mode">${uaOptions}</select>
@@ -320,11 +315,6 @@
           section.savedConfig = section.engines.config;
           if (section.config.engine === engine) section.config.engine = section.savedConfig.engine;
         });
-        render();
-      } else if (action === 'clear') {
-        if (!await getDialogs().confirm(t('browser_data_clear_confirm', { name }), { type: 'warning', acceptText: t('browser_data_clear') })) return;
-        await getMCP().manager.withExternalServerStopped('playwright', () => request('zerochat/browser/data/clear', { engine }));
-        section.notice = { type: 'success', text: t('browser_data_cleared', { name }) };
         render();
       }
     } catch (error) {
