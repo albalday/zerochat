@@ -121,8 +121,8 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
       export: 'md',
       new_conversation_id: 'session_nueva_1',
       max_steps: 5,
-      // Una herramienta y un servicio que existen, y una errata.
-      disabled_tools: ['execute_javascript', 'imap', 'imp'],
+      // Una herramienta y un servicio que existen, y dos entradas inválidas ('none' no es un navegador quitado ni 'imp' existe).
+      disabled_tools: ['execute_javascript', 'imap', 'none', 'imp'],
       project_mode: false
     },
     submitResult: { text: 'Listo' },
@@ -139,7 +139,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.equal(Config.getActive().projectMode, false, '--run-file sin projectMode no inyecta las normas del proyecto');
   assert.equal(Config.getActive().subagents, false, 'Una ejecución en el servidor nunca delega en subagentes');
   assert.deepEqual(ok.calls.filter(c => c.method === 'zerochat/run/progress' && c.params.kind === 'warning').map(c => c.params.text),
-    ['disabledTools: imp is not a tool, MCP service or browser of this run'], 'Solo la errata queda en los avisos');
+    ['disabledTools: none, imp is not a tool, MCP service or browser of this run'], 'Solo los nombres inválidos quedan en los avisos');
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', text: 'Listo' });
   // El consumo acumulado llega tras cada llamada al modelo, en orden y antes del resultado.

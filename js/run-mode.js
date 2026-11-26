@@ -196,7 +196,8 @@
       // El servidor ya quitó del entorno lo de disabledTools; un nombre que no es ninguna herramienta, servicio MCP ni
       // navegador (una errata) deja la herramienta que se quería quitar: queda en los avisos de la ejecución.
       const known = new Set([...getAgentCore().registry.listTools().map(tool => tool.name),
-        ...getState().get('mcp').externalServers.map(server => server.id), ...getDefaults().BROWSER_TOOLS]);
+        ...getState().get('mcp').externalServers.map(server => server.id),
+        ...getDefaults().BROWSER_TOOLS.filter(tool => tool !== 'none')]);
       const unknown = (Array.isArray(disabledTools) ? disabledTools : []).filter(name => !known.has(name));
       if (unknown.length) report({ kind: 'warning', text: `disabledTools: ${unknown.join(', ')} is not a tool, MCP service or browser of this run` });
 

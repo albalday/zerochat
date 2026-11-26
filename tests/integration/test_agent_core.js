@@ -168,11 +168,14 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   // La herramienta de navegación de Ajustes › Navegador: browser_action o Playwright MCP, nunca los
   // dos, aunque el interruptor general de browser_action esté apagado.
   registry.registerTool(makeTool({ name: 'browser_action', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'mcp_proxy' }, execute: async () => '' }));
+  registry.registerTool(makeTool({ name: 'browser_fill_secret', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'mcp_proxy' }, execute: async () => '' }));
   registry.registerTool(makeTool({ name: 'playwright_browser_click', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'playwright' }, execute: async () => '' }));
-  const browserTools = browser => registry.getActiveDefinitions(ConfigStore.normalize({ browser, enabledTools: { browser_action: false } }))
-    .map(d => d.function.name).filter(name => ['browser_action', 'playwright_browser_click'].includes(name));
+  const browserTools = (browser, enabledTools = { browser_action: false }) => registry.getActiveDefinitions(ConfigStore.normalize({ browser, enabledTools }))
+    .map(d => d.function.name).filter(name => ['browser_action', 'browser_fill_secret', 'playwright_browser_click'].includes(name));
   assert.deepEqual(browserTools('browser_action'), ['browser_action']);
-  assert.deepEqual(browserTools('playwright'), ['playwright_browser_click']);
+  assert.deepEqual(browserTools('playwright'), ['browser_fill_secret', 'playwright_browser_click']);
+  assert.deepEqual(browserTools('playwright', { browser_fill_secret: false }), ['playwright_browser_click'],
+    'disabledTools puede quitar herramientas concretas de Playwright sin apagar el navegador');
   assert.deepEqual(browserTools('none'), []);
   assert.deepEqual(browserTools('otro'), ['browser_action'], 'Un valor desconocido toma el predeterminado');
 });

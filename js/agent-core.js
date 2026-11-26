@@ -216,7 +216,8 @@
     isToolEnabledNow(tool, appConfig) {
       if (!tool.isAvailable(appConfig)) return false;
       const browser = browserOfTool(tool);
-      if (browser) return browser === activeBrowserTool(appConfig);
+      // Las herramientas de un navegador (p. ej. browser_fill_secret o una de Playwright) pueden apagarse por separado con disabledTools.
+      if (browser) return browser === activeBrowserTool(appConfig) && (tool.name === browser || isToolEnabled(appConfig.enabledTools, tool.name, true));
       if (!tool.settings.showInSettings) return true;
       return isToolEnabled(appConfig.enabledTools, tool.name, tool.settings.defaultEnabled);
     }
