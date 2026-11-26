@@ -8,8 +8,9 @@ reasoning: medium
 maxSteps: 40
 timeout: 600
 ---
-<!-- system -->
 You are the <role> agent of this project. Describe here its job, steps, inputs, outputs and file conventions.
+
+When you finish, your final answer is the only thing whoever launched you receives: end with your result or, if you wrote it to files, the exact path of each file.
 
 <!-- prompt -->
 Run the scheduled task.

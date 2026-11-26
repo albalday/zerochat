@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -12,7 +13,7 @@ import unittest
 import urllib.parse
 from pathlib import Path
 from unittest import mock
-from backend import use_data_dir, use_project, zerochat
+from backend import ZEROCHAT_PY, use_data_dir, use_project, zerochat
 
 # Proyecto de la petición, distinto del proyecto por defecto del servidor.
 CTX = zerochat.SecurityContext(Path(tempfile.gettempdir()).resolve())
@@ -271,6 +272,15 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNotNone(session_with_prompt)
         self.assertEqual(session_with_prompt.prompt, "Nuevo prompt")
         self.assertEqual(session_with_prompt.conversation_id, "conv_vacia")
+
+    def test_la_plantilla_de_agente_del_modo_agentes_es_un_run_file_valido(self):
+        # agents/template.md de templates/project/mode-agent-templates.txt, con sus marcadores rellenos como haría el modelo.
+        templates = (ZEROCHAT_PY.parent / "templates" / "project" / "mode-agent-templates.txt").read_text(encoding="utf-8")
+        block = re.search(r"agents/template\.md[^\n]*\n```markdown\n(.*?)```", templates, re.S).group(1)
+        request = zerochat.parse_run_request(block.replace("<set>.<role>", "informes.diario").replace("<role>", "diario").encode())
+        self.assertEqual((request["agent"], request["conversation_id"], request["prompt"]), ("informes.diario", "informes.diario", "Run the scheduled task."))
+        self.assertTrue(request["systemDataPrompt"].startswith("You are the diario agent"), "El manual va tras la cabecera, sin marca")
+        self.assertIn("exact path of each file", request["systemDataPrompt"])
 
     def test_la_cli_no_lanza_otra_ejecucion_de_una_conversacion_en_marcha(self):
         zerochat.save_general_profile({"name": "local", "settings": {}})

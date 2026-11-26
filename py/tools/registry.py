@@ -266,7 +266,9 @@ LAUNCH_AGENT_DEFINITION = {
         "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
         "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
         "max_steps, timeout, conversation_id and disabled_tools). It runs with the saved environment and permissions of its project and "
-        "is never a controller; the answer also gives runs (running and max at a time on the machine). With run_file, prompt replaces the run-file's task; give project to launch an agent of "
+        "is never a controller; the answer also gives runs (running and max at a time on the machine). In the task, ask the agent to "
+        "end with its result or the exact path of the output file you assign it (its own, never one another agent writes). "
+        "With run_file, prompt replaces the run-file's task; give project to launch an agent of "
         "another project. Then follow it with check_agents, which can wait for it."
     ),
     "inputSchema": {
