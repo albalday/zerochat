@@ -367,12 +367,27 @@ def check_no_active_run(conv_id: str, own_run_id: str | None = None):
         raise ValueError(f"Ya hay una ejecución en marcha para la conversación '{conv_id}'.")
 
 
+# Ejecuciones en marcha a la vez en esta máquina, las lance la interfaz o un agente: frena a un orquestador
+# que lanza demasiados agentes y a un agente que se relanza en cadena.
+MAX_CONCURRENT_RUNS = 8
+
+
+def check_run_capacity():
+    """ValueError si ya hay MAX_CONCURRENT_RUNS ejecuciones vivas. Dos lanzamientos en el mismo instante pueden pasar
+    uno de más, y una ejecución arrancada a mano (zerochat --prompt) no se frena, aunque cuenta."""
+    running = sum(1 for data in list_run_states() if data.get("status") == "running" and run_process_alive(data))
+    if running >= MAX_CONCURRENT_RUNS:
+        raise ValueError(f"Too many runs in progress ({MAX_CONCURRENT_RUNS} at a time on this machine): "
+                         "wait for one to finish before starting another.")
+
+
 def start_server_run(params: dict) -> dict:
     """Inicia una ejecución en segundo plano para una conversación, en su proyecto o, si no tiene, en la carpeta general."""
     if not isinstance(params, dict):
         raise ValueError("Parámetros no válidos.")
     clean_conv_id, conv, profile_name = _run_target(params)
     check_no_active_run(clean_conv_id)
+    check_run_capacity()
 
     prompt = params.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
@@ -438,6 +453,7 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
     """
     conv_id = request["conversation_id"]
     check_no_active_run(conv_id)
+    check_run_capacity()
     if not find_node_executable():
         raise ValueError(f"Se necesita {NODE_REQUIRED_MESSAGE} para lanzar agentes.")
     run_id = secrets.token_urlsafe(24)
