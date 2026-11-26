@@ -23,7 +23,9 @@ from core.live_events import live_change_seq, wait_live_change
 from core.process import _kill_process_tree
 from run_mode.state import (
     MAX_CONCURRENT_RUNS,
+    RUN_FILE_LIMIT_KEYS,
     RUN_FILE_MAX_BYTES,
+    RUN_REASONING_LEVELS,
     check_no_active_run,
     current_run_session,
     format_run_request,
@@ -36,6 +38,10 @@ from run_mode.state import (
 from security.context import SecurityContext, normalize_directory_path
 from security.controller import ACCESS_CONTROLLER
 from storage.db import (
+    MAX_AGENT_ID_LENGTH,
+    MAX_CONVERSATION_ID_LENGTH,
+    MAX_PROJECT_PROMPT_LENGTH,
+    MAX_PROJECT_TOOL_ID_LENGTH,
     delete_conversation,
     delete_run_state,
     get_conversation,
@@ -409,17 +415,69 @@ def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict)
 INLINE_LAUNCH_FIELDS = {"agent": "agent", "system_prompt": "systemDataPrompt", "profile": "profile", "reasoning": "reasoning",
                         "max_steps": "maxSteps", "timeout": "timeout", "conversation_id": "conversation_id",
                         "disabled_tools": "disabledTools"}
+_RUN_TO_INLINE_FIELDS = {run_key: inline_key for inline_key, run_key in INLINE_LAUNCH_FIELDS.items()}
+
+_RUN_ERROR_PHRASES = (
+    ("agent debe ser", f"agent must be <name> or <set>.<name> using lowercase letters, digits, _ or -, up to {MAX_AGENT_ID_LENGTH} characters."),
+    ("identificador de la conversación no puede estar vacío", "conversation_id must be a non-empty string."),
+    ("identificador no puede superar", f"conversation_id must not exceed {MAX_CONVERSATION_ID_LENGTH} characters."),
+    ("reasoning debe ser", f"reasoning must be one of: {', '.join(RUN_REASONING_LEVELS)}."),
+    ("no puede superar " + str(RUN_FILE_MAX_BYTES), f"The run-file must not exceed {RUN_FILE_MAX_BYTES} bytes."),
+    ("no es texto UTF-8", "The run-file is not valid UTF-8 text."),
+    ("debe empezar con su cabecera", "The run-file must start with a header between two '---' lines."),
+    ("campo desconocido en la cabecera", "Unknown field in the run-file header."),
+    ("aparece dos veces en la cabecera", "Duplicate field in the run-file header."),
+    ("aparece dos veces", "Duplicate section in the run-file."),
+    ("hay texto antes de las secciones", "Text before sections must go inside <!-- system --> or <!-- prompt -->."),
+)
+
+
+def _format_run_error(exc: ValueError, *, inline: bool) -> str:
+    """Normaliza al inglés (y a los nombres de argumento en línea) los errores de format/parse_run_request."""
+    msg = str(exc)
+    for needle, english in _RUN_ERROR_PHRASES:
+        if needle in msg:
+            return english
+    run_field = msg.split(" ", 1)[0]
+    field = _RUN_TO_INLINE_FIELDS.get(run_field, run_field) if inline else run_field
+    if "no puede superar" in msg:
+        return f"{field} must not exceed {MAX_PROJECT_PROMPT_LENGTH} characters."
+    if "debe ser true o false" in msg:
+        return f"{field} must be true or false."
+    if "debe ser un entero entre 1 y" in msg:
+        maximum = RUN_FILE_LIMIT_KEYS.get(run_field, "")
+        return f"{field} must be an integer between 1 and {maximum}."
+    if "debe ser un texto no vacío" in msg:
+        return f"{field} must be a non-empty string."
+    if "debe ser una lista de nombres" in msg:
+        return f"{field} must be a comma-separated list of names, up to {MAX_PROJECT_TOOL_ID_LENGTH} characters without spaces."
+    if "no puede tener más de" in msg:
+        return f"{field} has too many tool names."
+    if "no puede tener saltos de línea" in msg:
+        return f"{field} must not contain line breaks."
+    if "marcador de una sección" in msg:
+        return f"{field} must not contain a line with a section marker."
+    if "bloque de código sin cerrar" in msg:
+        return f"{field} must not leave an unclosed code block."
+    return msg
 
 
 def _inline_request(fields: dict, prompt: str | None) -> dict:
     """La petición de un agente dado en línea: se escribe y se lee como su run-file, así que vale lo mismo que en él
     (nunca controller ni permisos, herramientas o servicios MCP, que no tienen argumento)."""
-    if not fields.get("agent") or prompt is None:
-        raise ValueError("Without run_file, give the agent inline: agent and prompt (and usually system_prompt, its manual).")
+    if not fields.get("agent") or (prompt is None and not fields.get("conversation_id")):
+        raise ValueError("Without run_file, give the agent inline: agent and prompt (or conversation_id to continue one).")
     if not all(isinstance(value, str) for key, value in fields.items() if key not in ("max_steps", "timeout")):
         raise ValueError("agent, system_prompt, profile, reasoning, conversation_id and disabled_tools must be texts.")
-    fields = {INLINE_LAUNCH_FIELDS[key]: value for key, value in fields.items()}
-    return parse_run_request(format_run_request({**fields, "prompt": prompt}).encode("utf-8"))
+    if prompt is not None and (not isinstance(prompt, str) or not prompt.strip()):
+        raise ValueError("prompt must be a non-empty text.")
+    run_fields = {INLINE_LAUNCH_FIELDS[key]: value for key, value in fields.items()}
+    if prompt is not None:
+        run_fields["prompt"] = prompt
+    try:
+        return parse_run_request(format_run_request(run_fields).encode("utf-8"))
+    except ValueError as exc:
+        raise ValueError(_format_run_error(exc, inline=True)) from None
 
 
 def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
@@ -458,12 +516,31 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
         if not ACCESS_CONTROLLER.allows_path("R", str(path), ctx):
             raise ValueError(f"This project's directory rules do not give R access to {path}.")
         with open(path, "rb") as handle:
-            request = parse_run_request(handle.read(RUN_FILE_MAX_BYTES + 1))
+            try:
+                request = parse_run_request(handle.read(RUN_FILE_MAX_BYTES + 1))
+            except ValueError as exc:
+                raise ValueError(_format_run_error(exc, inline=False)) from None
         return _launch(request, prompt, target, own_id=own_id)
     except OSError as exc:
         return _tool_error(f"Could not read the run-file: {exc}")
     except ValueError as exc:
         return _tool_error(str(exc))
+
+
+def _target_conversation(conv_id: str | None, agent: str, target: SecurityContext, own_id: str) -> dict | None:
+    """Conversación existente de conv_id (None si es nueva), validando que no sea del controlador ni de otro agente/proyecto."""
+    if not conv_id:
+        return None
+    if conv_id == own_id:
+        raise ValueError("A controller cannot launch its own conversation.")
+    conv = get_conversation(conv_id)
+    if conv is None:
+        return None
+    if (conv.get("project") or "") != _conversation_project(target) or conv.get("agent") != agent:
+        raise ValueError(f"The conversation {conv_id} belongs to another project or agent.")
+    if (get_conversation_launch(conv_id) or {}).get("controller"):
+        raise ValueError(f"The conversation {conv_id} is of a controller: a controller only launches agents, not controllers.")
+    return conv
 
 
 def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str) -> str:
@@ -481,13 +558,9 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
     if not get_project_environment(target.key)["saved"]:
         raise ValueError(f"The project {target.workspace_dir} has no saved environment: save its tools and permissions in the UI first.")
     conv_id = request.get("conversation_id")
-    conv = get_conversation(conv_id) if conv_id else None
-    if conv_id == own_id:
-        raise ValueError("A controller cannot launch its own conversation.")
-    if conv is not None and ((conv.get("project") or "") != _conversation_project(target) or conv.get("agent") != agent):
-        raise ValueError(f"The conversation {conv_id} belongs to another project or agent.")
-    if conv is not None and (get_conversation_launch(conv_id) or {}).get("controller"):
-        raise ValueError(f"The conversation {conv_id} is of a controller: a controller only launches agents, not controllers.")
+    conv = _target_conversation(conv_id, agent, target, own_id)
+    if "prompt" not in request and conv is None:
+        raise ValueError("The conversation does not exist yet: give prompt to start it.")
     request["conversation_id"] = conv_id or f"session_{uuid.uuid4()}"
     try:
         check_no_active_run(request["conversation_id"])

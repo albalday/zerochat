@@ -1027,13 +1027,21 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                             ctx.workspace_dir))
             for invalid, reason in (({}, "agent and prompt"), ({"agent": "informes.linea"}, "agent and prompt"),
                                     ({"run_file": "agents/diario.md", "agent": "informes.diario"}, "not both"),
-                                    ({"agent": "a.b.c", "prompt": "x"}, "agent debe ser"), ({"agent": "x", "prompt": "x", "reasoning": "max"}, "reasoning debe ser"),
-                                    ({"agent": "x", "prompt": "x", "max_steps": 0}, "maxSteps debe ser"),
-                                    ({"agent": "x", "prompt": "x", "profile": "a\nb"}, "saltos de línea"),
-                                    ({"agent": "x", "prompt": "x", "system_prompt": "a\n<!-- prompt -->\nb"}, "marcador"),
+                                    ({"agent": "informes.linea", "conversation_id": "no_existe"}, "does not exist yet"),
+                                    ({"agent": "a.b.c", "prompt": "x"}, "agent must be"), ({"agent": "x", "prompt": "x", "reasoning": "max"}, "reasoning must be"),
+                                    ({"agent": "x", "prompt": "x", "max_steps": 0}, "max_steps must be an integer"),
+                                    ({"agent": "x", "prompt": "x", "profile": "a\nb"}, "line breaks"),
+                                    ({"agent": "x", "prompt": "x", "system_prompt": "a\n<!-- prompt -->\nb"}, "section marker"),
                                     ({"agent": "jefe", "prompt": "x", "conversation_id": "jefe_fija"}, "not controllers")):
                 self.assertIn(reason, launch(**invalid)["error"], invalid)
             self.assertEqual(len(launched), 2)
+            # En línea, sin prompt, continúa una conversación existente de ese agente.
+            zerochat.save_conversation({"id": "linea_fija", "title": "linea", "project": ctx.key, "agent": "informes.linea"},
+                                       [{"id": "u", "role": "user", "content": "Empieza"}])
+            resumed = launch(agent="informes.linea", conversation_id="linea_fija", max_steps=10)
+            self.assertEqual((resumed["conversation_id"], resumed["new"]), ("linea_fija", False))
+            self.assertEqual(launched[-1][0], {"agent": "informes.linea", "conversation_id": "linea_fija", "maxSteps": 10,
+                                                "projectMode": False, "reasoning": "medium"})
 
             # Un conversation_id fijo en marcha no se lanza otra vez.
             upsert_run({"run_id": "r_fija", "conversation_id": "fija", "status": "running", "pid": os.getpid(),

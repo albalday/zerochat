@@ -275,7 +275,7 @@ LAUNCH_AGENT_DEFINITION = {
         "type": "object",
         "properties": {
             "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project; leave it out to give the agent inline"},
-            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run (with run_file, instead of the run-file's task)"},
+            "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run (optional when continuing an existing conversation_id; with run_file, instead of the run-file's task)"},
             "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give X, and R to read run_file"},
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Inline: agent id (<name> or <set>.<name>)"},
             "system_prompt": {"type": "string", "maxLength": MAX_PROJECT_PROMPT_LENGTH, "description": "Inline: the agent's manual, instead of the project's system data prompt"},
