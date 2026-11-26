@@ -267,8 +267,10 @@ describe('Servidor local zerochat.py', () => {
   });
 
   test('browser_action navega y hace una captura', async () => {
-    const navigated = (await callTool('browser_action', { action: 'navigate', url: 'about:blank' })).parsed;
+    // localhost se admite (webs en desarrollo); otros esquemas no llegan al navegador.
+    const navigated = (await callTool('browser_action', { action: 'navigate', url: `${baseUrl}/` })).parsed;
     assert.equal(navigated.success, true);
+    assert.ok((await callTool('browser_action', { action: 'navigate', url: 'file:///etc/passwd' })).parsed.error);
     assert.equal(navigated.action, 'navigate');
     const screenshot = (await callTool('browser_action', { action: 'screenshot' })).parsed;
     assert.equal(screenshot.success, true);
