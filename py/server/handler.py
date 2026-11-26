@@ -153,7 +153,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if not is_allowed_origin(origin, require_origin=True):
             return
-        self.send_header("Access-Control-Allow-Origin", origin if origin else "*")
+        self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Authorization, X-ZeroChat-Token, X-ZeroChat-Client, X-ZeroChat-Proxy, X-ZeroChat-Blob, X-ZeroChat-Project")
         self.send_header("Access-Control-Allow-Private-Network", "true")
@@ -258,10 +258,7 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_req("POST", safe_path)
             self._reject(400, {"error": "Invalid Content-Length"}, safe_path, t0, "Content-Length negativo")
             return None
-        is_blob_upload = (
-            self.headers.get("X-ZeroChat-Blob") == "1"
-            or safe_path in ("/zerochat/blobs", "/zerochat/blobs/put")
-        )
+        is_blob_upload = self.headers.get("X-ZeroChat-Blob") == "1"
         body_limit = MAX_BLOB_HTTP_BYTES if is_blob_upload else http_body_limit()
         if content_len > body_limit:
             self._log_req("POST", safe_path)

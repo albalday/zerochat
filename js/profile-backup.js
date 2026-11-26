@@ -181,7 +181,6 @@
       return validateProfiles(document.profiles);
     } catch (error) {
       if (error?.code === 'PASSWORD_REQUIRED') throw error;
-      if (error?.message?.startsWith('La copia')) throw error;
       throw new Error('The profile backup could not be decrypted or validated.');
     }
   }
