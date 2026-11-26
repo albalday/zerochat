@@ -16,3 +16,13 @@ test('Security - Presencia de Content Security Policy (CSP) en zerochat.html', (
   assert.ok(html.includes("manifest-src 'self'"), 'CSP debe restringir manifest-src');
   assert.ok(html.includes("media-src 'self' data: blob:"), 'CSP debe restringir media-src');
 });
+
+test('Security - files.html mantiene su CSP estricta sin scripts ni marcos externos', () => {
+  const html = fs.readFileSync(path.join(__dirname, '../..', 'files.html'), 'utf8');
+  const csp = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1];
+
+  assert.ok(csp, 'files.html debe contener la etiqueta meta CSP');
+  for (const directive of ["default-src 'self'", "script-src 'self'", "object-src 'none'", "base-uri 'self'", "frame-src 'none'"]) {
+    assert.ok(csp.split(';').map(part => part.trim()).includes(directive), `La CSP de files.html debe incluir ${directive}`);
+  }
+});
