@@ -37,11 +37,11 @@
       app_title: APP_TITLE,
       tab_alert_done: 'Listo · {title}',
       tab_alert_permission: 'Permiso · {title}',
-      app_description: 'ZeroChat - Cliente web universal, agente IA autónomo y RAG local en un solo archivo con cero instalación',
+      app_description: 'ZeroChat - Entorno personal y privado de IA: chat multimodelo y WebLLM en navegador, RAG local, proyectos con herramientas y MCP, ejecución CLI y orquestación de agentes con supervisión humana.',
       
       // Estado de Bienvenida inicial
       welcome_heading: 'ZeroChat',
-      welcome_desc: 'Entorno conversacional y agente autónomo local.',
+      welcome_desc: 'Entorno web personal de IA y orquestación de agentes.',
       welcome_project: 'Proyecto {name}',
       welcome_no_project: 'Sin proyecto',
       welcome_project_mode_on: 'Normas en sistema: activadas',
@@ -1011,11 +1011,11 @@
       app_title: APP_TITLE,
       tab_alert_done: 'Done · {title}',
       tab_alert_permission: 'Permission · {title}',
-      app_description: 'ZeroChat - Universal web chat client, autonomous AI agent, and local RAG in a single zero-install file',
+      app_description: 'ZeroChat - Personal, private AI workspace: in-browser multimodel & WebLLM chat, local RAG, MCP-enabled projects, CLI runs, and human-supervised agent orchestration.',
       
       // Welcome state
       welcome_heading: 'ZeroChat',
-      welcome_desc: 'Conversational environment & local autonomous agent.',
+      welcome_desc: 'Personal web AI workspace and agent orchestration.',
       welcome_project: 'Project {name}',
       welcome_no_project: 'No project',
       welcome_project_mode_on: 'Rules in system: on',

@@ -1,7 +1,7 @@
 {
   "name": "ZeroChat",
   "short_name": "ZeroChat",
-  "description": "Cliente Web Universal de Chat, Agente IA Autónomo y RAG Local",
+  "description": "Entorno web personal de IA y orquestación de agentes con soporte multimodelo, RAG local y MCP.",
   "start_url": "./zerochat.html",
   "scope": "./",
   "display": "standalone",

@@ -2,7 +2,7 @@
   "name": "zerochat",
   "private": true,
   "version": "10.50.0",
-  "description": "ZeroChat - Cliente Web Universal de Chat con soporte multimodelo, razonamiento autónomo y RAG local",
+  "description": "ZeroChat - Entorno personal y privado de IA: chat web multimodelo, WebLLM, RAG local, proyectos MCP, CLI y orquestación de agentes",
   "scripts": {
     "build:vendor": "node scripts/build-vendor.mjs",
     "build:managed-services": "node scripts/build-managed-services.mjs",
