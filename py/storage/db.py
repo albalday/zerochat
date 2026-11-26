@@ -189,7 +189,7 @@ STORAGE_MIGRATIONS: list[tuple[int, str, str | typing.Callable[[sqlite3.Connecti
         ALTER TABLE runs ADD COLUMN result_text TEXT;
         ALTER TABLE runs ADD COLUMN warnings_json TEXT;
     """),
-    # Tokens que lleva gastados la ejecución (zerochat/run/usage), para quien la lanzó y el master que la vigila.
+    # Tokens que lleva gastados la ejecución (zerochat/run/usage), para quien la lanzó y el controlador que la vigila.
     (14, "014_add_run_usage_column", """
         ALTER TABLE runs ADD COLUMN usage_json TEXT;
     """),
@@ -471,13 +471,6 @@ def validate_agent_id(agent) -> str:
     if not isinstance(agent, str) or len(agent) > MAX_AGENT_ID_LENGTH or not _AGENT_ID_PATTERN.fullmatch(agent):
         raise ValueError(f"agent debe ser <nombre> o <subconjunto>.<nombre> con minúsculas, cifras, _ o - y hasta {MAX_AGENT_ID_LENGTH} caracteres")
     return agent
-
-
-def agent_matches(agent, patterns) -> bool:
-    """Si el agente de una conversación lo cubre alguno de los patrones de watchAgents; una sin agente, nunca."""
-    if not isinstance(agent, str) or not agent:
-        return False
-    return any(pattern in ("*", agent) or (pattern.endswith(".*") and agent.startswith(pattern[:-1])) for pattern in patterns)
 
 
 def _validate_conversation_title(title, allow_empty: bool = False) -> str:

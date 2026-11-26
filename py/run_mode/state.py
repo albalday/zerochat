@@ -568,7 +568,7 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None, launch: dict | None = None, watch_agents: tuple[str, ...] = (),
+                 agent: str | None = None, launch: dict | None = None, controller: bool = False,
                  track_run: bool = False, reasoning: str | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
@@ -587,9 +587,9 @@ class RunSession:
         self.agent = agent
         # Petición de lanzamiento de un agente (--run-file): finish_run la guarda en su conversación.
         self.launch = launch
-        # watchAgents de --run-file: habilita y autoriza check_agents solo en esta ejecución.
-        self.watch_agents = tuple(watch_agents)
-        # Conversaciones que este master lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
+        # controller: true de --run-file: habilita y autoriza check_agents y launch_agent solo en esta ejecución.
+        self.controller = controller
+        # Conversaciones que este controlador lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
         # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
         self.launched_agents: dict[str, dict] = {}
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y

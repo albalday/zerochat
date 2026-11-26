@@ -75,7 +75,7 @@ from storage.db import (
     list_general_profiles,
     mark_conversation_server_run,
 )
-from tools.agents import MASTER_TOOLS
+from tools.agents import CONTROLLER_TOOLS
 from tools.browser_action import browser_action_availability
 from tools.filesystem import list_directory, read_file, write_file
 from tools.jobs import cleanup_orphan_jobs, run_command
@@ -260,7 +260,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
-                      watch_agents=("*",) if options.get("controller") else (), track_run=args.run_file is not None,
+                      controller=bool(options.get("controller")), track_run=args.run_file is not None,
                       reasoning=options.get("reasoning"))
 
 
@@ -352,7 +352,7 @@ def reset_session_authorizations():
             "allowAll": False,
             "tools": {
                 name: {"policy": POLICY_ALLOW}
-                for name in (MASTER_TOOLS if session.watch_agents else ())
+                for name in (CONTROLLER_TOOLS if session.controller else ())
                 if (permanent_tools.get(name) or {}).get("policy") != POLICY_DENY
             }
         }, ctx)

@@ -222,7 +222,7 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     }
 ]
-# Solo se publica en una ejecución --run-file con watchAgents (server/rpc.py), que además la autoriza; fuera de ella
+# Solo se publica en una ejecución --run-file con controller: true (server/rpc.py), que además la autoriza; fuera de ella
 # el manejador se niega a responder.
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
@@ -235,7 +235,7 @@ CHECK_AGENTS_DEFINITION = {
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it keeps waiting while any of the "
         "agents asked about is running and returns at once when none is (returned_because: not_running), as soon as one "
         "of them turns needs_input or error (needs_attention) or when the time is up (wait_elapsed); call it again with "
-        "wait_seconds while they are still running. Agents started with launch_agent are listed from the start. To clean up old conversations of the watched agents "
+        "wait_seconds while they are still running. Agents started with launch_agent are listed from the start. To clean up old conversations of the agents "
         "(for example, one per scheduled run), give prune_keep=N, optionally with agent: it deletes all but the N most recent "
         "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped."
     ),
@@ -245,7 +245,7 @@ CHECK_AGENTS_DEFINITION = {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
-            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the watched agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
+            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
             "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"},
             "offset": {"type": "integer", "description": "With agent or conversation_id: character offset of the final answer to read from (the next_offset of the previous call)", "default": 0},
             "include_turn": {"type": "boolean", "description": "With agent or conversation_id: also return the messages of its last turn, including tool results", "default": False}
@@ -270,8 +270,8 @@ LAUNCH_AGENT_DEFINITION = {
         "required": ["run_file"]
     }
 }
-# Las de un master, que solo se publican en una ejecución --run-file con watchAgents.
-MASTER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION)
+# Las de un controlador, que solo se publican en una ejecución --run-file con controller: true.
+CONTROLLER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION)
 
 LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
@@ -310,7 +310,7 @@ def _argument_error(name: str, value, prop: dict | None) -> str | None:
 
 def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None:
     """Valida tipos y límites de las herramientas locales a partir de su definición canónica."""
-    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, *MASTER_TOOL_DEFINITIONS) if item["name"] == tool_name), None)
+    definition = next((item for item in (*LOCAL_TOOLS_DEFINITIONS, *CONTROLLER_TOOL_DEFINITIONS) if item["name"] == tool_name), None)
     if definition is None:
         return None
 

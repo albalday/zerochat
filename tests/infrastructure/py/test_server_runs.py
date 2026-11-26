@@ -518,13 +518,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             conv_id = session.conversation_id or session.new_conversation_id
             self.assertEqual(stderr.getvalue(), f"[run] conversation_id={conv_id} new={new}\n")
 
-    def test_check_agents_solo_con_watchagents_y_solo_agentes_vigilados_del_proyecto(self):
+    def test_check_agents_solo_con_controller_y_solo_agentes_del_proyecto(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
         names = lambda: [tool["name"] for tool in zerochat._local_tools()]
         check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
 
-        # Fuera de una ejecución con watchAgents no se publica, no se autoriza en sesión ni responde.
+        # Fuera de una ejecución con controller: true no se publica, no se autoriza en sesión ni responde.
         self.assertNotIn("check_agents", names())
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
         self.assertNotIn("check_agents", names())
@@ -556,29 +556,30 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                     "warnings": ["run_command: denegado"], "usage": {"model_calls": 3, "prompt_tokens": 900, "completion_tokens": 30,
                                                                       "cached_tokens": 0, "reasoning_tokens": 0, "estimated": True}})
 
-        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         self.assertIn("check_agents", names())
         zerochat.reset_session_authorizations()
         self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("check_agents", {}, context=ctx).status, zerochat.POLICY_ALLOW)
 
-        # Listado: la conversación más reciente de cada agente vigilado del proyecto, nunca humanas, otros proyectos ni el master.
+        # Listado: la conversación más reciente de cada agente del proyecto, de cualquier subconjunto, nunca humanas, otros
+        # proyectos ni la del propio controlador.
         listed = check()["agents"]
         self.assertEqual([(item["agent"], item["conversation_id"], item["status"]) for item in listed],
-                         [("informes.diario", "diario_nuevo", "needs_input"), ("informes.semanal", "semanal", "completed")])
+                         [("informes.diario", "diario_nuevo", "needs_input"), ("informes.semanal", "semanal", "completed"), ("ventas.diario", "ventas", None)])
         self.assertEqual((listed[0]["pending"], listed[0]["result_text"]), ({"kind": "ask_user", "text": "¿Mes?"}, "x" * 10))
         self.assertEqual((listed[1]["result_text"], listed[1]["warnings"]), ("y" * 20, ["run_command: denegado"]))
         self.assertEqual((listed[0]["usage"], listed[1]["usage"]["prompt_tokens"]), (None, 900))
 
-        # Detalle: por agente (su conversación más reciente) o por conversación vigilada; el último turno, solo con include_turn.
+        # Detalle: por agente (su conversación más reciente) o por conversación de agente; el último turno, solo con include_turn.
         self.assertNotIn("last_turn", check(agent="informes.diario"))
         detail = check(agent="informes.diario", include_turn=True)
         self.assertEqual(detail["conversation_id"], "diario_nuevo")
         self.assertEqual(detail["last_turn"], [{"role": "user", "content": "Ahora"}, {"role": "assistant", "content": "", "tool_calls": ["ask_user"]},
                                                {"role": "tool", "content": "{}", "name": "ask_user"}])
         self.assertEqual(check(conversation_id="diario_viejo")["conversation_id"], "diario_viejo")
-        for unwatched in ({"conversation_id": "ventas"}, {"conversation_id": "humana"}, {"conversation_id": "otro_proyecto"},
-                          {"conversation_id": "master"}, {"agent": "ventas.diario"}):
-            self.assertFalse(check(**unwatched)["success"], unwatched)
+        self.assertEqual(check(agent="ventas.diario")["conversation_id"], "ventas")
+        for unseen in ({"conversation_id": "humana"}, {"conversation_id": "otro_proyecto"}, {"conversation_id": "master"}, {"agent": "informes.otro"}):
+            self.assertFalse(check(**unseen)["success"], unseen)
 
         # Tope del último turno en el borde exacto: AGENT_TURN_MAX_CHARS de texto entre todos los mensajes, y uno más se recorta.
         turn_limit = zerochat.AGENT_TURN_MAX_CHARS
@@ -609,7 +610,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                             "agent": f"informes.n{index}"}, [{"id": "u", "role": "user", "content": "Empieza"}])
                 upsert_run({"run_id": f"r{index}", "conversation_id": conv_id, "status": "completed", "result_text": "r" * length})
 
-        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         # Por agente, entera hasta N; con N+1 se omite con result_chars y una nota para leerla en el detalle.
         agents([per_agent, per_agent + 1, 0])
         listed = check()
@@ -657,7 +658,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                        [{"id": f"{conv_id}_u", "role": "user", "content": "Empieza"}])
         run = lambda conv_id, status, **extra: upsert_run({"run_id": f"r_{conv_id}", "conversation_id": conv_id, "status": status, **extra})
         later = lambda *args, **kwargs: threading.Timer(0.3, run, args, kwargs).start()
-        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         self.assertIsNone(zerochat.validate_local_tool_arguments("check_agents", {"wait_seconds": 30}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"wait_seconds": "30"}))
 
@@ -723,7 +724,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_conversation({"id": "anterior", "title": "anterior", "updatedAt": 1000, "project": ctx.key, "agent": "informes.diario"},
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
         upsert_run({"run_id": "r_ant", "conversation_id": "anterior", "status": "completed", "result_text": "Viejo"})
-        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
         alive = {"pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
 
@@ -772,11 +773,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         conv("humana", None, 1000)
         conv("otro", "informes.diario", 1000, project="/otro/proyecto")
         conv("master", "informes.master", 9000)
-        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         existing = lambda: {item["id"] for item in zerochat.list_conversations()}
 
         for invalid in ({"prune_keep": -1}, {"prune_keep": zerochat.AGENT_PRUNE_KEEP_MAX + 1}, {"prune_keep": True}, {"prune_keep": 1, "wait_seconds": 5},
-                        {"prune_keep": 1, "conversation_id": "d1"}, {"prune_keep": 1, "agent": "ventas.diario"}):
+                        {"prune_keep": 1, "conversation_id": "d1"}, {"prune_keep": 1, "agent": "informes.otro"}):
             self.assertFalse(check(**invalid)["success"], invalid)
         self.assertEqual(len(existing()), 11, "Nada se borra sin prune_keep válido")
 
@@ -788,19 +789,23 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIsNone(zerochat.get_run_state("d4"), "Con la conversación se va su fila de runs")
         self.assertEqual(zerochat.get_run_state("d3")["status"], "running")
 
-        # Sin agent, cada agente vigilado; 0 no conserva ninguna. Humanas, otros proyectos, no vigilados y el master quedan.
+        # Sin agent, cada agente del proyecto; 0 no conserva ninguna. Humanas, otros proyectos y el controlador quedan.
         result = check(prune_keep=0)
-        self.assertEqual(sorted(item["conversation_id"] for item in result["deleted"]), ["d5", "s1", "s2"])
-        self.assertEqual(existing(), {"d2", "d3", "ventas", "humana", "otro", "master"})
+        self.assertEqual(sorted(item["conversation_id"] for item in result["deleted"]), ["d5", "s1", "s2", "ventas"])
+        self.assertEqual(existing(), {"d2", "d3", "humana", "otro", "master"})
 
-    def test_launch_agent_lanza_separado_un_agente_vigilado_de_este_u_otro_proyecto_con_permiso(self):
+    def test_launch_agent_lanza_separado_un_agente_de_este_u_otro_proyecto_con_permiso_y_nunca_otro_controlador(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
         other = Path(tempfile.mkdtemp()).resolve()
         for folder in (ctx.workspace_dir, other):
             self.addCleanup(shutil.rmtree, folder, True)
             (folder / "agents").mkdir()
             (folder / "agents" / "diario.md").write_text(run_md({"agent": "informes.diario", "prompt": "Haz el informe"}))
-        (ctx.workspace_dir / "agents" / "ventas.md").write_text(run_md({"agent": "ventas.diario", "prompt": "Vende"}))
+        (ctx.workspace_dir / "agents" / "jefe.md").write_text(run_md({"agent": "jefe", "controller": True, "prompt": "Coordina"}))
+        (ctx.workspace_dir / "agents" / "anonimo.md").write_text(run_md({"prompt": "Sin agente"}))
+        (ctx.workspace_dir / "agents" / "jefe_fijo.md").write_text(run_md({"agent": "jefe", "conversation_id": "jefe_fija", "prompt": "Sigue"}))
+        zerochat.save_conversation({"id": "jefe_fija", "title": "jefe", "project": ctx.key, "agent": "jefe",
+                                    "launch": {"profile": "local", "controller": True}}, [{"id": "u", "role": "user", "content": "Coordina"}])
         (ctx.workspace_dir / "agents" / "fijo.md").write_text(run_md({"agent": "informes.diario", "conversation_id": "fija", "prompt": "Sigue"}))
         names = lambda: [tool["name"] for tool in zerochat._local_tools()]
         launch = lambda **args: json.loads(zerochat.launch_agent(**args, ctx=ctx))
@@ -808,11 +813,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         launched = []
         fake_launch = lambda request, cwd: launched.append((dict(request), cwd)) or {"run_id": f"run_{len(launched)}", "pid": 1}
 
-        # Solo en una ejecución con watchAgents, que la publica y autoriza junto a check_agents.
+        # Solo en una ejecución con controller: true, que la publica y autoriza junto a check_agents.
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
         self.assertNotIn("launch_agent", names())
         self.assertFalse(launch(run_file="agents/diario.md")["success"])
-        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", watch_agents=("informes.*",))
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         self.assertIn("launch_agent", names())
         zerochat.reset_session_authorizations()
         self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("launch_agent", {}, context=ctx).status, zerochat.POLICY_ALLOW)
@@ -824,7 +829,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertIn("no saved environment", launch(run_file="agents/diario.md")["error"])
             zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
             for invalid, reason in (({}, "run_file is required"), ({"run_file": "../fuera.md"}, "inside the project"),
-                                    ({"run_file": "agents/ventas.md"}, "cannot launch the agent ventas.diario"), ({"run_file": "agents/nada.md"}, "Could not read"),
+                                    ({"run_file": "agents/nada.md"}, "Could not read"), ({"run_file": "agents/anonimo.md"}, "must set an agent"),
+                                    # Sin anidamiento: ni el run-file ni la conversación de otro controlador.
+                                    ({"run_file": "agents/jefe.md"}, "not controllers"), ({"run_file": "agents/jefe_fijo.md"}, "not controllers"),
                                     ({"run_file": "agents/diario.md", "prompt": " "}, "non-empty")):
                 self.assertIn(reason, launch(**invalid)["error"], invalid)
             self.assertEqual(launched, [])
@@ -860,7 +867,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
         zerochat.save_conversation({"id": "mia", "title": "mia", "updatedAt": 1000, "project": ctx.key, "agent": "informes.diario"},
                                    [{"id": "u", "role": "user", "content": "Empieza"}])
-        # El listado de cada proyecto da la más reciente del agente: la que este master acaba de lanzar en él.
+        # El listado de cada proyecto da la más reciente del agente: la que este controlador acaba de lanzar en él.
         self.assertEqual([item["conversation_id"] for item in check(project=str(other))["agents"]], [result["conversation_id"]])
         self.assertEqual((check(project=str(other), conversation_id="suya")["success"], check(conversation_id="suya")["success"]), (True, False))
         self.assertEqual((check(conversation_id="mia")["success"], check(project=str(other), conversation_id="mia")["success"]), (True, False))
