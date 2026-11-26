@@ -102,7 +102,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
     def tearDown(self):
         zerochat.RUN_SESSION = None
-        zerochat.INTERACTIVE_CONTROLLERS.clear()
+        zerochat.INTERFACE_CONTROLLER.__init__()
 
     def test_fichero_situacion_permisos_estructura_topes_y_ciclo_de_vida(self):
         conv_id = "session_test_run_123"
@@ -1077,41 +1077,28 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertIn("do not give RW access", json.loads(zerochat.prune_agents(keep=0, project=str(other), ctx=ctx))["error"])
         self.assertIn("does not exist", check(project=str(other / "nada"))["error"])
 
-    def test_en_el_servidor_de_la_interfaz_cada_conversacion_es_un_controlador_sin_pedir_permiso(self):
+    def test_el_servidor_de_la_interfaz_es_un_controlador_sin_pedir_permiso(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
         zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
-        zerochat.save_conversation({"id": "chat_a", "title": "a", "updatedAt": 1000, "project": ctx.key, "agent": "informes.a"},
-                                   [{"id": "u", "role": "user", "content": "Hola"}])
-        launched = []
-        fake_launch = lambda request, cwd: launched.append(dict(request)) or {"run_id": f"run_{len(launched)}", "pid": 1}
-        launch = lambda own, **args: json.loads(zerochat.launch_agent(**args, ctx=ctx, own_conversation=own))
-        check = lambda own, **args: json.loads(zerochat.check_agents(**args, ctx=ctx, own_conversation=own))
+        fake_launch = lambda request, cwd: {"run_id": "run_1", "pid": 1}
 
         # Sin ejecución, se publican todas marcadas como del controlador y se ejecutan sin reto: el permiso es «Subagentes».
         tools = {tool["name"]: tool for tool in zerochat._local_tools()}
         for tool_name in zerochat.CONTROLLER_TOOLS:
             self.assertEqual(tools[tool_name].get("metadata"), {"controller": True})
         self.assertNotIn("metadata", tools["read_file"])
-        called, _, _ = zerochat.call_tool({"name": "check_agents", "arguments": {}, "_meta": {"zerochatConversationId": "chat_a"}}, ctx)
+        with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
+            called, _, _ = zerochat.call_tool({"name": "launch_agent", "arguments": {"agent": "informes.linea", "prompt": "Resume"}}, ctx)
         self.assertNotIn("requiresAuthorization", called)
-        self.assertEqual(json.loads(called["content"][0]["text"])["success"], True)
+        launched_id = json.loads(called["content"][0]["text"])["conversation_id"]
+        # Su único estado ve lo lanzado desde el principio, antes de que el agente guarde su conversación.
+        called, _, _ = zerochat.call_tool({"name": "check_agents", "arguments": {}}, ctx)
+        self.assertEqual([item["conversation_id"] for item in json.loads(called["content"][0]["text"])["agents"]], [launched_id])
         # Fuera de un controlador tampoco hay reto: responde su manejador, que se niega.
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
         called, _, _ = zerochat.call_tool({"name": "check_agents", "arguments": {}}, ctx)
         self.assertIn("only available to a controller", json.loads(called["content"][0]["text"])["error"])
-        zerochat.RUN_SESSION = None
-        # Responden a la conversación que llama (_meta, nunca un argumento del modelo); sin ella, no.
-        self.assertIn("needs the conversation", check("")["error"])
-        self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"own_conversation": "chat_a"}))
-        with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_launch):
-            self.assertIn("its own conversation", launch("chat_a", agent="informes.a", conversation_id="chat_a")["error"])
-            result = launch("chat_a", agent="informes.linea", prompt="Resume")
-        # Lo que lanzó una conversación lo ve y lo detiene ella, no otra: el estado es de cada conversación.
-        self.assertEqual([item["conversation_id"] for item in check("chat_a")["agents"]], [result["conversation_id"]])
-        self.assertEqual(check("chat_b")["agents"][0]["agent"], "informes.a", "La conversación propia solo se excluye para ella")
-        self.assertIn("only stops the agents it launched",
-                      json.loads(zerochat.stop_agent(conversation_id=result["conversation_id"], ctx=ctx, own_conversation="chat_b"))["error"])
 
     def test_launch_run_file_arranca_un_proceso_separado_con_su_run_id_y_la_peticion_por_stdin(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())

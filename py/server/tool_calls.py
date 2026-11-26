@@ -49,15 +49,14 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
                    "seconds without use; tell the user or try again later.")
         return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
     try:
-        return run_tool(origin, tool_name, args, ctx, conversation_id)
+        return run_tool(origin, tool_name, args, ctx)
     finally:
         # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
         if browser:
             BROWSER_LEASES.acquire(browser, conversation_id)
 
 
-def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
-             conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
+def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
     """Ejecuta la herramienta y normaliza su resultado: (result, error JSON-RPC, detalle de error)."""
     if origin == "external":
         try:
@@ -77,12 +76,9 @@ def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
     if not handler:
         return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
     try:
-        # Solo las herramientas que actúan en el proyecto declaran ctx, y las del controlador, la conversación que llama
-        # (own_conversation): ninguno es argumento del modelo, que validate_local_tool_arguments rechazaría.
-        parameters = inspect.signature(handler).parameters
-        extra = {**({"ctx": ctx} if "ctx" in parameters else {}),
-                 **({"own_conversation": conversation_id} if "own_conversation" in parameters else {})}
-        tool_output_json = handler(**dict(args), **extra)
+        # Solo las herramientas que actúan en el proyecto declaran ctx.
+        takes_project = "ctx" in inspect.signature(handler).parameters
+        tool_output_json = handler(**dict(args), **({"ctx": ctx} if takes_project else {}))
     except Exception as ex:
         return tool_exception_result(ex), None, str(ex)
     tool_error_info = ""

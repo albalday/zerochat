@@ -355,8 +355,7 @@
         const isLocalWait = isProxy && toolName === LOCAL_WAIT_TOOL;
         const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
         const usesBrowser = isBrowserAction || (isProxy && toolName === 'browser_fill_secret') || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
-        // check_agents, launch_agent…: el servidor las marca; se encienden con «Subagentes», no en Ajustes, y actúan
-        // como controlador de la conversación que las llama.
+        // check_agents, launch_agent…: el servidor las marca; se encienden con «Subagentes», no en Ajustes.
         const isController = isProxy && rt.metadata?.controller === true;
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);
         if (external && rt.name !== namespacedName) throw new Error('Invalid external MCP public name');
@@ -394,9 +393,8 @@
           },
           execute: async (args, context) => {
             const jobKey = isLocalCommand || isLocalWait ? context.invocationId : null;
-            // Un navegador lo usa una conversación cada vez, y cada conversación es su propio controlador: el servidor
-            // necesita saber cuál lo pide.
-            const conversationId = usesBrowser || isController ? getState().get('sessions').activeId : null;
+            // Un navegador lo usa una conversación cada vez: el servidor necesita saber cuál lo pide.
+            const conversationId = usesBrowser ? getState().get('sessions').activeId : null;
             const meta = { ...(jobKey ? { zerochatJobKey: jobKey } : {}), ...(conversationId ? { zerochatConversationId: conversationId } : {}) };
             try {
               return await withCommandJobStop(this.client, jobKey, context.signal, () => this.client.callTool(rt.name, args, {

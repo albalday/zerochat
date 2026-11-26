@@ -8938,9 +8938,9 @@ AGENT_STOPPED_ERROR = "Stopped by its controller."
 AGENT_PRUNE_PROTECTED = ("running", "needs_input")
 
 
-# En el servidor de la interfaz, el de cada conversación que usa las herramientas, en memoria hasta que el servidor se
-# cierra, como en una ejecución.
-INTERACTIVE_CONTROLLERS: dict[str, ControllerState] = {}
+# El del servidor de la interfaz, que es de un solo usuario: uno para todas sus conversaciones y pestañas, en memoria
+# hasta que el servidor se cierra, como el de una ejecución.
+INTERFACE_CONTROLLER = ControllerState()
 
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
@@ -9167,11 +9167,10 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
     return json.dumps({"success": True, "deleted": deleted, "skipped": skipped}, ensure_ascii=False)
 
 
-def _controller_context(tool_name: str, ctx: SecurityContext | None, project: str | None, access: str,
-                        own_conversation: str = "") -> tuple[ControllerState, str, SecurityContext]:
-    """El estado y el id de la conversación del controlador, y el proyecto destino. En el servidor de la interfaz, el
-    controlador es la conversación que llama (own_conversation, de _meta y no del modelo); en una ejecución, la suya,
-    que tiene que ser controladora."""
+def _controller_context(tool_name: str, ctx: SecurityContext | None, project: str | None,
+                        access: str) -> tuple[ControllerState, str, SecurityContext]:
+    """El estado y el id de la conversación del controlador, y el proyecto destino: en una ejecución, los suyos, que
+    tiene que ser controladora; en el servidor de la interfaz, su estado único y sin conversación propia."""
     if ctx is None:
         raise ValueError(f"{tool_name} needs the project of the call.")
     session = current_run_session()
@@ -9180,22 +9179,18 @@ def _controller_context(tool_name: str, ctx: SecurityContext | None, project: st
             raise ValueError(f"{tool_name} is only available to a controller: a --run-file run with controller: true "
                              "or a chat with Subagents on.")
         return session, session.conversation_id or session.new_conversation_id or "", _target_project(ctx, project, access)
-    own_id = own_conversation.strip() if isinstance(own_conversation, str) else ""
-    if not own_id:
-        raise ValueError(f"{tool_name} needs the conversation that calls it.")
-    target = _target_project(ctx, project, access)
-    return INTERACTIVE_CONTROLLERS.setdefault(own_id, ControllerState()), own_id, target
+    return INTERFACE_CONTROLLER, "", _target_project(ctx, project, access)
 
 
 def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
                  project: str | None = None, offset: int = 0, include_turn: bool = False,
-                 ctx: SecurityContext | None = None, own_conversation: str = "") -> str:
+                 ctx: SecurityContext | None = None) -> str:
     """Sin argumentos, el estado de cada agente del proyecto (y de todos los que lanzó este controlador en esta
     ejecución) con su respuesta final si cabe; con agent o conversation_id, su respuesta final por bloques desde offset
     y, con include_turn, los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que
     cambie. Con project, los agentes de esa carpeta en lugar de los del proyecto de la ejecución."""
     try:
-        state, own_id, target = _controller_context(AGENTS_TOOL, ctx, project, "R", own_conversation)
+        state, own_id, target = _controller_context(AGENTS_TOOL, ctx, project, "R")
     except ValueError as exc:
         return _tool_error(str(exc))
     detail = agent is not None or conversation_id is not None
@@ -9223,11 +9218,11 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
 
 
 def stop_agent(conversation_id: str | None = None, project: str | None = None,
-               ctx: SecurityContext | None = None, own_conversation: str = "") -> str:
+               ctx: SecurityContext | None = None) -> str:
     """Detiene una conversación que este controlador lanzó en esta ejecución: mata su proceso con su árbol (runner y
     servicios MCP) y deja su fila en error, para que check_agents la muestre con lo que avanzó (respuesta parcial)."""
     try:
-        state, own_id, target = _controller_context(STOP_AGENT_TOOL, ctx, project, "R", own_conversation)
+        state, own_id, target = _controller_context(STOP_AGENT_TOOL, ctx, project, "R")
     except ValueError as exc:
         return _tool_error(str(exc))
     if not isinstance(conversation_id, str) or not conversation_id.strip():
@@ -9252,11 +9247,11 @@ def stop_agent(conversation_id: str | None = None, project: str | None = None,
 
 
 def prune_agents(keep: int | None = None, agent: str | None = None, project: str | None = None,
-                 ctx: SecurityContext | None = None, own_conversation: str = "") -> str:
+                 ctx: SecurityContext | None = None) -> str:
     """Borra las conversaciones antiguas de los agentes del proyecto (o solo de agent) conservando las keep más
     recientes, nunca una en marcha o esperando respuesta, y devuelve las borradas y las conservadas."""
     try:
-        state, own_id, target = _controller_context(PRUNE_AGENTS_TOOL, ctx, project, "RW", own_conversation)
+        state, own_id, target = _controller_context(PRUNE_AGENTS_TOOL, ctx, project, "RW")
     except ValueError as exc:
         return _tool_error(str(exc))
     if isinstance(keep, bool) or not isinstance(keep, int) or not 0 <= keep <= AGENT_PRUNE_KEEP_MAX:
@@ -9357,8 +9352,7 @@ def _inline_request(fields: dict, prompt: str | None) -> dict:
 def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
                  agent: str | None = None, system_prompt: str | None = None, profile: str | None = None,
                  reasoning: str | None = None, max_steps: int | None = None, timeout: int | None = None,
-                 conversation_id: str | None = None, disabled_tools: str | None = None, ctx: SecurityContext | None = None,
-                 own_conversation: str = "") -> str:
+                 conversation_id: str | None = None, disabled_tools: str | None = None, ctx: SecurityContext | None = None) -> str:
     """Lanza un agente separado de este controlador y devuelve su conversation_id y run_id: el de su run-file
     `run_file` (ruta dentro del proyecto) o, sin él, el que se da en línea (agent, system_prompt y prompt, con profile,
     reasoning, max_steps, timeout, conversation_id y disabled_tools opcionales). Con prompt sustituye el del fichero; con project, el
@@ -9370,7 +9364,7 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
     # Lanzar en otra carpeta es ejecutar en ella: el agente corre con su entorno y sus permisos, y prompt sustituye
     # las instrucciones del run-file.
     try:
-        state, own_id, target = _controller_context(LAUNCH_AGENT_TOOL, ctx, project, "X", own_conversation)
+        state, own_id, target = _controller_context(LAUNCH_AGENT_TOOL, ctx, project, "X")
     except ValueError as exc:
         return _tool_error(str(exc))
     if run_file is None:
@@ -11788,15 +11782,14 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
                    "seconds without use; tell the user or try again later.")
         return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
     try:
-        return run_tool(origin, tool_name, args, ctx, conversation_id)
+        return run_tool(origin, tool_name, args, ctx)
     finally:
         # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
         if browser:
             BROWSER_LEASES.acquire(browser, conversation_id)
 
 
-def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
-             conversation_id: str = "") -> tuple[dict | None, dict | None, str]:
+def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:
     """Ejecuta la herramienta y normaliza su resultado: (result, error JSON-RPC, detalle de error)."""
     if origin == "external":
         try:
@@ -11816,12 +11809,9 @@ def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
     if not handler:
         return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
     try:
-        # Solo las herramientas que actúan en el proyecto declaran ctx, y las del controlador, la conversación que llama
-        # (own_conversation): ninguno es argumento del modelo, que validate_local_tool_arguments rechazaría.
-        parameters = inspect.signature(handler).parameters
-        extra = {**({"ctx": ctx} if "ctx" in parameters else {}),
-                 **({"own_conversation": conversation_id} if "own_conversation" in parameters else {})}
-        tool_output_json = handler(**dict(args), **extra)
+        # Solo las herramientas que actúan en el proyecto declaran ctx.
+        takes_project = "ctx" in inspect.signature(handler).parameters
+        tool_output_json = handler(**dict(args), **({"ctx": ctx} if takes_project else {}))
     except Exception as ex:
         return tool_exception_result(ex), None, str(ex)
     tool_error_info = ""
