@@ -322,7 +322,8 @@ class PolicyEvaluationTest(ControllerTestCase):
             self.assertEqual((dec.reason, dec.rule_offer["command"]), ("command_outside_allowed_patterns", offer), command)
         # Lo que no se puede validar por partes pide permiso sin oferta de patrón
         # Una redirección segura solo lo es entera: ni un fichero que empieza por /dev/null ni el descriptor 10.
-        self.assertEqual(zerochat.split_command("git log >/dev/null 2>&1| git status"), [("", "git log"), ("|", "git status")])
+        with unittest.mock.patch.object(zerochat, "COMMAND_SHELL", "posix"):
+            self.assertEqual(zerochat.split_command("git log >/dev/null 2>&1| git status"), [("", "git log"), ("|", "git status")])
         unsplittable = ("git log >/dev/null.txt", "git log 2>/dev/null-x", "git log 2>&10", "git log > out.txt", "git log $(rm x)", "git log `rm x`", "git status & rm x", "(git status)",
                         "if git status; then rm x; fi", "git status &&", "git log\nrm x", 'git log "a')
         for command in unsplittable:
