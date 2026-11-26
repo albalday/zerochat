@@ -670,8 +670,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertEqual(text, "".join(chr(97 + i % 26) for i in range(length)))
         self.assertEqual(check(conversation_id="solo", offset=page + 1)["result_text"], "")
         for invalid in ({"conversation_id": "solo", "offset": page + 2}, {"conversation_id": "solo", "offset": -1},
-                        {"conversation_id": "solo", "offset": True}, {"offset": 10}, {"include_turn": True},
-                        {"agent": "informes.solo", "prune_keep": 1, "include_turn": True}):
+                        {"conversation_id": "solo", "offset": True}, {"offset": 10}, {"include_turn": True}):
             self.assertFalse(check(**invalid)["success"], invalid)
 
     def test_el_listado_no_repite_lo_ya_entregado_y_dice_cuantas_ejecuciones_hay_en_marcha(self):
@@ -872,7 +871,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         ctx = use_project(self, Path(tempfile.mkdtemp()).resolve())
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
         zerochat.save_project_environment(ctx.key, {"systemDataPrompt": "Prompt"})
-        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        stop = lambda **args: json.loads(zerochat.stop_agent(**args, ctx=ctx))
         worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(100)"], start_new_session=os.name != "nt")
         self.addCleanup(worker.wait)
         self.addCleanup(worker.kill)
@@ -891,19 +890,21 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_conversation({"id": "de_cron", "title": "cron", "project": ctx.key, "agent": "lector"}, [])
         upsert_run({"run_id": "r_cron", "conversation_id": "de_cron", "status": "running", "pid": os.getpid(),
                     "pid_start": zerochat._process_start_token(os.getpid())})
-        for invalid, reason in (({"conversation_id": "de_cron", "stop": True}, "only stops the agents it launched"),
-                                ({"stop": True}, "stop goes alone"), ({"agent": "lector", "stop": True}, "stop goes alone"),
-                                ({"conversation_id": conv_id, "stop": True, "wait_seconds": 5}, "stop goes alone")):
-            self.assertIn(reason, check(**invalid)["error"], invalid)
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"stop": True}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("stop_agent", {}))
+        self.assertIsNone(zerochat.validate_local_tool_arguments("stop_agent", {"conversation_id": conv_id}))
+        for invalid, reason in (({"conversation_id": "de_cron"}, "only stops the agents it launched"),
+                                ({}, "non-empty string"), ({"conversation_id": " "}, "non-empty string")):
+            self.assertIn(reason, stop(**invalid)["error"], invalid)
         self.assertIsNone(worker.poll(), "Nada se ha parado aún")
 
-        stopped = check(conversation_id=conv_id, stop=True)
+        stopped = stop(conversation_id=conv_id)
         self.assertEqual((stopped["stopped"], stopped["status"], stopped["error"], stopped["result_text"], stopped["partial"]),
                          (True, "error", "Stopped by its controller.", "Voy por la mitad.", True))
         self.assertIsNotNone(worker.wait(timeout=10), "Su proceso ha terminado")
         self.assertEqual(zerochat.get_run_state(conv_id)["status"], "error")
         self.assertEqual(zerochat.get_run_state("de_cron")["status"], "running")
-        self.assertIn("is not running (status: error)", check(conversation_id=conv_id, stop=True)["error"])
+        self.assertIn("is not running (status: error)", stop(conversation_id=conv_id)["error"])
 
         # Si el trabajador actualiza usage/warnings o cierra completed durante el plazo de gracia, no se pisa.
         for race_patch, expected in (
@@ -919,14 +920,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             upsert_run(base)
             zerochat.RUN_SESSION.launched_agents[race_id] = {"agent": "lector", "project": ctx.key, "updatedAt": 1000}
             with mock.patch.object(zerochat, "_kill_process_tree", side_effect=lambda *_, **__: upsert_run({**base, **race_patch})):
-                res = check(conversation_id=race_id, stop=True)
+                res = stop(conversation_id=race_id)
             self.assertEqual((res["stopped"], res["status"], res["result_text"] if res["status"] == "completed" else None, res.get("usage")), expected)
         zerochat.RUN_SESSION = None
 
-    def test_check_agents_borra_solo_a_peticion_las_conversaciones_antiguas_de_los_agentes_vigilados(self):
+    def test_prune_agents_borra_solo_a_peticion_las_conversaciones_antiguas_de_los_agentes_vigilados(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
-        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        prune = lambda **args: json.loads(zerochat.prune_agents(**args, ctx=ctx))
 
         def conv(conv_id, agent=None, updated_at=1000, project=ctx.key, status=None):
             meta = {"id": conv_id, "title": conv_id, "updatedAt": updated_at, "project": project, **({"agent": agent} if agent else {})}
@@ -949,13 +950,15 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         existing = lambda: {item["id"] for item in zerochat.list_conversations()}
 
-        for invalid in ({"prune_keep": -1}, {"prune_keep": zerochat.AGENT_PRUNE_KEEP_MAX + 1}, {"prune_keep": True}, {"prune_keep": 1, "wait_seconds": 5},
-                        {"prune_keep": 1, "conversation_id": "d1"}, {"prune_keep": 1, "agent": "informes.otro"}):
-            self.assertFalse(check(**invalid)["success"], invalid)
-        self.assertEqual(len(existing()), 11, "Nada se borra sin prune_keep válido")
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("check_agents", {"prune_keep": 1}))
+        self.assertIsNotNone(zerochat.validate_local_tool_arguments("prune_agents", {}))
+        self.assertIsNone(zerochat.validate_local_tool_arguments("prune_agents", {"keep": 1}))
+        for invalid in ({}, {"keep": -1}, {"keep": zerochat.AGENT_PRUNE_KEEP_MAX + 1}, {"keep": True}, {"keep": 1, "agent": "informes.otro"}):
+            self.assertFalse(prune(**invalid)["success"], invalid)
+        self.assertEqual(len(existing()), 11, "Nada se borra sin keep válido")
 
         # Con agent: conserva sus N más recientes y nunca borra una en marcha ni una que espera a una persona.
-        result = check(agent="informes.diario", prune_keep=1)
+        result = prune(agent="informes.diario", keep=1)
         self.assertEqual([item["conversation_id"] for item in result["deleted"]], ["d4", "d1"])
         self.assertEqual([(item["conversation_id"], item["status"]) for item in result["skipped"]], [("d3", "running"), ("d2", "needs_input")])
         self.assertEqual(existing(), {"d2", "d3", "d5", "s1", "s2", "ventas", "humana", "otro", "master"})
@@ -963,7 +966,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(zerochat.get_run_state("d3")["status"], "running")
 
         # Sin agent, cada agente del proyecto; 0 no conserva ninguna. Humanas, otros proyectos y el controlador quedan.
-        result = check(prune_keep=0)
+        result = prune(keep=0)
         self.assertEqual(sorted(item["conversation_id"] for item in result["deleted"]), ["d5", "s1", "s2", "ventas"])
         self.assertEqual(existing(), {"d2", "d3", "humana", "otro", "master"})
 
@@ -986,14 +989,18 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         launched = []
         fake_launch = lambda request, cwd: launched.append((dict(request), cwd)) or {"run_id": f"run_{len(launched)}", "pid": 1}
 
-        # Solo en una ejecución con controller: true, que la publica y autoriza junto a check_agents.
+        # Solo en una ejecución con controller: true, que publica y autoriza las cuatro herramientas del controlador.
         zerochat.RUN_SESSION = zerochat.RunSession("Hola")
-        self.assertNotIn("launch_agent", names())
+        for tool_name in zerochat.CONTROLLER_TOOLS:
+            self.assertNotIn(tool_name, names())
         self.assertFalse(launch(run_file="agents/diario.md")["success"])
+        self.assertFalse(json.loads(zerochat.stop_agent(conversation_id="x", ctx=ctx))["success"])
+        self.assertFalse(json.loads(zerochat.prune_agents(keep=1, ctx=ctx))["success"])
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
-        self.assertIn("launch_agent", names())
         zerochat.reset_session_authorizations()
-        self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization("launch_agent", {}, context=ctx).status, zerochat.POLICY_ALLOW)
+        for tool_name in zerochat.CONTROLLER_TOOLS:
+            self.assertIn(tool_name, names())
+            self.assertEqual(zerochat.ACCESS_CONTROLLER.evaluate_authorization(tool_name, {}, context=ctx).status, zerochat.POLICY_ALLOW)
         self.assertIsNone(zerochat.validate_local_tool_arguments("launch_agent", {"run_file": "agents/diario.md", "project": str(other)}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {"max_steps": "5"}))
         self.assertIsNotNone(zerochat.validate_local_tool_arguments("launch_agent", {"controller": True}), "En línea no hay controller")
@@ -1073,7 +1080,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual([item["conversation_id"] for item in check(project=str(other))["agents"]], [result["conversation_id"]])
         self.assertEqual((check(project=str(other), conversation_id="suya")["success"], check(conversation_id="suya")["success"]), (True, False))
         self.assertEqual((check(conversation_id="mia")["success"], check(project=str(other), conversation_id="mia")["success"]), (True, False))
-        self.assertIn("do not give RW access", check(project=str(other), prune_keep=0)["error"])
+        self.assertIn("do not give RW access", json.loads(zerochat.prune_agents(keep=0, project=str(other), ctx=ctx))["error"])
         self.assertIn("does not exist", check(project=str(other / "nada"))["error"])
 
     def test_launch_run_file_arranca_un_proceso_separado_con_su_run_id_y_la_peticion_por_stdin(self):

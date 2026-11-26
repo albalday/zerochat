@@ -8884,16 +8884,17 @@ class AccessController:
 ACCESS_CONTROLLER = AccessController()
 
 # --- tools.agents ---
-"""check_agents y launch_agent: los agentes que consulta y lanza un agente controlador, solo en la ejecución --run-file
-con controller: true.
+"""check_agents, launch_agent, stop_agent y prune_agents: las herramientas de un agente controlador, solo en la
+ejecución --run-file con controller: true.
 
-Leen conversaciones y ejecuciones de SQLite filtrando estrictamente por un proyecto (el de la ejecución o, con project,
-otro sobre el que sus reglas de directorio den lectura) y por tener agente: nunca chats humanos (sin agent) ni la
-conversación del propio controlador. launch_agent lanza un run-file de ese proyecto separado del controlador, con el
-entorno guardado y los permisos del proyecto en que se ejecuta (con project, X sobre esa carpeta además de R sobre el
-run-file), y nunca el de otro controlador: no hay anidamiento. Con wait_seconds espera, sin que el modelo tenga que
-sondear, a que cambie el estado de alguno de los agentes consultados. Con prune_keep borra, solo cuando el controlador
-lo pide, las conversaciones antiguas de sus agentes (nunca hay limpieza automática).
+check_agents lee conversaciones y ejecuciones de SQLite filtrando estrictamente por un proyecto (el de la ejecución o,
+con project, otro sobre el que sus reglas de directorio den lectura) y por tener agente: nunca chats humanos (sin agent)
+ni la conversación del propio controlador, y con wait_seconds espera sin sondeo a que cambien. launch_agent lanza un
+run-file (o un agente en línea) de ese proyecto separado del controlador, con el entorno guardado y los permisos del
+proyecto en que se ejecuta (con project, X sobre esa carpeta además de R sobre el run-file), y nunca el de otro
+controlador: no hay anidamiento. stop_agent detiene una conversación en marcha que este controlador lanzó en esta
+ejecución. prune_agents borra, solo bajo petición, las conversaciones antiguas de los agentes (nunca hay limpieza
+automática).
 """
 
 
@@ -8901,8 +8902,10 @@ lo pide, las conversaciones antiguas de sus agentes (nunca hay limpieza automát
 
 AGENTS_TOOL = "check_agents"
 LAUNCH_AGENT_TOOL = "launch_agent"
+STOP_AGENT_TOOL = "stop_agent"
+PRUNE_AGENTS_TOOL = "prune_agents"
 # Las herramientas del controlador: se publican y autorizan juntas, solo en una ejecución --run-file con controller: true.
-CONTROLLER_TOOLS = (AGENTS_TOOL, LAUNCH_AGENT_TOOL)
+CONTROLLER_TOOLS = (AGENTS_TOOL, LAUNCH_AGENT_TOOL, STOP_AGENT_TOOL, PRUNE_AGENTS_TOOL)
 # Tope del prompt que launch_agent pone en lugar del del run-file.
 MAX_LAUNCH_PROMPT_LENGTH = 32768
 # Respuesta final de cada agente en el listado: entera hasta AGENT_LIST_RESULT_MAX_CHARS, y entre todas como mucho
@@ -8920,9 +8923,9 @@ AGENT_MAX_WAIT = TOOL_WAIT_MAX_SECONDS
 AGENT_WAIT_RECHECK_SECONDS = 5.0
 # Estados que cortan una espera aunque otros agentes sigan en marcha: alguien tiene que mirarlos.
 AGENT_ATTENTION_STATUSES = ("needs_input", "error")
-# Tope de prune_keep: cuántas conversaciones recientes de cada agente puede pedir conservar el controlador.
+# Tope de keep en prune_agents: cuántas conversaciones recientes de cada agente puede pedir conservar el controlador.
 AGENT_PRUNE_KEEP_MAX = 1000
-# Lo que se da al agente para cerrar antes de matarlo al detenerlo (stop), y el error con que queda su ejecución.
+# Lo que se da al agente para cerrar antes de matarlo al detenerlo (stop_agent), y el error con que queda su ejecución.
 AGENT_STOP_GRACE_SECONDS = 2.0
 AGENT_STOPPED_ERROR = "Stopped by its controller."
 # Estados que la limpieza nunca borra: una ejecución en marcha o una pausa que espera a una persona.
@@ -9158,38 +9161,34 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
     return json.dumps({"success": True, "deleted": deleted, "skipped": skipped}, ensure_ascii=False)
 
 
-def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
-                 prune_keep: int | None = None, project: str | None = None, offset: int = 0, include_turn: bool = False,
-                 stop: bool = False, ctx: SecurityContext | None = None) -> str:
-    """Sin argumentos, el estado de cada agente del proyecto (su conversación más reciente) con su respuesta final si cabe;
-    con agent o conversation_id, su respuesta final por bloques desde offset y, con include_turn, los mensajes de su
-    último turno. Con wait_seconds, antes espera como mucho ese tiempo a que cambie.
-    Con prune_keep, en lugar de eso borra las conversaciones antiguas de los agentes (o de agent); con stop, detiene
-    la conversación conversation_id, si la lanzó este controlador y sigue en marcha. Con project, los agentes de esa
-    carpeta en lugar de los del proyecto de la ejecución."""
+def _controller_context(tool_name: str, ctx: SecurityContext | None, project: str | None, access: str):
+    """Valida que la herramienta corre bajo un controlador y resuelve su propio id y el proyecto destino."""
     session = current_run_session()
     if session is None or not session.controller or ctx is None:
-        return _tool_error("check_agents is only available in a --run-file run with controller: true.")
+        raise ValueError(f"{tool_name} is only available in a --run-file run with controller: true.")
     own_id = session.conversation_id or session.new_conversation_id or ""
+    return session, own_id, _target_project(ctx, project, access)
+
+
+def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
+                 project: str | None = None, offset: int = 0, include_turn: bool = False,
+                 ctx: SecurityContext | None = None) -> str:
+    """Sin argumentos, el estado de cada agente del proyecto (y de todos los que lanzó este controlador en esta
+    ejecución) con su respuesta final si cabe; con agent o conversation_id, su respuesta final por bloques desde offset
+    y, con include_turn, los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que
+    cambie. Con project, los agentes de esa carpeta en lugar de los del proyecto de la ejecución."""
     try:
-        ctx = _target_project(ctx, project, "RW" if prune_keep is not None else "R")
+        _session, own_id, target = _controller_context(AGENTS_TOOL, ctx, project, "R")
     except ValueError as exc:
         return _tool_error(str(exc))
     detail = agent is not None or conversation_id is not None
-    if (offset or include_turn) and (prune_keep is not None or not detail):
+    if (offset or include_turn) and not detail:
         return _tool_error("offset and include_turn go with agent or conversation_id.")
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         return _tool_error("offset must be a non-negative integer.")
-    if stop is not False:
-        alone = stop is True and agent is None and prune_keep is None and not (wait_seconds or offset or include_turn)
-        return _stop_launched(ctx, own_id, conversation_id if alone else None, session.launched_agents)
-    if prune_keep is not None:
-        if conversation_id is not None or wait_seconds:
-            return _tool_error("prune_keep goes alone or with agent, without conversation_id or wait_seconds.")
-        return _checked_prune(_agent_conversations(ctx, own_id), agent, prune_keep)
 
     def read():
-        return _selected(ctx, own_id, agent, conversation_id)
+        return _selected(target, own_id, agent, conversation_id)
 
     wait = max(0, min(int(wait_seconds or 0), AGENT_MAX_WAIT))
     extra = {}
@@ -9206,33 +9205,46 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     return _detail(*selected[0], offset, include_turn, extra)
 
 
-def _stop_launched(ctx: SecurityContext, own_id: str, conversation_id: str | None, launched: dict) -> str:
+def stop_agent(conversation_id: str | None = None, project: str | None = None,
+               ctx: SecurityContext | None = None) -> str:
     """Detiene una conversación que este controlador lanzó en esta ejecución: mata su proceso con su árbol (runner y
-    servicios MCP) y deja su fila en error, para que el listado la muestre con lo que avanzó (respuesta parcial).
-    conversation_id es None si stop no venía solo con él."""
-    if conversation_id is None:
-        return _tool_error("stop goes alone with conversation_id: check_agents(conversation_id=..., stop=true).")
-    if conversation_id not in launched:
+    servicios MCP) y deja su fila en error, para que check_agents la muestre con lo que avanzó (respuesta parcial)."""
+    try:
+        session, own_id, target = _controller_context(STOP_AGENT_TOOL, ctx, project, "R")
+    except ValueError as exc:
+        return _tool_error(str(exc))
+    if not isinstance(conversation_id, str) or not conversation_id.strip():
+        return _tool_error("conversation_id must be a non-empty string.")
+    conv_id = conversation_id.strip()
+    if conv_id not in session.launched_agents:
         return _tool_error("A controller only stops the agents it launched in this run.")
-    selected = _selected(ctx, own_id, None, conversation_id)
+    selected = _selected(target, own_id, None, conv_id)
     if selected is None:
         return _tool_error("That conversation is not an agent of this project.")
     conv, run = selected[0]
     if run.get("status") != "running" or not run_process_alive(run):
-        return _tool_error(f"The conversation {conversation_id} is not running (status: {_agent_state(conv, run)['status']}).")
+        return _tool_error(f"The conversation {conv_id} is not running (status: {_agent_state(conv, run)['status']}).")
     _kill_process_tree(run["pid"], grace_seconds=AGENT_STOP_GRACE_SECONDS)
     # Releer tras el plazo de gracia para conservar usage/warnings recientes o un resultado terminado a tiempo.
-    fresh = get_run_state(conversation_id) or run
+    fresh = get_run_state(conv_id) or run
     if fresh.get("status") != "running":
         return _detail(conv, fresh, 0, False, {"stopped": False})
     now = int(time.time() * 1000)
     upsert_run_state({**fresh, "status": "error", "error": AGENT_STOPPED_ERROR, "updated_at": now, "finished_at": now})
-    return _detail(conv, get_run_state(conversation_id) or {}, 0, False, {"stopped": True})
+    return _detail(conv, get_run_state(conv_id) or {}, 0, False, {"stopped": True})
 
 
-def _checked_prune(convs: list[dict], agent: str | None, keep) -> str:
+def prune_agents(keep: int | None = None, agent: str | None = None, project: str | None = None,
+                 ctx: SecurityContext | None = None) -> str:
+    """Borra las conversaciones antiguas de los agentes del proyecto (o solo de agent) conservando las keep más
+    recientes, nunca una en marcha o esperando respuesta, y devuelve las borradas y las conservadas."""
+    try:
+        _session, own_id, target = _controller_context(PRUNE_AGENTS_TOOL, ctx, project, "RW")
+    except ValueError as exc:
+        return _tool_error(str(exc))
     if isinstance(keep, bool) or not isinstance(keep, int) or not 0 <= keep <= AGENT_PRUNE_KEEP_MAX:
-        return _tool_error(f"prune_keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
+        return _tool_error(f"keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
+    convs = _agent_conversations(target, own_id)
     if agent is not None and not any(conv["agent"] == agent for conv in convs):
         return _tool_error("That agent is not an agent of this project.")
     return _prune(convs, agent, keep)
@@ -11568,8 +11580,8 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     }
 ]
-# Solo se publica en una ejecución --run-file con controller: true (server/rpc.py), que además la autoriza; fuera de ella
-# el manejador se niega a responder.
+# Solo se publican en una ejecución --run-file con controller: true (server/rpc.py), que además las autoriza; fuera
+# de ella sus manejadores se niegan a responder.
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
@@ -11585,10 +11597,7 @@ CHECK_AGENTS_DEFINITION = {
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it keeps waiting while any of the "
         "agents asked about is running and returns at once when none is (returned_because: not_running), as soon as one "
         "of them turns needs_input or error (needs_attention) or when the time is up (wait_elapsed); call it again with "
-        "wait_seconds while they are still running. Agents started with launch_agent are listed from the start. To clean up old conversations of the agents "
-        "(for example, one per scheduled run), give prune_keep=N, optionally with agent: it deletes all but the N most recent "
-        "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped. "
-        "To stop an agent this run launched that is no longer needed or is stuck, give its conversation_id with stop=true."
+        "wait_seconds while they are still running. Agents started with launch_agent are listed from the start."
     ),
     "inputSchema": {
         "type": "object",
@@ -11596,12 +11605,42 @@ CHECK_AGENTS_DEFINITION = {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
-            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R"},
             "offset": {"type": "integer", "description": "With agent or conversation_id: character offset of the final answer to read from (the next_offset of the previous call)", "default": 0},
             "include_turn": {"type": "boolean", "description": "With agent or conversation_id: also return the messages of its last turn, including tool results", "default": False},
-            "stop": {"type": "boolean", "description": "With conversation_id alone: stop that running agent, which this run launched; what it finished is kept and it ends as error", "default": False}
         }
+    }
+}
+STOP_AGENT_DEFINITION = {
+    "name": STOP_AGENT_TOOL,
+    "description": (
+        "Stop a running agent conversation launched by this controller during this run, when it is stuck or no longer "
+        "needed. Kills its run process and keeps what it finished as error so check_agents shows its partial progress."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Conversation id of the running agent launched by this controller"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project where the agent runs (default: this run's project); its directory rules must give R"}
+        },
+        "required": ["conversation_id"]
+    }
+}
+PRUNE_AGENTS_DEFINITION = {
+    "name": PRUNE_AGENTS_TOOL,
+    "description": (
+        "Clean up old conversations of the project's agents (for example, one per scheduled run), keeping the N most "
+        "recent per agent (or of agent alone). Never deletes conversations that are running or waiting for the user, "
+        "and returns what was deleted and skipped."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "keep": {"type": "integer", "description": f"How many most recent conversations to keep per agent (0 to {AGENT_PRUNE_KEEP_MAX})"},
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): prune only this agent's conversations (default: all agents)"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to prune (default: this run's project); its directory rules must give RW"}
+        },
+        "required": ["keep"]
     }
 }
 LAUNCH_AGENT_DEFINITION = {
@@ -11634,7 +11673,7 @@ LAUNCH_AGENT_DEFINITION = {
     }
 }
 # Las de un controlador, que solo se publican en una ejecución --run-file con controller: true.
-CONTROLLER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION)
+CONTROLLER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION, STOP_AGENT_DEFINITION, PRUNE_AGENTS_DEFINITION)
 
 LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
@@ -11649,6 +11688,8 @@ LOCAL_TOOL_HANDLERS = {
     "browser_fill_secret": browser_fill_secret,
     AGENTS_TOOL: check_agents,
     LAUNCH_AGENT_TOOL: launch_agent,
+    STOP_AGENT_TOOL: stop_agent,
+    PRUNE_AGENTS_TOOL: prune_agents,
 }
 
 
@@ -11926,7 +11967,7 @@ decide quién atiende cada uno.
 
 
 def _local_tools() -> list[dict]:
-    """Las herramientas locales; check_agents y launch_agent, solo en la ejecución --run-file con controller: true."""
+    """Las herramientas locales y, solo en la ejecución --run-file con controller: true, las del controlador."""
     session = current_run_session()
     extra = CONTROLLER_TOOL_DEFINITIONS if session is not None and session.controller else ()
     return [dict(definition) for definition in (*LOCAL_TOOLS_DEFINITIONS, *extra)]
@@ -12643,7 +12684,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar el agente del fichero Markdown (- para leerlo de stdin) en lugar de --prompt, --conversation y --profile: una cabecera entre dos líneas --- con agent (<nombre> o <subconjunto>.<nombre>: marca la conversación nueva como de ese agente), conversation_id (la continúa o, si no existe, la crea con ese id), profile, controller (true: consulta y lanza los agentes del proyecto con check_agents y launch_agent), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), reasoning (none, low, medium, high o xhigh; medium por defecto), maxSteps y timeout (segundos), y las secciones <!-- system --> (su manual; también el texto sin marcador) y <!-- prompt --> (la tarea); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar el agente del fichero Markdown (- para leerlo de stdin) en lugar de --prompt, --conversation y --profile: una cabecera entre dos líneas --- con agent (<nombre> o <subconjunto>.<nombre>: marca la conversación nueva como de ese agente), conversation_id (la continúa o, si no existe, la crea con ese id), profile, controller (true: consulta, lanza, detiene y limpia los agentes del proyecto con check_agents, launch_agent, stop_agent y prune_agents), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), reasoning (none, low, medium, high o xhigh; medium por defecto), maxSteps y timeout (segundos), y las secciones <!-- system --> (su manual; también el texto sin marcador) y <!-- prompt --> (la tarea); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")

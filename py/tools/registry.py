@@ -15,8 +15,12 @@ from tools.agents import (
     AGENTS_TOOL,
     LAUNCH_AGENT_TOOL,
     MAX_LAUNCH_PROMPT_LENGTH,
+    PRUNE_AGENTS_TOOL,
+    STOP_AGENT_TOOL,
     check_agents,
     launch_agent,
+    prune_agents,
+    stop_agent,
 )
 from tools.browser_action import BROWSER_ACTIONS, browser_action
 from tools.browser_secret import BROWSER_SECRET_MODES, browser_fill_secret
@@ -223,8 +227,8 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     }
 ]
-# Solo se publica en una ejecución --run-file con controller: true (server/rpc.py), que además la autoriza; fuera de ella
-# el manejador se niega a responder.
+# Solo se publican en una ejecución --run-file con controller: true (server/rpc.py), que además las autoriza; fuera
+# de ella sus manejadores se niegan a responder.
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
@@ -240,10 +244,7 @@ CHECK_AGENTS_DEFINITION = {
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it keeps waiting while any of the "
         "agents asked about is running and returns at once when none is (returned_because: not_running), as soon as one "
         "of them turns needs_input or error (needs_attention) or when the time is up (wait_elapsed); call it again with "
-        "wait_seconds while they are still running. Agents started with launch_agent are listed from the start. To clean up old conversations of the agents "
-        "(for example, one per scheduled run), give prune_keep=N, optionally with agent: it deletes all but the N most recent "
-        "conversations of each agent, never one that is running or waiting for the user, and lists what it deleted and skipped. "
-        "To stop an agent this run launched that is no longer needed or is stuck, give its conversation_id with stop=true."
+        "wait_seconds while they are still running. Agents started with launch_agent are listed from the start."
     ),
     "inputSchema": {
         "type": "object",
@@ -251,12 +252,42 @@ CHECK_AGENTS_DEFINITION = {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
-            "prune_keep": {"type": "integer", "description": f"Delete the older conversations of the agents (or of agent), keeping this many most recent per agent (0 to {AGENT_PRUNE_KEEP_MAX}); only when asked, never running or waiting ones"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R (RW to prune)"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R"},
             "offset": {"type": "integer", "description": "With agent or conversation_id: character offset of the final answer to read from (the next_offset of the previous call)", "default": 0},
             "include_turn": {"type": "boolean", "description": "With agent or conversation_id: also return the messages of its last turn, including tool results", "default": False},
-            "stop": {"type": "boolean", "description": "With conversation_id alone: stop that running agent, which this run launched; what it finished is kept and it ends as error", "default": False}
         }
+    }
+}
+STOP_AGENT_DEFINITION = {
+    "name": STOP_AGENT_TOOL,
+    "description": (
+        "Stop a running agent conversation launched by this controller during this run, when it is stuck or no longer "
+        "needed. Kills its run process and keeps what it finished as error so check_agents shows its partial progress."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Conversation id of the running agent launched by this controller"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project where the agent runs (default: this run's project); its directory rules must give R"}
+        },
+        "required": ["conversation_id"]
+    }
+}
+PRUNE_AGENTS_DEFINITION = {
+    "name": PRUNE_AGENTS_TOOL,
+    "description": (
+        "Clean up old conversations of the project's agents (for example, one per scheduled run), keeping the N most "
+        "recent per agent (or of agent alone). Never deletes conversations that are running or waiting for the user, "
+        "and returns what was deleted and skipped."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "keep": {"type": "integer", "description": f"How many most recent conversations to keep per agent (0 to {AGENT_PRUNE_KEEP_MAX})"},
+            "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): prune only this agent's conversations (default: all agents)"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to prune (default: this run's project); its directory rules must give RW"}
+        },
+        "required": ["keep"]
     }
 }
 LAUNCH_AGENT_DEFINITION = {
@@ -289,7 +320,7 @@ LAUNCH_AGENT_DEFINITION = {
     }
 }
 # Las de un controlador, que solo se publican en una ejecución --run-file con controller: true.
-CONTROLLER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION)
+CONTROLLER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION, STOP_AGENT_DEFINITION, PRUNE_AGENTS_DEFINITION)
 
 LOCAL_TOOL_HANDLERS = {
     "list_directory": list_directory,
@@ -304,6 +335,8 @@ LOCAL_TOOL_HANDLERS = {
     "browser_fill_secret": browser_fill_secret,
     AGENTS_TOOL: check_agents,
     LAUNCH_AGENT_TOOL: launch_agent,
+    STOP_AGENT_TOOL: stop_agent,
+    PRUNE_AGENTS_TOOL: prune_agents,
 }
 
 

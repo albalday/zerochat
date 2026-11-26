@@ -48,7 +48,7 @@ from web.fetch import fetch_web_resource
 
 
 def _local_tools() -> list[dict]:
-    """Las herramientas locales; check_agents y launch_agent, solo en la ejecución --run-file con controller: true."""
+    """Las herramientas locales y, solo en la ejecución --run-file con controller: true, las del controlador."""
     session = current_run_session()
     extra = CONTROLLER_TOOL_DEFINITIONS if session is not None and session.controller else ()
     return [dict(definition) for definition in (*LOCAL_TOOLS_DEFINITIONS, *extra)]
