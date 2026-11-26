@@ -110,6 +110,15 @@ class RunCommandTest(unittest.TestCase):
         self.assertRegex(result["output"], r"^fin \d+\n$")
         wait_dead(int(result["output"].split()[1]))
 
+    def test_la_salida_recortada_por_lineas_no_supera_max_chars_con_lineas_largas(self):
+        long_lines = "".join(f"{index} {'x' * 500}\n" for index in range(100))
+        output, truncated = zerochat.truncate_terminal_output(long_lines)
+        self.assertTrue(truncated)
+        self.assertLess(len(output), 8000 + 200, "50 + 30 líneas de 500 caracteres superarían max_chars")
+        short_lines = "".join(f"{index:05}{'y' * 85}\n" for index in range(100))
+        output, truncated = zerochat.truncate_terminal_output(short_lines)
+        self.assertTrue(truncated and output.startswith("00000") and "omitted 20 lines" in output)
+
     def test_la_salida_larga_se_trunca_y_el_log_conserva_comienzo_y_final(self):
         result = run("python3 -c \"print('x' * 5000000)\"", timeout_seconds=30)
         self.assertIs(result["success"], True)

@@ -71,6 +71,18 @@ class ExternalSymlinkTest(unittest.TestCase):
         self.assertEqual([match["relative_path"] for match in python_only["matches"]], ["sub/inside.py"])
         limited = json.loads(zerochat.search_files("l", path=str(self.project), max_results=1, ctx=CTX))
         self.assertEqual((len(limited["matches"]), limited["truncated"]), (1, True))
+        # Exactamente max_results coincidencias no es truncar; una más, sí.
+        for limit, truncated in ((2, False), (1, True)):
+            exact = json.loads(zerochat.search_files("m72| loads ", path=str(notes), max_results=limit, ctx=CTX))
+            self.assertEqual((len(exact["matches"]), exact["truncated"]), (limit, truncated))
+
+    def test_list_directory_avisa_del_tope_de_entradas_en_el_borde_exacto(self):
+        listing = lambda: json.loads(zerochat.list_directory(str(self.project), ctx=CTX))
+        count = len(listing()["entries"])
+        for limit, truncated in ((count, False), (count - 1, True)):
+            with self.subTest(limit=limit), patch.object(zerochat, "LIST_DIRECTORY_MAX_ENTRIES", limit):
+                result = listing()
+                self.assertEqual((result["total_items"], result["truncated"]), (limit, truncated))
 
 
 class DiagnosticsTest(unittest.TestCase):
@@ -90,9 +102,16 @@ class DiagnosticsTest(unittest.TestCase):
 
         single = json.loads(zerochat.get_diagnostics(path=str(self.project / "sub" / "bad.py"), ctx=CTX))
         self.assertEqual((single["files_checked"], single["diagnostics"][0]["line"]), (1, 1))
-        for index in range(210):
+        self.assertIs(result["truncated"], False)
+        # Borde del tope: 200 ficheros comprobables caben sin aviso; 201 avisan.
+        limit = zerochat.DIAGNOSTICS_MAX_FILES
+        for index in range(limit - 3):
             (self.project / f"f{index:03}.json").write_text("{}", encoding="utf-8")
-        self.assertEqual(json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))["files_checked"], 200)
+        for extra, truncated in ((0, False), (1, True)):
+            if extra:
+                (self.project / "extra.json").write_text("{}", encoding="utf-8")
+            full = json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))
+            self.assertEqual((full["files_checked"], full["truncated"]), (limit, truncated))
 
 
 class ReadFileTest(unittest.TestCase):

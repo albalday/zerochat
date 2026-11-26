@@ -52,8 +52,9 @@ def _directory_entry(entry: os.DirEntry, target: Path, recursive: bool) -> dict:
 
 
 def _scan_directory(current: Path, target: Path, depth: int, max_depth: int, recursive: bool, entries: list[dict]):
-    """Añade a entries el contenido de current, carpetas primero, sin seguir enlaces y hasta el tope de entradas."""
-    if depth > max_depth or len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+    """Añade a entries el contenido de current, carpetas primero, sin seguir enlaces y hasta una entrada más del
+    tope, que solo sirve para saber que hay más."""
+    if depth > max_depth or len(entries) > LIST_DIRECTORY_MAX_ENTRIES:
         return
     try:
         with os.scandir(current) as it:
@@ -61,7 +62,7 @@ def _scan_directory(current: Path, target: Path, depth: int, max_depth: int, rec
     except OSError:
         return
     for entry in items:
-        if len(entries) >= LIST_DIRECTORY_MAX_ENTRIES:
+        if len(entries) > LIST_DIRECTORY_MAX_ENTRIES:
             break
         try:
             data = _directory_entry(entry, target, recursive)
@@ -82,11 +83,14 @@ def list_directory(path: str = ".", recursive: bool = False, *, ctx: SecurityCon
             return _tool_error(f"Path '{path}' is not a directory.")
         entries: list[dict] = []
         _scan_directory(target, target, 1, 3 if recursive else 1, recursive, entries)
+        truncated = len(entries) > LIST_DIRECTORY_MAX_ENTRIES
+        entries = entries[:LIST_DIRECTORY_MAX_ENTRIES]
         return json.dumps({
             "success": True,
             "path": str(target),
             "recursive": bool(recursive),
             "total_items": len(entries),
+            "truncated": truncated,
             "entries": entries
         }, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -485,9 +489,12 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             except OSError:
                 continue
             files_searched += 1
-            matches.extend(_search_lines(fpath, root, terms, safe_max_results - len(matches)))
-            if len(matches) >= safe_max_results:
+            # Una coincidencia más del tope dice si hay más, sin dar truncated con exactamente el tope.
+            matches.extend(_search_lines(fpath, root, terms, safe_max_results + 1 - len(matches)))
+            if len(matches) > safe_max_results:
                 break
+        truncated = len(matches) > safe_max_results
+        matches = matches[:safe_max_results]
 
         payload = {
             "success": True,
@@ -496,7 +503,7 @@ def search_files(query: str, path: str = ".", file_pattern: str = None, max_resu
             "file_pattern": file_pattern,
             "files_searched": files_searched,
             "total_matches": len(matches),
-            "truncated": len(matches) >= safe_max_results,
+            "truncated": truncated,
             "matches": matches
         }
         return json.dumps(payload, ensure_ascii=False, indent=2)
@@ -576,7 +583,9 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
             checked = [target]
         else:
             checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
-            checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES))
+            checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES + 1))
+        truncated = len(checked) > DIAGNOSTICS_MAX_FILES
+        checked = checked[:DIAGNOSTICS_MAX_FILES]
         files_checked = len(checked)
         diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
 
@@ -586,6 +595,7 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
             "success": True,
             "path": str(target),
             "files_checked": files_checked,
+            "truncated": truncated,
             "error_count": len(diagnostics),
             "diagnostics": diagnostics,
             "message": msg

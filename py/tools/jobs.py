@@ -56,7 +56,8 @@ def truncate_terminal_output(text: str, max_chars: int = 8000, head_lines: int =
     if len(text) <= max_chars:
         return text, False
     lines = text.splitlines(keepends=True)
-    if len(lines) <= head_lines + tail_lines:
+    # Por líneas solo si las de los extremos caben en max_chars: con líneas largas se recorta por caracteres.
+    if len(lines) <= head_lines + tail_lines or len("".join(lines[:head_lines] + lines[-tail_lines:])) > max_chars:
         half = max_chars // 2
         return (
             text[:half]
