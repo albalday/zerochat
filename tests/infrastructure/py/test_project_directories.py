@@ -183,6 +183,14 @@ class ProjectDirectoriesTest(unittest.TestCase):
             _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": p_ctx.key}, p_ctx)
             self.assertIsNotNone(err)
 
+        # La carpeta de arranque admite borrar sus datos, pero no la carpeta en disco.
+        with patch.object(zerochat, "PROJECT_DIR", proj_ctx.workspace_dir):
+            _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": proj_ctx.key}, proj_ctx)
+            self.assertIn("arrancó ZeroChat", err["message"])
+            self.assertTrue(proj_dir.exists())
+            _, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": False}, proj_ctx)
+            self.assertIsNone(err)
+
         # Con deleteDirectory=True y confirmPath exacto sí borra el directorio
         res, err, _ = zerochat.dispatch_local("zerochat/project/delete", {"deleteDirectory": True, "confirmPath": proj_ctx.key}, proj_ctx)
         self.assertIsNone(err)

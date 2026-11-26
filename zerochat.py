@@ -9468,7 +9468,8 @@ def create_project_directory(params: dict, ctx: SecurityContext) -> dict:
 
 
 def validate_deletable_project_dir(ctx: SecurityContext) -> Path:
-    """Comprueba que la carpeta del proyecto puede borrarse sin tocar raíces, ~, general ni ~/zerochat."""
+    """Comprueba que la carpeta del proyecto puede borrarse sin tocar raíces, ~, general, ~/zerochat ni la carpeta de
+    arranque, que es el proyecto por defecto del servidor: sin ella, cada pestaña nueva abriría una carpeta inexistente."""
     target = ctx.workspace_dir.resolve()
     no_project = get_no_project_dir().resolve()
     data_dir = get_data_dir().resolve()
@@ -9477,6 +9478,8 @@ def validate_deletable_project_dir(ctx: SecurityContext) -> Path:
         raise ValueError("No se puede borrar la carpeta general, la carpeta personal ni una raíz del sistema.")
     if target == data_dir or target in data_dir.parents:
         raise ValueError("No se puede borrar la carpeta de datos de ZeroChat.")
+    if target == project_context().workspace_dir:
+        raise ValueError("Es la carpeta con la que arrancó ZeroChat: arráncalo desde otra para borrarla.")
     return target
 
 
