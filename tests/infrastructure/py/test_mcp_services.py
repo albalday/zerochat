@@ -221,6 +221,9 @@ class ManagedServicesTest(unittest.TestCase):
         self.assertEqual(env["BRAVE_API_KEY"], "bsa-secreta")
         self.assertEqual(args, ["${secret:BRAVE_API_KEY}"])
         self.assertNotIn("bsa-secreta", "".join(traces))
+        # Una pasada: una opción cuyo texto es ${secret:...} no se expande al secreto; lo desconocido queda tal cual.
+        self.assertEqual(manager._expand("${option:q}-${otra}", {"option:q": "${secret:BRAVE_API_KEY}", "secret:BRAVE_API_KEY": "bsa-secreta"}),
+                         "${secret:BRAVE_API_KEY}-${otra}")
 
         # Cambiar la clave detiene el servicio en marcha (su proceso tiene la anterior); borrarla lo deja sin poder arrancar.
         zerochat.dispatch_server_control("zerochat/external/servers/secret", {"serverId": "brave", "name": "BRAVE_API_KEY", "value": None})

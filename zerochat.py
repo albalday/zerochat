@@ -4608,6 +4608,8 @@ class McpServiceRecord:
 # Nombre de la variable de entorno de un secreto que declara un servicio en su service.json ("secrets").
 SERVICE_SECRET_NAME_PATTERN = re.compile(r"[A-Z][A-Z0-9_]{0,63}")
 MAX_OPTION_TEXT_LENGTH = 1024
+# Marcadores ${clave} de launch (executable, args y env) en service.json.
+LAUNCH_PLACEHOLDER_PATTERN = re.compile(r"\$\{([^{}]+)\}")
 
 
 def service_secrets(server: dict) -> list[dict]:
@@ -4786,11 +4788,11 @@ class McpServiceManager:
 
 
     def _expand(self, value: str, values: dict[str, str]) -> str:
+        """Sustituye cada ${clave} conocida en una sola pasada: un valor sustituido (una opción del usuario con el
+        texto ${secret:X}) no se vuelve a expandir. Las claves desconocidas quedan tal cual."""
         if not isinstance(value, str):
             raise ValueError("Invalid process argument")
-        for key, replacement in values.items():
-            value = value.replace("${" + key + "}", str(replacement))
-        return value
+        return LAUNCH_PLACEHOLDER_PATTERN.sub(lambda match: str(values.get(match.group(1), match.group(0))), value)
 
     def _prepare_service(self, server_id: str, server: dict) -> dict[str, str]:
         service_dir = server["_directory"]
