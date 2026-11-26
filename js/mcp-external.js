@@ -162,9 +162,9 @@
     let didAutoOpenOAuth = false;
     const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
       const oauthUrl = serverData?.oauthUrl || null;
-      if (oauthUrl && !didAutoOpenOAuth) {
+      if (oauthUrl && !didAutoOpenOAuth && /^https?:\/\//i.test(oauthUrl)) {
         didAutoOpenOAuth = true;
-        window.open(oauthUrl, '_blank');
+        window.open(oauthUrl, '_blank', 'noopener,noreferrer');
       }
       updateExternalServerState(serverId, { status, ...(oauthUrl ? { oauthUrl } : {}), error: null, startWait: { attempt, total } });
     };

@@ -25,7 +25,7 @@ Done when: cada tarea está hecha o descartada con motivo, cada corrección llev
 - [x] M95-T5 js/markdown.js: limpiar también los placeholders \u0001/\u0002 del texto del modelo y quitar el doble escape de altText en renderImage (F-17) (2026-11-26)
 - [x] M95-T6 McpServiceManager._expand: sustituir ${option:*}/${secret:*} en una sola pasada para que una opción con texto ${secret:X} no se expanda al secreto (F-09) (2026-11-26)
 - [x] M95-T7 zerochat/login: rechazar \x00 en usuario y contraseña con -32602 y capturar el error de forma controlada en rpc_login/_serve_login (F-28) (2026-11-26)
-- [ ] M95-T8 OAuth MCP: extraer oauth_url de la línea de stderr sin redactar (redactar solo el trace) y abrirla en js/mcp-external.js solo si es http(s) y con noopener,noreferrer (F-11)
+- [x] M95-T8 OAuth MCP: extraer oauth_url de la línea de stderr sin redactar (redactar solo el trace) y abrirla en js/mcp-external.js solo si es http(s) y con noopener,noreferrer (F-11) (2026-11-26)
 - [ ] M95-T9 Comprobar si OpenRouterProviderAdapter.applyContextCache (js/providers.js) acumula cache_control al mutar en sitio la última herramienta compartida y, si es así, copiarla (observación del dominio 5)
 - [ ] M95-T10 Temporales únicos (PID + aleatorio, limpieza en error) en runner_loader.py y mcp/catalog.py, y no lanzar start_catalog_refresh en ejecuciones efímeras --prompt/--conversation/--run-file (F-16)
 - [ ] M95-T11 zerochat/project/delete: rechazar siempre la carpeta de arranque y general, con y sin deleteDirectory, y añadir PROJECT_DIR a validate_deletable_project_dir (F-26, M85-D2)

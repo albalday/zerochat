@@ -532,6 +532,15 @@ class LocalToolArgumentsTest(unittest.TestCase):
 
 
 class StdioClientTest(unittest.TestCase):
+    def test_la_url_oauth_llega_entera_aunque_la_traza_la_redacte(self):
+        url = "https://auth.example.com/authorize?client_id=zc&state=abc123&code_challenge=" + "x" * 1200
+        traces, found = Traces(), []
+        client = zerochat.StdioMcpClient("node", [], ".", {}, trace=traces.append, on_oauth_url=found.append)
+        client.process = Mock(stderr=io.StringIO(f"Please authorize this client by visiting:\n{url}\n"))
+        client._drain_stderr()
+        self.assertEqual((client.oauth_url, found), (url, [url]))
+        self.assertNotIn("state=abc123", "".join(traces))
+
     def test_un_mensaje_de_max_mcp_message_chars_cabe_y_uno_mas_se_descarta(self):
         limit = zerochat.StdioMcpClient.max_message_chars
         self.assertEqual(limit, zerochat.MAX_MCP_MESSAGE_CHARS)

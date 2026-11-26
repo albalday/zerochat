@@ -138,7 +138,8 @@ class StdioMcpClient:
             if self._OAUTH_HINT_RE.search(line):
                 pending_oauth = True
             if pending_oauth:
-                m = self._OAUTH_URL_RE.search(line)
+                # De la línea sin redactar: la traza oculta state=, code=... y la recorta, y la URL debe llegar entera.
+                m = self._OAUTH_URL_RE.search(raw_line)
                 if m:
                     url = m.group(0).rstrip('.,;)')
                     self.oauth_url = url
