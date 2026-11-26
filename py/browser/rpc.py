@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 
-from browser.config import save_browser_config
+from browser.config import save_browser_config, save_extension_token
 from browser.engines import BROWSER_ENGINES
 from core.rpc import INVALID_PARAMS, RpcOutcome, dispatch_table, parse_nonneg_int, parse_optional_nonneg_int, rpc_error, rpc_result
 
@@ -20,6 +20,7 @@ def _engines_list(params: dict) -> RpcOutcome:
 
 BROWSER_METHODS = {
     "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
+    "zerochat/browser/extension_token/set": lambda params: rpc_result({"extensionTokenConfigured": save_extension_token(params.get("token"))}),
     "zerochat/browser/engines/list": _engines_list,
     "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
     "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),

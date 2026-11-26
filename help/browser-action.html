@@ -47,7 +47,7 @@
         <li>Deja abierto ese navegador. En Ajustes › Navegador elige <strong>Tu navegador</strong> y el navegador, y guarda.</li>
         <li>La primera vez que el modelo navega tras arrancar Playwright MCP, la extensión te pide aceptar la conexión y elegir la pestaña que compartes con él.</li>
       </ol>
-      <p>Para no aceptar cada conexión, copia el token que muestra la ventana de la extensión en <strong>Token de la extensión</strong>; puedes pegar la línea <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> entera. Se guarda ofuscado en la base de datos SQLite local (<code>~/zerochat/storage/zerochat.db</code>), legible solo por tu usuario, y Playwright MCP lo recibe por variable de entorno al arrancar. Quien tenga el token puede conectar con tu navegador sin que lo aceptes: no lo compartas.</p>
+      <p>Para no aceptar cada conexión, pulsa <strong>Guardar token…</strong> en <strong>Token de la extensión</strong> y pega el token que muestra la ventana de la extensión; vale pegar la línea <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> entera. Se guarda al momento y no se vuelve a mostrar (Ajustes solo indica si está guardado; <strong>Borrar</strong> lo quita). Se guarda ofuscado en la base de datos SQLite local (<code>~/zerochat/storage/zerochat.db</code>), legible solo por tu usuario, y Playwright MCP lo recibe por variable de entorno al arrancar. Quien tenga el token puede conectar con tu navegador sin que lo aceptes: no lo compartas.</p>
       <p>Este modo siempre tiene ventana: el modelo trabaja en tu navegador abierto.</p>
     </div>
 

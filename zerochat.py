@@ -3642,16 +3642,12 @@ def _write_setting_on_conn(conn: sqlite3.Connection, key: str, value, now: int):
     """, (key, json.dumps(value, ensure_ascii=False), now))
 
 
-def set_setting(key: str, value, *, secret_name: str | None = None, secret: str = "") -> None:
-    """Guarda un ajuste JSON en `settings`; con `secret_name`, guarda (o borra si va vacío) en la misma transacción su secreto ofuscado."""
+def set_setting(key: str, value) -> None:
+    """Guarda un ajuste JSON en `settings`."""
     now = int(time.time() * 1000)
     with open_storage() as conn:
         with _immediate_transaction(conn):
             _write_setting_on_conn(conn, key, value, now)
-            if secret_name and secret:
-                _write_secret_on_conn(conn, secret_name, secret, now)
-            elif secret_name:
-                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_name,))
 
 
 def _json_column(raw):
@@ -4091,7 +4087,6 @@ BROWSER_CONFIG_DEFAULTS = {
     "engine": "chromium",
     "userBrowser": "chrome",
     "headless": True,
-    "extensionToken": "",
     "userAgentMode": "auto",
     "userAgent": "",
 }
@@ -4101,8 +4096,9 @@ BROWSER_EXTENSION_TOKEN_KEY = "browser:extension_token"  # noqa: S105 - nombre d
 # Identificador de la extensión de Playwright en la tienda de Chrome, que también usa Edge.
 PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
-# Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador.
-_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{0,256}$")
+# Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador. Es de solo
+# escritura, como los secretos MCP: ningún método lo devuelve, solo si está guardado.
+_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
 _BROWSER_CONFIG_CHOICES = {
     "mode": BROWSER_MODES,
     "engine": ALL_OWN_ENGINES,
@@ -4146,8 +4142,6 @@ def validate_browser_config(raw) -> dict:
             raise ValueError(f"{key} debe ser uno de: {', '.join(choices)}")
     if not isinstance(config["headless"], bool):
         raise ValueError("headless debe ser un booleano")
-    if not isinstance(config["extensionToken"], str) or not _EXTENSION_TOKEN.match(config["extensionToken"]):
-        raise ValueError("extensionToken debe tener hasta 256 letras, cifras, guiones o guiones bajos")
     config["userAgent"] = _validate_user_agent(config["userAgent"])
     if sets_user_agent(config) and config["userAgentMode"] == "custom" and not config["userAgent"]:
         raise ValueError("userAgent es obligatorio cuando userAgentMode es custom")
@@ -4157,12 +4151,7 @@ def validate_browser_config(raw) -> dict:
 def load_browser_config() -> dict:
     try:
         stored = get_setting(BROWSER_CONFIG_KEY)
-        token = get_secret(BROWSER_EXTENSION_TOKEN_KEY) or ""
-        if stored is None and not token:
-            return dict(BROWSER_CONFIG_DEFAULTS)
-        if stored is not None and not isinstance(stored, dict):
-            raise ValueError("La configuración del navegador debe ser un objeto")
-        return validate_browser_config({**(stored or {}), "extensionToken": token})
+        return dict(BROWSER_CONFIG_DEFAULTS) if stored is None else validate_browser_config(stored)
     except (OSError, ValueError, TypeError) as err:
         log_event(f"[zerochat] Configuración del navegador no válida en SQLite, se usan los valores por defecto: {err}")
         return dict(BROWSER_CONFIG_DEFAULTS)
@@ -4170,9 +4159,23 @@ def load_browser_config() -> dict:
 
 def save_browser_config(raw) -> dict:
     config = validate_browser_config(raw)
-    public_config = {key: value for key, value in config.items() if key != "extensionToken"}
-    set_setting(BROWSER_CONFIG_KEY, public_config, secret_name=BROWSER_EXTENSION_TOKEN_KEY, secret=config["extensionToken"])
+    set_setting(BROWSER_CONFIG_KEY, config)
     return config
+
+
+def extension_token_configured() -> bool:
+    return bool(get_secret(BROWSER_EXTENSION_TOKEN_KEY))
+
+
+def save_extension_token(token) -> bool:
+    """Guarda el token de la extensión (o lo borra con None); devuelve si queda guardado."""
+    if token is None:
+        delete_secret(BROWSER_EXTENSION_TOKEN_KEY)
+        return False
+    if not isinstance(token, str) or not _EXTENSION_TOKEN.match(token):
+        raise ValueError("token debe tener de 1 a 256 letras, cifras, guiones o guiones bajos, o ser null")
+    save_secret(BROWSER_EXTENSION_TOKEN_KEY, token)
+    return True
 
 
 def chromium_install() -> tuple[str, Path] | None:
@@ -4223,9 +4226,8 @@ def playwright_launch_args(config: dict, user_agent: str | None = None) -> list[
 
 def playwright_launch_env(config: dict) -> dict[str, str]:
     """Entorno de Playwright MCP: el token de la extensión, que no aparece en la línea de órdenes ni en el log."""
-    if config["mode"] == "user" and config["extensionToken"]:
-        return {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": config["extensionToken"]}
-    return {}
+    token = get_secret(BROWSER_EXTENSION_TOKEN_KEY) if config["mode"] == "user" else None
+    return {"PLAYWRIGHT_MCP_EXTENSION_TOKEN": token} if token else {}
 
 
 def _playwright_launch(service_user_agent: str | None = None) -> tuple[list[str], dict[str, str]]:
@@ -4456,7 +4458,7 @@ class BrowserEngines:
         with self._lock:
             rev = self._rev
             jobs = {engine: dict(job) for engine, job in self._jobs.items()}
-        result: dict = {"rev": rev, "engines": [], "config": load_browser_config()}
+        result: dict = {"rev": rev, "engines": [], "config": load_browser_config(), "extensionTokenConfigured": extension_token_configured()}
         if not engines_only:
             result["systemBrowsers"] = system_browsers()
             result["extensions"] = user_browser_extensions()
@@ -4567,6 +4569,7 @@ def _engines_list(params: dict) -> RpcOutcome:
 
 BROWSER_METHODS = {
     "zerochat/browser/config/set": lambda params: rpc_result(save_browser_config(params.get("config"))),
+    "zerochat/browser/extension_token/set": lambda params: rpc_result({"extensionTokenConfigured": save_extension_token(params.get("token"))}),
     "zerochat/browser/engines/list": _engines_list,
     "zerochat/browser/engines/install": lambda params: rpc_result(BROWSER_ENGINES.install(params.get("engine"))),
     "zerochat/browser/engines/remove": lambda params: rpc_result(BROWSER_ENGINES.remove(params.get("engine"))),

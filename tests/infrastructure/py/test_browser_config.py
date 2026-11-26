@@ -67,12 +67,7 @@ class PlaywrightLaunchTest(unittest.TestCase):
                 )
                 conn.commit()
         else:
-            zerochat.set_setting(zerochat.BROWSER_CONFIG_KEY, {k: v for k, v in config.items() if k != "extensionToken"})
-            token = config.get("extensionToken", "")
-            if token:
-                zerochat.save_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY, token)
-            else:
-                zerochat.delete_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY)
+            zerochat.set_setting(zerochat.BROWSER_CONFIG_KEY, config)
         with patch.object(self.manager, "_prepare_service", return_value={"serviceDir": "/svc", "nodeExecutable": "node", "pythonExecutable": "python"}), \
                 patch.object(zerochat, "StdioMcpClient", return_value=self.client) as constructor:
             self.manager.start("playwright")
@@ -114,9 +109,12 @@ class PlaywrightLaunchTest(unittest.TestCase):
 
     def test_con_el_navegador_del_usuario_manda_la_extension_el_token_va_en_entorno_y_siempre_hay_ventana(self):
         token = "abc_DEF-123"
-        self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "msedge", "headless": True, "extensionToken": token}), ["--extension", "--browser=msedge"])
+        self.assertEqual(self.launch_args({"mode": "user", "userBrowser": "msedge", "headless": True}), ["--extension", "--browser=msedge"])
+        self.assertNotIn("PLAYWRIGHT_MCP_EXTENSION_TOKEN", self.launched_env)
+        zerochat.save_extension_token(token)
+        self.launch_args({"mode": "user", "userBrowser": "msedge"})
         self.assertEqual(self.launched_env["PLAYWRIGHT_MCP_EXTENSION_TOKEN"], token)
-        self.launch_args({"mode": "own", "extensionToken": token})
+        self.launch_args({"mode": "own"})
         self.assertNotIn("PLAYWRIGHT_MCP_EXTENSION_TOKEN", self.launched_env)
         # Chromium no es un canal: su ejecutable y su perfil, con el canal chrome; sin Chromium no arranca.
         with patch.object(zerochat, "chromium_install", return_value=("/usr/bin/chromium", Path("/home/u/.config/chromium"))):
@@ -126,33 +124,23 @@ class PlaywrightLaunchTest(unittest.TestCase):
             zerochat.playwright_launch_args({**zerochat.BROWSER_CONFIG_DEFAULTS, "mode": "user", "userBrowser": "chromium"})
 
     def test_lo_guardado_se_valida_solo_lo_lee_el_usuario_y_lo_usa_el_siguiente_arranque(self):
-        saved = zerochat.save_browser_config({"engine": "webkit", "headless": False, "extensionToken": "tok_secret_1"})
+        saved = zerochat.save_browser_config({"engine": "webkit", "headless": False})
         self.assertEqual(saved, {
             "mode": "own",
             "engine": "webkit",
             "userBrowser": "chrome",
             "headless": False,
-            "extensionToken": "tok_secret_1",
             "userAgentMode": "auto",
             "userAgent": "",
         })
         if os.name != "nt":  # Windows no aplica los permisos POSIX de chmod
             self.assertEqual(zerochat.get_storage_db_path().stat().st_mode & 0o777, 0o600)
-        # extensionToken vive ofuscado en secrets y no en settings['browser'].
-        self.assertNotIn("extensionToken", zerochat.get_setting(zerochat.BROWSER_CONFIG_KEY))
-        with zerochat.open_storage() as conn:
-            stored_secret = conn.execute("SELECT value FROM secrets WHERE name = ?;", (zerochat.BROWSER_EXTENSION_TOKEN_KEY,)).fetchone()["value"]
-        self.assertTrue(stored_secret.startswith(zerochat.OBFUSCATION_PREFIX))
-        self.assertEqual(zerochat.get_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY), "tok_secret_1")
         self.assertEqual(zerochat.load_browser_config(), saved)
         self.assertEqual(self.launch_args(saved), self.own_args("webkit"))
-        # Limpiar extensionToken borra la entrada en secrets.
-        zerochat.save_browser_config({"engine": "webkit", "headless": False, "extensionToken": ""})
-        self.assertIsNone(zerochat.get_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY))
-        saved = zerochat.load_browser_config()
         for raw, message in (
             ([], "objeto"),
             ({"mode": "own", "extra": 1}, "extra"),
+            ({"extensionToken": "tok_1"}, "extensionToken"),
             ({"mode": "remote"}, "mode"),
             ({"userBrowser": "firefox"}, "userBrowser"),
             ({"headless": "no"}, "headless"),
@@ -164,6 +152,26 @@ class PlaywrightLaunchTest(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaisesRegex(ValueError, message):
                 zerochat.save_browser_config(raw)
         self.assertEqual(zerochat.load_browser_config(), saved, "un valor rechazado no cambia lo guardado")
+
+    def test_el_token_de_la_extension_es_de_solo_escritura(self):
+        """Se guarda ofuscado y ningún método lo devuelve: solo si está guardado."""
+        token = "tok_secret_1"
+        self.assertEqual(zerochat.dispatch_browser("zerochat/browser/extension_token/set", {"token": token}),
+                         ({"extensionTokenConfigured": True}, None, ""))
+        with zerochat.open_storage() as conn:
+            stored = conn.execute("SELECT value FROM secrets WHERE name = ?;", (zerochat.BROWSER_EXTENSION_TOKEN_KEY,)).fetchone()["value"]
+        self.assertTrue(stored.startswith(zerochat.OBFUSCATION_PREFIX))
+        saved, _, _ = zerochat.dispatch_browser("zerochat/browser/config/set", {"config": {"mode": "user"}})
+        listing, _, _ = zerochat.dispatch_browser("zerochat/browser/engines/list", {"engines_only": True})
+        self.assertIs(listing["extensionTokenConfigured"], True)
+        for response in (saved, listing):
+            self.assertNotIn(token, json.dumps(response))
+        self.assertEqual(zerochat.dispatch_browser("zerochat/browser/extension_token/set", {"token": None}),
+                         ({"extensionTokenConfigured": False}, None, ""))
+        self.assertIsNone(zerochat.get_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY))
+        result, error, _ = zerochat.dispatch_browser("zerochat/browser/extension_token/set", {"token": "mal token"})
+        self.assertIsNone(result)
+        self.assertIn("token", error["message"])
 
     def test_canal_chrome_y_modos_de_user_agent_en_modo_propio(self):
         # Los navegadores instalados en modo propio son reales y actualizados: envían su User-Agent, aunque se pida uno
@@ -233,10 +241,11 @@ class PlaywrightLaunchTest(unittest.TestCase):
         self.assertEqual(list(zerochat.USER_BROWSERS), CONTRACT["userBrowsers"])
         for token in CONTRACT["extensionTokens"]["valid"]:
             with self.subTest(token=token):
-                self.assertEqual(zerochat.validate_browser_config({"extensionToken": token})["extensionToken"], token)
+                self.assertIs(zerochat.save_extension_token(token), True)
+                self.assertEqual(zerochat.get_secret(zerochat.BROWSER_EXTENSION_TOKEN_KEY), token)
         for token in CONTRACT["extensionTokens"]["invalid"]:
-            with self.subTest(token=token), self.assertRaisesRegex(ValueError, "extensionToken"):
-                zerochat.validate_browser_config({"extensionToken": token})
+            with self.subTest(token=token), self.assertRaisesRegex(ValueError, "token"):
+                zerochat.save_extension_token(token)
 
 
 
@@ -324,4 +333,5 @@ class BrowserEnginesTest(unittest.TestCase):
             "extensions": zerochat.user_browser_extensions(),
             "engines": [],
             "config": zerochat.load_browser_config(),
+            "extensionTokenConfigured": False,
         })

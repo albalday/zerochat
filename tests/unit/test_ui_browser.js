@@ -4,14 +4,14 @@ const UIBrowser = require('../../js/ui-browser.js');
 const Defaults = require('../../js/defaults.js');
 const CONTRACT = require('../fixtures/mcp/contract.json');
 
-const SAVED = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '', userAgentMode: 'auto', userAgent: '' };
-const NOTHING = { tokenInvalid: false, userAgentInvalid: false, setConfig: false, offerRestart: false };
+const SAVED = { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, userAgentMode: 'auto', userAgent: '' };
+const NOTHING = { userAgentInvalid: false, setConfig: false, offerRestart: false };
 const plan = (changes, status) => UIBrowser.getSavePlan({ tool: 'playwright', config: SAVED, savedConfig: SAVED, ...changes }, status);
 
 test('UIBrowser.getSavePlan - decide validación, envío y reinicio según herramienta, cambios y estado', () => {
-  const autofilled = { ...SAVED, mode: 'user', extensionToken: 'contraseña guardada!' };
+  const invalid = { ...SAVED, userAgentMode: 'custom', userAgent: '' };
   for (const tool of ['browser_action', 'none']) {
-    assert.deepEqual(plan({ tool, config: autofilled }, 'stopped'), NOTHING, tool);
+    assert.deepEqual(plan({ tool, config: invalid }, 'stopped'), NOTHING, tool);
   }
 
   const changed = { ...SAVED, headless: false };
@@ -36,12 +36,8 @@ test('UIBrowser - motores, navegadores del usuario y tokens de la extensión coi
   assert.deepEqual(Defaults.USER_BROWSERS, CONTRACT.userBrowsers);
   assert.deepEqual(Defaults.OWN_SYSTEM_ENGINES, CONTRACT.ownSystemEngines);
   assert.deepEqual(Defaults.USER_AGENT_MODES, CONTRACT.userAgentModes);
-  for (const extensionToken of CONTRACT.extensionTokens.valid) {
-    assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, setConfig: extensionToken !== '', offerRestart: extensionToken !== '' }, extensionToken);
-  }
-  for (const extensionToken of CONTRACT.extensionTokens.invalid) {
-    assert.deepEqual(plan({ config: { ...SAVED, extensionToken } }, 'running'), { ...NOTHING, tokenInvalid: true }, extensionToken);
-  }
+  for (const token of CONTRACT.extensionTokens.valid) assert.equal(UIBrowser.parseExtensionToken(token), token, token);
+  for (const token of CONTRACT.extensionTokens.invalid) assert.equal(UIBrowser.parseExtensionToken(token), null, token);
 });
 
 test('UIBrowser - el token admite pegar la línea de entorno que muestra la extensión, con o sin comillas', () => {
@@ -50,7 +46,7 @@ test('UIBrowser - el token admite pegar la línea de entorno que muestra la exte
     [' PLAYWRIGHT_MCP_EXTENSION_TOKEN=tok_1 ', 'tok_1'],
     ['PLAYWRIGHT_MCP_EXTENSION_TOKEN = "tok-2"', 'tok-2'],
     ["'tok_3'", 'tok_3'],
-    ['"tok_4\'', '"tok_4\'']
+    ['"tok_4\'', null]
   ];
-  for (const [value, expected] of cases) assert.equal(UIBrowser.normalizeExtensionToken(value), expected, value);
+  for (const [value, expected] of cases) assert.equal(UIBrowser.parseExtensionToken(value), expected, value);
 });

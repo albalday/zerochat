@@ -47,7 +47,7 @@
         <li>Keep that browser open. In Settings › Browser choose <strong>Your browser</strong> and the browser, and save.</li>
         <li>The first time the model browses after Playwright MCP starts, the extension asks you to accept the connection and choose the tab you share with it.</li>
       </ol>
-      <p>To avoid accepting every connection, copy the token shown in the extension window into <strong>Extension token</strong>; you can paste the whole <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> line. It is saved obfuscated in the local SQLite database (<code>~/zerochat/storage/zerochat.db</code>), readable only by your user, and Playwright MCP receives it via environment variable when it starts. Whoever has the token can connect to your browser without your approval: do not share it.</p>
+      <p>To avoid accepting every connection, click <strong>Save token…</strong> in <strong>Extension token</strong> and paste the token shown in the extension window; pasting the whole <code>PLAYWRIGHT_MCP_EXTENSION_TOKEN=…</code> line works. It is saved right away and never shown again (Settings only shows whether it is saved; <strong>Delete</strong> removes it). It is saved obfuscated in the local SQLite database (<code>~/zerochat/storage/zerochat.db</code>), readable only by your user, and Playwright MCP receives it via environment variable when it starts. Whoever has the token can connect to your browser without your approval: do not share it.</p>
       <p>This mode always has a window: the model works in your open browser.</p>
     </div>
 

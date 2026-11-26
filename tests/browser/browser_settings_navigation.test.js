@@ -137,6 +137,48 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
     });
   });
 
+  test('Browser UI - el token de la extensión solo muestra si está guardado y se guarda o borra al momento', async () => {
+    await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
+      page.setDefaultTimeout(5000);
+      await page.evaluate(() => {
+        window.__tokenCalls = [];
+        window.__prompts = ['mal token!', 'PLAYWRIGHT_MCP_EXTENSION_TOKEN="tok_1"'];
+        window.ChatDialogs.prompt = async (message, value, options) => { window.__promptType = options.inputType; return window.__prompts.shift(); };
+        window.ChatDialogs.confirm = async () => true;
+        window.ChatMCP.manager.clients.set('mcp_proxy', {
+          async request(method, params) {
+            if (method === 'zerochat/browser/engines/list') {
+              return { config: { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, userAgentMode: 'auto', userAgent: '' }, extensionTokenConfigured: false, engines: [{ id: 'chromium', installed: true }], systemBrowsers: { chrome: true }, extensions: {} };
+            }
+            if (method === 'zerochat/browser/extension_token/set') {
+              window.__tokenCalls.push(params.token);
+              return { extensionTokenConfigured: params.token !== null };
+            }
+            return {};
+          }
+        });
+        window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/p' }, playwright: { installed: true, browserAction: { available: true } } });
+      });
+      await openSettings(page, 'browser');
+      await page.locator('input[name="browser-tool"][value="playwright"]').check();
+      const badge = '[data-browser-action="token-set"] >> xpath=preceding-sibling::span[@role="status"]';
+      assert.equal(await page.textContent(badge), 'Sin guardar');
+      assert.equal(await page.locator('[data-browser-action="token-delete"]').count(), 0);
+
+      await page.click('[data-browser-action="token-set"]');
+      await page.waitForSelector('#settings-browser .status-error');
+      assert.match(await page.textContent('#settings-browser .status-error'), /letras, cifras/, 'un token no válido no se envía');
+      await page.click('[data-browser-action="token-set"]');
+      await page.waitForSelector('[data-browser-action="token-delete"]');
+      assert.equal(await page.textContent(badge), 'Guardado');
+      assert.doesNotMatch(await page.innerHTML('#settings-browser'), /tok_1/, 'el token no queda en la página');
+
+      await page.click('[data-browser-action="token-delete"]');
+      await page.waitForFunction(() => !document.querySelector('[data-browser-action="token-delete"]'));
+      assert.deepEqual(await page.evaluate(() => [window.__promptType, window.__tokenCalls]), ['password', ['tok_1', null]]);
+    });
+  });
+
   test('Browser UI - un error al guardar navegador no persiste permisos parciales y un fallo en MCP revierte el interruptor', async () => {
     await withTestApp({ viewport: { width: 1280, height: 800 } }, async page => {
       page.setDefaultTimeout(5000);
@@ -149,7 +191,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
               return { policies: { allowAll: false, tools: {}, servers: {}, directoryRules: ['RWX:/p/**'], commandPatterns: { global: [], project: [], session: [] } } };
             }
             if (method === 'zerochat/browser/engines/list') {
-              return { config: { mode: 'user', engine: 'chromium', userBrowser: 'chrome', headless: true, extensionToken: '' }, engines: [{ id: 'chromium', installed: true }], systemBrowsers: { chrome: true }, extensions: {} };
+              return { config: { mode: 'own', engine: 'chromium', userBrowser: 'chrome', headless: true, userAgentMode: 'auto', userAgent: '' }, extensionTokenConfigured: false, engines: [{ id: 'chromium', installed: true }], systemBrowsers: { chrome: true }, extensions: {} };
             }
             if (method === 'zerochat/project/environment/set') {
               window.__envSetFailed = true;
@@ -168,12 +210,12 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         window.ChatToolSecurity.manager.applyPolicies({ allowAll: false, directoryRules: ['RWX:/p/**'] });
       });
 
-      // Cambiar permiso + token de extensión inválido en Navegador: no debe enviar zerochat/security/update.
+      // Cambiar permiso + User-Agent personalizado vacío en Navegador: no debe enviar zerochat/security/update.
       await openSettings(page, 'permissions');
       await page.fill('#mcp-directory-rules', 'R:/p/**');
       await openSettings(page, 'browser');
       await page.locator('input[name="browser-tool"][value="playwright"]').check();
-      await page.fill('#browser-extension-token', 'token invalido!');
+      await page.selectOption('#browser-user-agent-mode', 'custom');
       await page.click('#btn-save-settings');
       assert.equal(await page.evaluate(() => document.getElementById('settings-dialog').open), true);
       assert.equal(await page.evaluate(() => window.__securityUpdateCalls), 0, 'Permisos no se guardan si Navegador falla validación');

@@ -1200,16 +1200,12 @@ def _write_setting_on_conn(conn: sqlite3.Connection, key: str, value, now: int):
     """, (key, json.dumps(value, ensure_ascii=False), now))
 
 
-def set_setting(key: str, value, *, secret_name: str | None = None, secret: str = "") -> None:
-    """Guarda un ajuste JSON en `settings`; con `secret_name`, guarda (o borra si va vacío) en la misma transacción su secreto ofuscado."""
+def set_setting(key: str, value) -> None:
+    """Guarda un ajuste JSON en `settings`."""
     now = int(time.time() * 1000)
     with open_storage() as conn:
         with _immediate_transaction(conn):
             _write_setting_on_conn(conn, key, value, now)
-            if secret_name and secret:
-                _write_secret_on_conn(conn, secret_name, secret, now)
-            elif secret_name:
-                conn.execute("DELETE FROM secrets WHERE name = ?;", (secret_name,))
 
 
 def _json_column(raw):

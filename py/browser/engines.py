@@ -14,6 +14,7 @@ from browser.config import (
     PLAYWRIGHT_EXTENSION_ID,
     USER_BROWSERS,
     chromium_install,
+    extension_token_configured,
     load_browser_config,
     save_browser_config,
 )
@@ -182,7 +183,7 @@ class BrowserEngines:
         with self._lock:
             rev = self._rev
             jobs = {engine: dict(job) for engine, job in self._jobs.items()}
-        result: dict = {"rev": rev, "engines": [], "config": load_browser_config()}
+        result: dict = {"rev": rev, "engines": [], "config": load_browser_config(), "extensionTokenConfigured": extension_token_configured()}
         if not engines_only:
             result["systemBrowsers"] = system_browsers()
             result["extensions"] = user_browser_extensions()

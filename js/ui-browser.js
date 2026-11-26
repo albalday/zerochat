@@ -33,11 +33,11 @@
   const ownEngineName = id => ENGINE_NAMES[id] || systemEngineName(id);
   const { USER_BROWSERS, OWN_SYSTEM_ENGINES, USER_AGENT_MODES } = Defaults;
   const ENGINE_RETRY_DELAY_MS = 500;
-  const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'extensionToken', 'userAgentMode', 'userAgent'];
+  const CONFIG_KEYS = ['mode', 'engine', 'userBrowser', 'headless', 'userAgentMode', 'userAgent'];
   const USER_AGENT_MAX_LEN = 512;
   // La extensión muestra el token como variable de entorno: se admite pegar la línea entera.
   const TOKEN_ENV_PREFIX = /^PLAYWRIGHT_MCP_EXTENSION_TOKEN\s*=\s*/;
-  const TOKEN_PATTERN = /^[A-Za-z0-9_-]{0,256}$/;
+  const TOKEN_PATTERN = /^[A-Za-z0-9_-]{1,256}$/;
 
   // Lo que muestra la sección: la herramienta y la configuración en edición, la guardada y los motores.
   let section = { tool: null, config: null, savedConfig: null, engines: null, notice: null };
@@ -68,24 +68,28 @@
   // Si no se puede elegir se muestra «Ninguna», pero se conserva la elección guardada para cuando se pueda.
   const shownTool = () => (selectable(section.tool) ? section.tool : 'none');
   const sameConfig = (a, b) => CONFIG_KEYS.every(key => a[key] === b[key]);
-  const tokenValid = config => TOKEN_PATTERN.test(config.extensionToken);
   // Solo los motores de Playwright llevan el User-Agent de ZeroChat: los navegadores instalados y el
   // del usuario son reales y actualizados y envían el suyo (playwright_launch_args en el servidor).
   const setsUserAgent = config => config.mode === 'own' && !OWN_SYSTEM_ENGINES.includes(config.engine);
   const userAgentValid = config => !setsUserAgent(config) || config.userAgentMode !== 'custom'
     || (typeof config.userAgent === 'string' && config.userAgent.trim().length > 0 && config.userAgent.length <= USER_AGENT_MAX_LEN && !/[\r\n\0]/.test(config.userAgent));
-  const normalizeExtensionToken = value => value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
+
+  /** El token pegado sin la línea de entorno ni comillas, o null si no es un token válido. */
+  function parseExtensionToken(value) {
+    const token = value.trim().replace(TOKEN_ENV_PREFIX, '').replace(/^(["'])(.*)\1$/, '$2').trim();
+    return TOKEN_PATTERN.test(token) ? token : null;
+  }
 
   /**
    * Qué hace Guardar en la sección según lo elegido y el estado de Playwright MCP en el servidor
    * (`status`, null sin conexión). La configuración del navegador solo se valida y se envía con
    * Playwright MCP elegido; un cambio con el servidor en marcha ofrece reiniciarlo. El arranque y la
-   * parada de Playwright MCP los concilia `reconcileProjectServers`.
+   * parada de Playwright MCP los concilia `reconcileProjectServers`. El token de la extensión no pasa
+   * por aquí: se guarda o se borra al momento con sus botones.
    */
   function getSavePlan({ tool, config, savedConfig }, status) {
-    const plan = { tokenInvalid: false, userAgentInvalid: false, setConfig: false, offerRestart: false };
+    const plan = { userAgentInvalid: false, setConfig: false, offerRestart: false };
     if (tool !== 'playwright') return plan;
-    if (config && !tokenValid(config)) return { ...plan, tokenInvalid: true };
     if (config && !userAgentValid(config)) return { ...plan, userAgentInvalid: true };
     const setConfig = Boolean(config && savedConfig) && !sameConfig(config, savedConfig);
     return {
@@ -175,8 +179,7 @@
     const extensionInstalled = section.engines.extensions[section.config.userBrowser] === true;
     const extensionHelp = extensionInstalled ? ''
       : `<a href="${escapeHtml(t('browser_extension_help_href'))}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('browser_extension_help'))}</a>`;
-    const tokenError = tokenValid(section.config) ? ''
-      : `<p id="browser-extension-token-error" class="server-query-status status-error" role="alert">${escapeHtml(t('browser_extension_token_invalid'))}</p>`;
+    const tokenSaved = section.engines.extensionTokenConfigured === true;
     return `${choice('browser-mode', 'user', section.config.mode === 'user', t('browser_mode_user'), t('browser_mode_user_hint'))}
       <div class="browser-card-body">
         <div class="form-field">
@@ -187,10 +190,11 @@
           <span class="browser-row-text"><strong>${escapeHtml(t('browser_extension_title'))}</strong><span class="label-hint">${escapeHtml(t(extensionInstalled ? 'browser_extension_installed' : 'browser_extension_hint'))}</span></span>
           ${extensionHelp}
         </div>
-        <div class="form-field">
-          <label for="browser-extension-token"><strong>${escapeHtml(t('browser_extension_token'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_token_hint'))}</span></label>
-          <input type="password" id="browser-extension-token" name="browser-extension-token" value="${escapeHtml(section.config.extensionToken)}" autocomplete="new-password" spellcheck="false"${tokenValid(section.config) ? '' : ' aria-invalid="true" aria-describedby="browser-extension-token-error"'}>
-          ${tokenError}
+        <div class="browser-row">
+          <span class="browser-row-text"><strong>${escapeHtml(t('browser_extension_token'))}</strong><span class="label-hint">${escapeHtml(t('browser_extension_token_hint'))}</span></span>
+          <span class="mcp-server-badge ${tokenSaved ? 'status-running' : 'status-stopped'}" role="status">${escapeHtml(t(tokenSaved ? 'browser_extension_token_configured' : 'mcp_secret_missing'))}</span>
+          <button type="button" class="btn-secondary" data-browser-action="token-set">${escapeHtml(t('browser_extension_token_set'))}</button>
+          ${tokenSaved ? `<button type="button" class="btn-danger-outline" data-browser-action="token-delete">${escapeHtml(t('mcp_secret_delete'))}</button>` : ''}
         </div>
         <p class="browser-warning">${Icons.get('alert-triangle', { size: 14 })}<span>${escapeHtml(t('browser_user_warning'))}</span></p>
       </div>`;
@@ -294,6 +298,30 @@
     if (!section.engines) refreshServerData().catch(showError);
   }
 
+  /**
+   * Guarda o borra al momento el token de la extensión, que el servidor no devuelve nunca. Playwright
+   * MCP lo recibe al arrancar: con el navegador del usuario guardado y en marcha, se reinicia.
+   */
+  async function updateExtensionToken(action) {
+    const Dialogs = getDialogs();
+    let token = null;
+    if (action === 'token-set') {
+      const value = await Dialogs.prompt(t('browser_extension_token_prompt'), '', { inputType: 'password', title: t('browser_extension_token') });
+      if (value === null || !value.trim()) return;
+      token = parseExtensionToken(value);
+      if (token === null) throw new Error(t('browser_extension_token_invalid'));
+    } else if (!await Dialogs.confirm(t('browser_extension_token_delete_confirm'))) {
+      return;
+    }
+    const send = async () => {
+      const result = await request('zerochat/browser/extension_token/set', { token });
+      section.engines.extensionTokenConfigured = result.extensionTokenConfigured;
+    };
+    if (section.savedConfig.mode === 'user') await getMCP().manager.withExternalServerStopped('playwright', send);
+    else await send();
+    render();
+  }
+
   async function handleAction(button) {
     const action = button.dataset.browserAction;
     if (action === 'open-mcp') {
@@ -304,7 +332,9 @@
     const name = ownEngineName(engine);
     section.notice = null;
     try {
-      if (action === 'install') {
+      if (action === 'token-set' || action === 'token-delete') {
+        await updateExtensionToken(action);
+      } else if (action === 'install') {
         await request('zerochat/browser/engines/install', { engine });
         await refreshEngines();
       } else if (action === 'remove') {
@@ -329,7 +359,6 @@
     else if (target.name === 'browser-engine') section.config.engine = target.value;
     else if (target.name === 'browser-user-browser') section.config.userBrowser = target.value;
     else if (target.name === 'browser-show-window') section.config.headless = !target.checked;
-    else if (target.name === 'browser-extension-token') section.config.extensionToken = normalizeExtensionToken(target.value);
     else if (target.name === 'browser-user-agent-mode') section.config.userAgentMode = target.value;
     else if (target.name === 'browser-user-agent') section.config.userAgent = target.value.trim();
     else return;
@@ -338,15 +367,15 @@
 
   function validate() {
     const plan = getSavePlan(section, isConnected() ? playwrightStatus() : null);
-    if (!plan.tokenInvalid && !plan.userAgentInvalid) return true;
+    if (!plan.userAgentInvalid) return true;
     render();
-    container.querySelector(plan.tokenInvalid ? '#browser-extension-token' : '#browser-user-agent')?.focus();
+    container.querySelector('#browser-user-agent')?.focus();
     return false;
   }
 
   /**
    * Guarda la configuración del navegador al guardar los ajustes; la herramienta la guarda la
-   * configuración del cliente. Devuelve false si el token no es válido o el servidor rechaza la configuración.
+   * configuración del cliente. Devuelve false si el User-Agent no es válido o el servidor rechaza la configuración.
    */
   async function save() {
     if (!validate()) return false;
@@ -395,7 +424,7 @@
   }
 
   return {
-    getSavePlan, normalizeExtensionToken,
+    getSavePlan, parseExtensionToken,
     load, ensureLoaded, getTool, validate, save, mountBrowserUI
   };
 });
