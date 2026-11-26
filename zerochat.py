@@ -8975,18 +8975,24 @@ def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
 
 def _selected(ctx: SecurityContext, own_id: str, agent: str | None,
               conversation_id: str | None) -> list[tuple[dict, dict]] | None:
-    """Las conversaciones consultadas con su ejecución: la más reciente de cada agente, la de agent o la de
-    conversation_id; None si agent o conversation_id no es de un agente del proyecto."""
+    """Las conversaciones consultadas con su ejecución: sin agent ni conversation_id, todas las que lanzó este
+    controlador en esta ejecución (varias del mismo agente si repartió el trabajo) y la más reciente de cada agente;
+    si no, la de agent o la de conversation_id. None si agent o conversation_id no es de un agente del proyecto."""
     convs = _agent_conversations(ctx, own_id)
     if conversation_id is not None:
         picked = [conv for conv in convs if conv["id"] == conversation_id][:1]
     elif agent is not None:
         picked = [conv for conv in convs if conv["agent"] == agent][:1]
     else:
-        latest: dict[str, dict] = {}
-        for conv in convs:
-            latest.setdefault(conv["agent"], conv)
-        return [(conv, get_run_state(conv["id"]) or {}) for conv in latest.values()]
+        session = current_run_session()
+        launched = session.launched_agents if session else {}
+        seen: set[str] = set()
+        picked = []
+        for conv in convs:  # De la más reciente a la más antigua.
+            if conv["agent"] not in seen or conv["id"] in launched:
+                picked.append(conv)
+            seen.add(conv["agent"])
+        return [(conv, get_run_state(conv["id"]) or {}) for conv in picked]
     return [(conv, get_run_state(conv["id"]) or {}) for conv in picked] or None
 
 
@@ -11358,8 +11364,9 @@ LOCAL_TOOLS_DEFINITIONS = [
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
-        "Status of the agents of this project, which this run controls, or, with project, of another one. Without arguments, one entry per "
-        "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
+        "Status of the agents of this project, which this run controls, or, with project, of another one. Without arguments, one entry for each "
+        "conversation this run launched (several of the same agent if it split the work) and for the latest conversation "
+        "of every other agent: status (running, needs_input, completed, error, limit), step, pending input, "
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). With agent or conversation_id, the final answer in blocks of "
         f"{AGENT_RESULT_PAGE_CHARS} characters (pass next_offset as offset for the next one) and, with include_turn=true, the messages of its last turn. "

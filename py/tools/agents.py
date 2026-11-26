@@ -179,18 +179,24 @@ def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
 
 def _selected(ctx: SecurityContext, own_id: str, agent: str | None,
               conversation_id: str | None) -> list[tuple[dict, dict]] | None:
-    """Las conversaciones consultadas con su ejecución: la más reciente de cada agente, la de agent o la de
-    conversation_id; None si agent o conversation_id no es de un agente del proyecto."""
+    """Las conversaciones consultadas con su ejecución: sin agent ni conversation_id, todas las que lanzó este
+    controlador en esta ejecución (varias del mismo agente si repartió el trabajo) y la más reciente de cada agente;
+    si no, la de agent o la de conversation_id. None si agent o conversation_id no es de un agente del proyecto."""
     convs = _agent_conversations(ctx, own_id)
     if conversation_id is not None:
         picked = [conv for conv in convs if conv["id"] == conversation_id][:1]
     elif agent is not None:
         picked = [conv for conv in convs if conv["agent"] == agent][:1]
     else:
-        latest: dict[str, dict] = {}
-        for conv in convs:
-            latest.setdefault(conv["agent"], conv)
-        return [(conv, get_run_state(conv["id"]) or {}) for conv in latest.values()]
+        session = current_run_session()
+        launched = session.launched_agents if session else {}
+        seen: set[str] = set()
+        picked = []
+        for conv in convs:  # De la más reciente a la más antigua.
+            if conv["agent"] not in seen or conv["id"] in launched:
+                picked.append(conv)
+            seen.add(conv["agent"])
+        return [(conv, get_run_state(conv["id"]) or {}) for conv in picked]
     return [(conv, get_run_state(conv["id"]) or {}) for conv in picked] or None
 
 

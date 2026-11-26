@@ -764,6 +764,27 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual([item["conversation_id"] for item in check()["agents"]], [new_id])
         self.assertEqual(check(agent="informes.diario")["conversation_id"], new_id)
 
+        # Repartir el trabajo: el mismo agente lanzado tres veces sale tres veces en el listado (y no la anterior, que no
+        # lanzó este controlador), y la espera no vuelve hasta que terminan todas.
+        ids = []
+        for index in range(2):
+            def fake_parallel(request, _cwd, index=index):
+                upsert_run({"run_id": f"r_par{index}", "conversation_id": request["conversation_id"], "status": "running", **alive})
+                return {"run_id": f"r_par{index}", "pid": os.getpid()}
+            with mock.patch.object(zerochat, "launch_run_file", side_effect=fake_parallel):
+                ids.append(json.loads(zerochat.launch_agent(agent="informes.diario", prompt=f"Parte {index}", ctx=ctx))["conversation_id"])
+        self.assertEqual(sorted(item["conversation_id"] for item in check()["agents"]), sorted([new_id, *ids]))
+        threading.Timer(0.3, upsert_run, [{"run_id": "r_par0", "conversation_id": ids[0], "status": "completed", "result_text": "Parte 0"}]).start()
+        threading.Timer(0.8, upsert_run, [{"run_id": "r_par1", "conversation_id": ids[1], "status": "completed", "result_text": "Parte 1"}]).start()
+        started = time.monotonic()
+        result = check(wait_seconds=30)
+        self.assertGreaterEqual(time.monotonic() - started, 0.7, "Espera también a la segunda")
+        self.assertEqual((result["returned_because"], sorted(item["result_text"] for item in result["agents"])),
+                         ("not_running", ["Nuevo", "Parte 0", "Parte 1"]))
+        # Fuera de lo que lanzó, sigue la más reciente de cada agente: otra ejecución (sin este controlador) ve una.
+        zerochat.RUN_SESSION = zerochat.RunSession("Otra", conversation_id="otro_controlador", controller=True)
+        self.assertEqual(len(check()["agents"]), 1)
+
     def test_check_agents_borra_solo_a_peticion_las_conversaciones_antiguas_de_los_agentes_vigilados(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)

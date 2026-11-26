@@ -228,8 +228,9 @@ LOCAL_TOOLS_DEFINITIONS = [
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
-        "Status of the agents of this project, which this run controls, or, with project, of another one. Without arguments, one entry per "
-        "agent with its latest conversation: status (running, needs_input, completed, error, limit), step, pending input, "
+        "Status of the agents of this project, which this run controls, or, with project, of another one. Without arguments, one entry for each "
+        "conversation this run launched (several of the same agent if it split the work) and for the latest conversation "
+        "of every other agent: status (running, needs_input, completed, error, limit), step, pending input, "
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). With agent or conversation_id, the final answer in blocks of "
         f"{AGENT_RESULT_PAGE_CHARS} characters (pass next_offset as offset for the next one) and, with include_turn=true, the messages of its last turn. "
