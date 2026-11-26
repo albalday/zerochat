@@ -6,7 +6,7 @@ import base64
 
 from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
-from run_mode.state import cancel_server_run, run_conversation_meta
+from run_mode.state import cancel_server_run, check_no_active_run, current_run_session, run_conversation_meta
 from storage.db import (
     commit_conversation_upload,
     delete_conversation,
@@ -112,6 +112,12 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
     if isinstance(raw_conv, dict) and "launch" in raw_conv:
         raw_conv = {k: v for k, v in raw_conv.items() if k != "launch"}
     conversation = run_conversation_meta(raw_conv)
+    # Una ejecución viva es la única que escribe su conversación: la copia de la interfaz la pisaría a medias.
+    # En un servidor de ejecución solo llega su runner (M87-D2), que sí guarda la suya.
+    conv_id = conversation.get("id") if isinstance(conversation, dict) else None
+    if isinstance(conv_id, str) and conv_id:
+        session = current_run_session()
+        check_no_active_run(conv_id, session.run_id if session else None)
     if upload_id is not None:
         if params.get("messages") is not None:
             raise ValueError("No se puede combinar uploadId y messages")

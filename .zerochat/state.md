@@ -1,6 +1,6 @@
 # Current state
 - Milestone: M95 Auditoría 10.48.1
-- Next task: M95-T22 conversations/save: rechazar con -32000 el guardado desde la interfaz de una conversación con run vivo, comprobar run_process_alive en delete_project_storage y alinear py/README.md sobre delete (F-13)
+- Next task: M95-T23 extensionToken de Playwright de solo escritura: devolver extensionTokenConfigured en engines/list y config/set, no inyectarlo en el DOM y permitir sustituirlo o borrarlo como los secretos MCP (F-07, M75-D5)
 - Also open: M94 (Consolidación de la memoria privada de los agentes tras la compactación del 2026-11-25 — M94-T1)
 - Last closed: M93 (2026-11-25)
 - Last updated: 2026-11-26

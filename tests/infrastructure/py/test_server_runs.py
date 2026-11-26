@@ -427,6 +427,12 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(zerochat.get_conversation_launch("session_agente_1"), launch)
         zerochat.RUN_SESSION = None
         self.assertIsNone(zerochat.RunSession("Hola").launch, "Sin agent no hay lanzamiento que guardar")
+        # Mientras la ejecución sigue viva, la interfaz no puede guardar su copia encima; terminada, sí.
+        ui_params = {"conversation": {"id": "session_agente_1"}, "messages": []}
+        _, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", ui_params)
+        self.assertEqual(err["code"], zerochat.INVALID_PARAMS)
+        self.assertEqual(len(zerochat.get_conversation("session_agente_1")["history"]), 1)
+        zerochat.remove_run_state("session_agente_1")
         ui_saved, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
             "conversation": {"id": "session_agente_1", "profileId": "local", "launch": {"profile": "local"}},
             "messages": [{"id": "u1", "role": "user", "content": "Hola"}],
