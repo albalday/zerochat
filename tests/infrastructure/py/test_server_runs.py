@@ -873,6 +873,21 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "en marcha"):
             zerochat.launch_run_file(request, ctx.workspace_dir)
 
+    def test_los_finales_recordados_se_acotan_en_max_exited_runs_olvidando_los_mas_antiguos(self):
+        saved = dict(zerochat._EXITED)
+        self.addCleanup(lambda: (zerochat._EXITED.clear(), zerochat._EXITED.update(saved)))
+        zerochat._EXITED.clear()
+        limit = zerochat.MAX_EXITED_RUNS
+        with zerochat._EXIT_LOCK:
+            for pid in range(limit):
+                zerochat._remember_exit((pid, "s"))
+        self.assertEqual(len(zerochat._EXITED), limit)
+        with zerochat._EXIT_LOCK:
+            zerochat._remember_exit((limit, "s"))
+        self.assertEqual(len(zerochat._EXITED), limit)
+        self.assertNotIn((0, "s"), zerochat._EXITED)
+        self.assertIn((limit, "s"), zerochat._EXITED)
+
     def test_una_ejecucion_que_falla_antes_de_lanzar_el_runner_no_deja_fila_en_runs(self):
         folder = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, folder, True)

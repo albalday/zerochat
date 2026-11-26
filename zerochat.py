@@ -5356,8 +5356,18 @@ RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 # Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: uno que lanzó
 # otra instancia puede seguir figurando como vivo (zombi) hasta que lo recoge quien lo lanzó.
 _EXIT_WATCHED: set[tuple[int, str | None]] = set()
-_EXITED: set[tuple[int, str | None]] = set()
+# Por orden de final y con tope: uno de hace más de MAX_EXITED_RUNS finales ya lo recogió quien lo lanzó, y un PID
+# reutilizado no engaña a run_process_alive porque lleva otra huella de arranque.
+_EXITED: dict[tuple[int, str | None], None] = {}
+MAX_EXITED_RUNS = 1024
 _EXIT_LOCK = threading.Lock()
+
+
+def _remember_exit(key: tuple[int, str | None]) -> None:
+    """Anota el final de un proceso de ejecución, olvidando el más antiguo por encima de MAX_EXITED_RUNS (con _EXIT_LOCK)."""
+    _EXITED[key] = None
+    while len(_EXITED) > MAX_EXITED_RUNS:
+        del _EXITED[next(iter(_EXITED))]
 
 
 def _run_request_object(raw: bytes) -> dict:
@@ -5461,7 +5471,7 @@ def watch_run_exit(pid: int, pid_start: str | None, proc: subprocess.Popen | Non
             return  # No se puede esperar: se queda en _EXIT_WATCHED para no reintentarlo.
         with _EXIT_LOCK:
             _EXIT_WATCHED.discard(key)
-            _EXITED.add(key)
+            _remember_exit(key)
         notify_live_change()
 
     threading.Thread(target=wait, name=f"run-exit-{pid}", daemon=True).start()
@@ -5713,12 +5723,18 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
                "started_at": now, "updated_at": now, "status": "running", "step_text": "", "pending": None, "error": None}
     upsert_run_state(payload)
     watch_run_exit(proc.pid, payload["pid_start"], proc)
-    try:
-        if proc.stdin is not None:
-            proc.stdin.write(json.dumps(request, ensure_ascii=False).encode("utf-8"))
-            proc.stdin.close()
-    except OSError:
-        pass  # Si el proceso ya terminó, su final queda en su fila (watch_run_exit) como el de cualquier ejecución.
+    data = json.dumps(request, ensure_ascii=False).encode("utf-8")
+
+    def write_request():
+        # Hasta RUN_FILE_MAX_BYTES no caben en la tubería: la escritura espera a que el hijo lea, fuera de este hilo.
+        try:
+            if proc.stdin is not None:
+                proc.stdin.write(data)
+                proc.stdin.close()
+        except OSError:
+            pass  # Si el proceso ya terminó, su final queda en su fila (watch_run_exit) como el de cualquier ejecución.
+
+    threading.Thread(target=write_request, name=f"run-file-stdin-{proc.pid}", daemon=True).start()
     return {"run_id": run_id, "pid": proc.pid}
 
 
