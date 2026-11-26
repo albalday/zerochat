@@ -75,7 +75,7 @@ test('Browser UI - humo: arranca, conversa con Espejo, gestiona conversaciones y
     assert.deepEqual(await titles(), ['Segunda']);
 
     await page.click('#btn-open-settings');
-    for (const section of ['model', 'agent', 'mcp', 'permissions']) {
+    for (const section of ['model', 'tools', 'mcp', 'permissions']) {
       await page.locator(`#sidebar-settings-nav [data-section="${section}"]`).evaluate(item => item.click());
       await page.waitForFunction(id => document.getElementById('settings-dialog').open && document.getElementById(`settings-${id}`).classList.contains('active'), section);
     }

@@ -132,7 +132,7 @@ test('ChatConfig - «Subagentes» es global y está apagado salvo un true explí
     assert.equal(config.subagents, expected, String(value));
     assert.equal(AgentCore.registry.isToolEnabledNow(delegate, config), expected, String(value));
   }
-  assert.equal(delegate.settings.showInSettings, false, 'No tiene interruptor en Ajustes › Agente');
+  assert.equal(delegate.settings.showInSettings, false, 'No tiene interruptor en Ajustes › Herramientas');
   assert.equal(AgentCore.registry.isToolEnabledNow(delegate, ChatConfig.normalize({ subagents: false, enabledTools: { delegate_task: true } })), false,
     'Un enabledTools guardado antes no lo enciende');
 

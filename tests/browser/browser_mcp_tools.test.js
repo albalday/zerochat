@@ -409,9 +409,9 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
       rules: window.ChatToolSecurity.manager.getDirectoryRules()
     }));
     const before = await savedState();
-    await page.click('[data-section="agent"]');
+    await page.click('[data-section="tools"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    const toolCheckbox = page.locator('#settings-agent .agent-tool-checkbox:not([data-tool-id="browser_action"])').first();
+    const toolCheckbox = page.locator('#settings-tools .agent-tool-checkbox:not([data-tool-id="browser_action"])').first();
     const toolChecked = await toolCheckbox.isChecked();
     await toolCheckbox.locator('..').click();
     assert.equal(await page.$eval('#settings-dialog', dialog => dialog.dataset.settingsDirty), 'true');
@@ -426,7 +426,7 @@ test('Browser UI - los cambios de Agente y Permisos avisan antes de cerrar ajust
     await page.waitForFunction(() => document.getElementById('notice-dialog')?.open);
     await page.click('#notice-accept');
     await page.waitForFunction(() => !document.getElementById('settings-dialog')?.open);
-    await page.click('[data-section="agent"]');
+    await page.click('[data-section="tools"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
     assert.equal(await toolCheckbox.isChecked(), toolChecked, 'Reabrir restaura el interruptor descartado');
     await page.click('#btn-close-settings');
@@ -778,7 +778,7 @@ test('Browser UI - la tarjeta de check_command muestra la salida nueva mientras 
 });
 
 
-test('Browser UI - Ajustes › Agente avisa de la herramienta nativa que sustituye una MCP activa', async () => {
+test('Browser UI - Ajustes › Herramientas avisa de la herramienta nativa que sustituye una MCP activa', async () => {
   const browser = await createTestBrowser();
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -795,9 +795,9 @@ test('Browser UI - Ajustes › Agente avisa de la herramienta nativa que sustitu
       }));
     });
     await page.click('#btn-open-settings');
-    await page.click('[data-section="agent"]');
+    await page.click('[data-section="tools"]');
     await page.waitForFunction(() => document.getElementById('settings-dialog')?.open);
-    const notes = await page.$$eval('#settings-agent .agent-tool-replaced', items => items.map(item => ({
+    const notes = await page.$$eval('#settings-tools .agent-tool-replaced', items => items.map(item => ({
       tool: item.closest('.setting-toggle-card').querySelector('.agent-tool-checkbox').dataset.toolId,
       text: item.textContent
     })));

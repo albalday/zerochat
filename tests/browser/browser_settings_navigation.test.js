@@ -67,7 +67,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         window.ChatState.set('mcp', { status: 'connected', serverInfo: { name: 'ZeroChat', cwd: '/workspace' } });
         window.ChatToolSecurity.manager.applyPolicies({ directoryRules: ['RWX:/workspace/**'] });
       });
-      await openSettings(page, 'agent');
+      await openSettings(page, 'tools');
       await page.locator('.switch:has([data-tool-id="search_web"])').click();
       assert.notEqual(await page.evaluate(() => window.ChatConfig.getActive().enabledTools.search_web), false, 'El interruptor espera a Guardar');
 
@@ -97,7 +97,7 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
 
       assert.deepEqual(
         await page.$$eval('.sidebar-settings-project-group .sidebar-settings-item', els => els.map(el => el.dataset.section)),
-        ['model', 'agent', 'mcp', 'browser', 'permissions'],
+        ['model', 'tools', 'mcp', 'browser', 'permissions'],
         'El bloque de proyecto agrupa exactamente las cinco secciones de proyecto'
       );
       assert.equal(await page.locator('.sidebar-settings-project-group [data-section="encryption"]').count(), 0);

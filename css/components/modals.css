@@ -253,12 +253,12 @@
 }
 
 /* Agente comparte las secciones abiertas y superficies suaves de MCP y Permisos. */
-#settings-agent .settings-section-intro,
-#settings-agent .settings-section-intro p {
+#settings-tools .settings-section-intro,
+#settings-tools .settings-section-intro p {
   margin: 0;
 }
 
-#settings-agent .agent-tools-container {
+#settings-tools .agent-tools-container {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;

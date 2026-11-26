@@ -290,7 +290,7 @@
   return {
     definition,
     category: 'agent',
-    // Se enciende con «Subagentes» en el panel de razonamiento, no en Ajustes › Agente, y solo sin las herramientas del
+    // Se enciende con «Subagentes» en el panel de razonamiento, no en Ajustes › Herramientas, y solo sin las herramientas del
     // servidor local: con ellas, «Subagentes» da las del controlador (js/mcp.js). Una ejecución en el servidor nunca la tiene.
     settings: { showInSettings: false },
     isAvailable: config => config.subagents === true && !resolveDep('ChatMCP', './mcp.js').localToolsAvailable(),

@@ -26,8 +26,8 @@
   const getUIBrowser = () => resolveDep('ChatUIBrowser', './ui-browser.js');
   const getUIConnection = () => resolveDep('ChatUIConnection', './ui-connection.js');
 
-  const SECTION_TITLES = { model: 'settings_model', agent: 'settings_agent', connection: 'settings_connection', mcp: 'settings_mcp', browser: 'settings_browser', permissions: 'settings_permissions' };
-  const PROJECT_SECTIONS = new Set(['model', 'agent', 'mcp', 'browser', 'permissions']);
+  const SECTION_TITLES = { model: 'settings_model', tools: 'settings_tools', connection: 'settings_connection', mcp: 'settings_mcp', browser: 'settings_browser', permissions: 'settings_permissions' };
+  const PROJECT_SECTIONS = new Set(['model', 'tools', 'mcp', 'browser', 'permissions']);
 
   const markActive = (buttons, attribute, value) => buttons.forEach(button => button.classList.toggle('active', button.getAttribute(attribute) === value));
 
@@ -446,8 +446,8 @@
           </div>
         </div>
 
-        <!-- Sección: Modo Agente y Herramientas -->
-        <div id="settings-agent" class="settings-section-pane">
+        <!-- Sección: Herramientas -->
+        <div id="settings-tools" class="settings-section-pane">
           <div class="settings-section-intro">
             <p data-i18n="agent_intro">Configura las herramientas agénticas que se transmiten al modelo.</p>
           </div>
