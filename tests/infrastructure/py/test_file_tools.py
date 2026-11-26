@@ -1,6 +1,9 @@
 import json
+import os
+import stat
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from backend import use_data_dir, zerochat
 
@@ -157,3 +160,12 @@ class EditFileTest(unittest.TestCase):
         self.assertEqual(self.path.read_text(encoding="utf-8"), "primera linea\nsegunda linea modificada\ntercera linea\n")
         self.assertEqual(self.edit("linea", "fila", replace_all=True)["replacements"], 3)
         self.assertEqual(self.path.read_text(encoding="utf-8"), "primera fila\nsegunda fila modificada\ntercera fila\n")
+
+    @unittest.skipIf(os.name == "nt", "permisos POSIX")
+    def test_la_escritura_conserva_los_permisos_y_no_deja_temporales_si_falla(self):
+        self.path.chmod(0o750)
+        self.assertEqual(self.edit("objetivo", "x")["replacements"], 1)
+        self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o750)
+        with patch.object(zerochat.Path, "replace", side_effect=OSError("disco lleno")), self.assertRaises(OSError):
+            zerochat._atomic_write_text(self.path, "nuevo")
+        self.assertEqual([p.name for p in self.path.parent.iterdir() if ".tmp_" in p.name], [])

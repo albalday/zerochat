@@ -45,6 +45,7 @@ import signal
 import socket
 import socketserver
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -6343,11 +6344,19 @@ def line_matches(line: str, terms: tuple[str, ...]) -> bool:
 
 
 def _atomic_write_text(target: Path, text: str):
-    """Sustituye el archivo de una vez para no dejarlo a medias si la escritura falla."""
+    """Sustituye el archivo de una vez para no dejarlo a medias si la escritura falla. Conserva los permisos del
+    que sustituye (un script sigue siendo ejecutable, un 0600 sigue privado) y no deja el temporal si algo falla."""
     temp_path = target.with_suffix(target.suffix + f".tmp_{os.getpid()}_{time.time_ns()}")
-    with open(temp_path, "w", encoding="utf-8") as f:
-        f.write(text)
-    temp_path.replace(target)
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        try:
+            os.chmod(temp_path, stat.S_IMODE(target.stat().st_mode))
+        except FileNotFoundError:
+            pass
+        temp_path.replace(target)
+    finally:
+        temp_path.unlink(missing_ok=True)
 
 # --- tools.browser_action ---
 """Herramienta browser_action: una sesión persistente de Playwright con los motores propios o el navegador del sistema."""
