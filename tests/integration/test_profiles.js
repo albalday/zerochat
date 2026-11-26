@@ -44,7 +44,7 @@ test('ProfileRepository - no guarda API keys en texto plano, no reinicializa doc
   assert.match(Storage.getStorageItem(Profiles.STORAGE_KEY), /sk-plain/);
 
   const current = await Secrets.encryptApiKey('sk-current');
-  const outdated = { ...current, version: Secrets.VERSION - 1 };
+  const outdated = { ...current, version: current.version - 1 };
   Storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({ schemaVersion: 1, profiles: [
     { id: 'old', name: 'Old', hasApiKey: true, synced: true, settings: { apiKey: outdated } },
     { id: 'new', name: 'New', settings: { apiKey: current } }
@@ -62,7 +62,7 @@ test('ProfileSecrets - cifra API keys, detecta manipulación y deriva la contras
   assert.doesNotMatch(JSON.stringify(secret), /sk-secret/);
   assert.equal(await Secrets.decryptApiKey(secret), 'sk-secret');
   assert.throws(() => Secrets.validateApiKeySecret('sk-secret'), /encrypted API key/);
-  assert.throws(() => Secrets.validateApiKeySecret({ ...secret, version: Secrets.VERSION - 1 }), /encrypted API key/);
+  assert.throws(() => Secrets.validateApiKeySecret({ ...secret, version: secret.version - 1 }), /encrypted API key/);
   await assert.rejects(Secrets.decryptApiKey({ ...secret, ciphertext: 'AAAAAAAAAAAAAAAAAAAAAA==' }));
 
   const keyMaterial = await Secrets.keyMaterialFromPassword('correct horse battery staple');

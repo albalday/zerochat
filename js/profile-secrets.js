@@ -68,9 +68,9 @@
     return null;
   }
 
-  function cacheKeyMaterial(keyHash, ttlMs = KEY_CACHE_TTL_MS) {
-    if (decodeBase64(keyHash).length !== 32 || !Number.isFinite(ttlMs) || ttlMs < 1) return false;
-    Storage.setStorageItem(KEY_CACHE, JSON.stringify({ keyHash, expiresAt: Date.now() + ttlMs }));
+  function cacheKeyMaterial(keyHash) {
+    if (decodeBase64(keyHash).length !== 32) return false;
+    Storage.setStorageItem(KEY_CACHE, JSON.stringify({ keyHash, expiresAt: Date.now() + KEY_CACHE_TTL_MS }));
     return true;
   }
 
@@ -159,5 +159,5 @@
     }
   }
 
-  return { VERSION, encryptApiKey, decryptApiKey, validateApiKeySecret, isOutdatedApiKeySecret, keyMaterialFromPassword, withPassword, getCachedKeyMaterial, cacheKeyMaterial, clearCachedKeyMaterial };
+  return { encryptApiKey, decryptApiKey, validateApiKeySecret, isOutdatedApiKeySecret, keyMaterialFromPassword, withPassword, getCachedKeyMaterial, cacheKeyMaterial, clearCachedKeyMaterial };
 }));
