@@ -661,6 +661,36 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                         {"agent": "informes.solo", "prune_keep": 1, "include_turn": True}):
             self.assertFalse(check(**invalid)["success"], invalid)
 
+    def test_un_agente_cortado_sin_respuesta_trae_su_ultimo_texto_como_parcial(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()))
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        history = [{"id": "u", "role": "user", "content": "Resume"},
+                   {"id": "a1", "role": "assistant", "content": "Leídos los capítulos 1 y 2."},
+                   {"id": "a2", "role": "assistant", "content": None, "tool_calls": [{"id": "c", "function": {"name": "read_file", "arguments": "{}"}}]},
+                   {"id": "t", "role": "tool", "tool_call_id": "c", "name": "read_file", "content": "texto del fichero"},
+                   {"id": "a3", "role": "assistant", "content": "  "}]
+        alive_dead = {"pid": 2 ** 22 + 12345}
+        for conv_id, run in (("limite", {"status": "limit", "error": "Límite de 5 pasos alcanzado."}), ("fallo", {"status": "error", "error": "500"}),
+                             ("muerto", {"status": "running", **alive_dead}), ("bien", {"status": "completed", "result_text": "Resumen"}),
+                             ("pausa", {"status": "needs_input", "pending": {"kind": "ask_user", "text": "¿Cuál?"}}),
+                             ("vacio", {"status": "limit"})):
+            zerochat.save_conversation({"id": conv_id, "title": conv_id, "project": ctx.key, "agent": f"lector.{conv_id}"},
+                                       history if conv_id != "vacio" else history[:1])
+            upsert_run({"run_id": f"r_{conv_id}", "conversation_id": conv_id, **run})
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
+
+        # Límite, error o proceso muerto sin respuesta: el último texto del asistente (no las llamadas ni los vacíos), parcial.
+        listed = {item["conversation_id"]: item for item in check()["agents"]}
+        for conv_id in ("limite", "fallo", "muerto"):
+            self.assertEqual((listed[conv_id]["result_text"], listed[conv_id].get("partial")), ("Leídos los capítulos 1 y 2.", True), conv_id)
+        detail = check(conversation_id="limite")
+        self.assertEqual((detail["result_text"], detail["partial"], detail["result_chars"]), ("Leídos los capítulos 1 y 2.", True, 27))
+        # Una respuesta entregada, una pausa o un corte sin ningún texto no son parciales.
+        self.assertEqual((listed["bien"]["result_text"], "partial" in listed["bien"]), ("Resumen", False))
+        for conv_id in ("pausa", "vacio"):
+            self.assertEqual((listed[conv_id]["result_text"], "partial" in listed[conv_id]), ("", False), conv_id)
+
     def test_check_agents_espera_mientras_haya_agentes_en_marcha_y_vuelve_al_momento_si_no_hay_ninguno(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
         self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)

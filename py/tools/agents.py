@@ -131,13 +131,31 @@ def _agent_state(conv: dict, run: dict) -> dict:
     }
 
 
+# Finales en los que el agente no entregó respuesta: lo que avanzó sigue en su conversación guardada.
+AGENT_CUT_STATUSES = ("limit", "error")
+
+
+def _final_answer(conv: dict, state: dict, run: dict) -> tuple[str, bool]:
+    """La respuesta final y si es parcial: la que entregó o, si se cortó (límite, error o proceso muerto) sin
+    entregarla, el último texto del asistente en su conversación, que dice al menos dónde se quedó."""
+    result = run.get("result_text") or ""
+    if result or state["status"] not in AGENT_CUT_STATUSES:
+        return result, False
+    history = (get_conversation(conv["id"]) or {}).get("history") or []
+    partial = next((message["content"].strip() for message in reversed(history) if message.get("role") == "assistant"
+                    and isinstance(message.get("content"), str) and message["content"].strip()), "")
+    return partial, bool(partial)
+
+
 def _listing(selected: list[tuple[dict, dict]]) -> dict:
     """El listado con la respuesta final entera de cada agente mientras quepa (por agente y entre todos); la que no,
     sin texto y con result_chars."""
     budget, agents, omitted = AGENT_LIST_TOTAL_CHARS, [], False
     for conv, run in selected:
-        result = run.get("result_text") or ""
         entry = _agent_state(conv, run)
+        result, partial = _final_answer(conv, entry, run)
+        if partial:
+            entry["partial"] = True
         if len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
             entry["result_text"] = result
             budget -= len(result)
@@ -309,14 +327,17 @@ def _checked_prune(convs: list[dict], agent: str | None, keep) -> str:
 
 def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict) -> str:
     """El detalle de una conversación: su estado, un bloque de su respuesta final y, con include_turn, su último turno."""
-    result = run.get("result_text") or ""
+    state = _agent_state(conv, run)
+    result, partial = _final_answer(conv, state, run)
+    if partial:
+        state["partial"] = True
     if offset > len(result):
         return _tool_error(f"offset {offset} is past the end of the final answer ({len(result)} characters).")
     turn = {}
     if include_turn:
         messages, truncated = _last_turn((get_conversation(conv["id"]) or {}).get("history") or [])
         turn = {"last_turn": messages, **({"last_turn_truncated": True} if truncated else {})}
-    return json.dumps({"success": True, **_agent_state(conv, run), **_result_page(result, offset), **turn, **extra},
+    return json.dumps({"success": True, **state, **_result_page(result, offset), **turn, **extra},
                       ensure_ascii=False)
 
 # Lo que launch_agent acepta en línea, en lugar de run_file, y el campo del run-file que ocupa cada argumento.
