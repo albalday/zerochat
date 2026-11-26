@@ -341,16 +341,9 @@
   background-color: var(--warning);
 }
 
-.btn-reasoning[data-subagents="true"] {
-  width: auto;
-  padding: 0 8px;
-  gap: 4px;
-}
-
-.btn-reasoning .ui-icon.reasoning-subagents-badge {
-  width: 14px;
-  height: 14px;
-  color: var(--primary);
+/* «Subagentes»: el icono del agente ocupa el lugar del medidor; el nivel sigue en el nombre accesible y el tooltip. */
+.btn-reasoning[data-subagents] .reasoning-gauge {
+  display: none;
 }
 
 .reasoning-gauge {
@@ -668,11 +661,6 @@
     width: 44px;
     min-width: 44px;
     height: 44px;
-  }
-
-  .btn-reasoning[data-subagents="true"] {
-    width: auto;
-    padding: 0 10px;
   }
 }
 
