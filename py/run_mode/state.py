@@ -657,9 +657,9 @@ class RunSession:
         self.controller = controller
         # disabledTools de --run-file: lo que run_project_environment le quita del entorno del proyecto.
         self.disabled_tools = tuple(disabled_tools)
-        # Respuestas finales que check_agents ya entregó enteras en esta ejecución, por (conversación, run_id): el
-        # listado no las repite.
-        self.delivered_results: set[tuple[str, str]] = set()
+        # Respuestas finales ya entregadas en esta ejecución, por (conversación, run_id) -> (result_chars, partial): el
+        # listado no las repite ni relee conversaciones cortadas.
+        self.delivered_results: dict[tuple[str, str], tuple[int, bool]] = {}
         # Conversaciones que este controlador lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
         # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
         self.launched_agents: dict[str, dict] = {}

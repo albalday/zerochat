@@ -5913,9 +5913,9 @@ class RunSession:
         self.controller = controller
         # disabledTools de --run-file: lo que run_project_environment le quita del entorno del proyecto.
         self.disabled_tools = tuple(disabled_tools)
-        # Respuestas finales que check_agents ya entregó enteras en esta ejecución, por (conversación, run_id): el
-        # listado no las repite.
-        self.delivered_results: set[tuple[str, str]] = set()
+        # Respuestas finales ya entregadas en esta ejecución, por (conversación, run_id) -> (result_chars, partial): el
+        # listado no las repite ni relee conversaciones cortadas.
+        self.delivered_results: dict[tuple[str, str], tuple[int, bool]] = {}
         # Conversaciones que este controlador lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
         # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
         self.launched_agents: dict[str, dict] = {}
@@ -9000,12 +9000,12 @@ def _runs() -> dict:
     return {"running": running_run_count(), "max": MAX_CONCURRENT_RUNS}
 
 
-def _delivered(conv: dict, run: dict) -> tuple[set[tuple[str, str]], tuple[str, str] | None]:
-    """Las respuestas ya entregadas en esta ejecución y la clave de esta, que cambia con cada ejecución de la
-    conversación (None fuera de una ejecución)."""
+def _delivered(conv: dict, run: dict) -> tuple[dict[tuple[str, str], tuple[int, bool]], tuple[str, str] | None]:
+    """Las respuestas ya entregadas en esta ejecución ((result_chars, partial)) y la clave de esta, que cambia con
+    cada ejecución de la conversación (None fuera de una ejecución)."""
     session = current_run_session()
     if session is None:
-        return set(), None
+        return {}, None
     return session.delivered_results, (conv["id"], run.get("run_id") or "")
 
 
@@ -9015,18 +9015,23 @@ def _listing(selected: list[tuple[dict, dict]]) -> dict:
     budget, agents, omitted, seen = AGENT_LIST_TOTAL_CHARS, [], False, False
     for conv, run in selected:
         entry = _agent_state(conv, run)
+        delivered, key = _delivered(conv, run)
+        if key in delivered:
+            result_chars, partial = delivered[key]
+            if partial:
+                entry["partial"] = True
+            entry.update(result_seen=True, result_chars=result_chars)
+            seen = True
+            agents.append(entry)
+            continue
         result, partial = _final_answer(conv, entry, run)
         if partial:
             entry["partial"] = True
-        delivered, key = _delivered(conv, run)
-        if result and key in delivered:
-            entry.update(result_seen=True, result_chars=len(result))
-            seen = True
-        elif len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
+        if len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
             entry["result_text"] = result
             budget -= len(result)
             if result and key:
-                delivered.add(key)
+                delivered[key] = (len(result), partial)
         else:
             entry["result_chars"] = len(result)
             omitted = True
@@ -9205,8 +9210,12 @@ def _stop_launched(ctx: SecurityContext, own_id: str, conversation_id: str | Non
     if run.get("status") != "running" or not run_process_alive(run):
         return _tool_error(f"The conversation {conversation_id} is not running (status: {_agent_state(conv, run)['status']}).")
     _kill_process_tree(run["pid"], grace_seconds=AGENT_STOP_GRACE_SECONDS)
+    # Releer tras el plazo de gracia para conservar usage/warnings recientes o un resultado terminado a tiempo.
+    fresh = get_run_state(conversation_id) or run
+    if fresh.get("status") != "running":
+        return _detail(conv, fresh, 0, False, {"stopped": False})
     now = int(time.time() * 1000)
-    upsert_run_state({**run, "status": "error", "error": AGENT_STOPPED_ERROR, "updated_at": now, "finished_at": now})
+    upsert_run_state({**fresh, "status": "error", "error": AGENT_STOPPED_ERROR, "updated_at": now, "finished_at": now})
     return _detail(conv, get_run_state(conversation_id) or {}, 0, False, {"stopped": True})
 
 
@@ -9233,7 +9242,7 @@ def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict)
     page = _result_page(result, offset)
     delivered, key = _delivered(conv, run)
     if result and key and page["next_offset"] is None:
-        delivered.add(key)
+        delivered[key] = (len(result), partial)
     return json.dumps({"success": True, **state, **page, **turn, **extra},
                       ensure_ascii=False)
 

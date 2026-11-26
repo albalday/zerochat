@@ -729,6 +729,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         listed = {item["conversation_id"]: item for item in check()["agents"]}
         for conv_id in ("limite", "fallo", "muerto"):
             self.assertEqual((listed[conv_id]["result_text"], listed[conv_id].get("partial")), ("Leídos los capítulos 1 y 2.", True), conv_id)
+        # Ya entregadas en esta ejecución: el siguiente listado no relee get_conversation para las que tenían texto.
+        with mock.patch.object(zerochat, "get_conversation", wraps=zerochat.get_conversation) as get_conv:
+            relisted = {item["conversation_id"]: item for item in check()["agents"]}
+        self.assertEqual([call.args[0] for call in get_conv.call_args_list], ["vacio"])
+        for conv_id in ("limite", "fallo", "muerto"):
+            self.assertEqual((relisted[conv_id].get("result_seen"), relisted[conv_id].get("partial"), relisted[conv_id].get("result_chars")),
+                             (True, True, 27), conv_id)
         detail = check(conversation_id="limite")
         self.assertEqual((detail["result_text"], detail["partial"], detail["result_chars"]), ("Leídos los capítulos 1 y 2.", True, 27))
         # Una respuesta entregada, una pausa o un corte sin ningún texto no son parciales.
@@ -897,6 +904,23 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(zerochat.get_run_state(conv_id)["status"], "error")
         self.assertEqual(zerochat.get_run_state("de_cron")["status"], "running")
         self.assertIn("is not running (status: error)", check(conversation_id=conv_id, stop=True)["error"])
+
+        # Si el trabajador actualiza usage/warnings o cierra completed durante el plazo de gracia, no se pisa.
+        for race_patch, expected in (
+            ({"usage": {"model_calls": 3, "prompt_tokens": 10, "completion_tokens": 5, "cached_tokens": 0, "reasoning_tokens": 0, "estimated": False}},
+             (True, "error", None, {"model_calls": 3, "prompt_tokens": 10, "completion_tokens": 5, "cached_tokens": 0, "reasoning_tokens": 0, "estimated": False})),
+            ({"status": "completed", "result_text": "Terminado justo a tiempo", "error": None},
+             (False, "completed", "Terminado justo a tiempo", None)),
+        ):
+            race_id = f"race_{expected[1]}"
+            zerochat.save_conversation({"id": race_id, "title": race_id, "project": ctx.key, "agent": "lector"}, [])
+            base = {"run_id": f"r_{race_id}", "conversation_id": race_id, "status": "running",
+                    "pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
+            upsert_run(base)
+            zerochat.RUN_SESSION.launched_agents[race_id] = {"agent": "lector", "project": ctx.key, "updatedAt": 1000}
+            with mock.patch.object(zerochat, "_kill_process_tree", side_effect=lambda *_, **__: upsert_run({**base, **race_patch})):
+                res = check(conversation_id=race_id, stop=True)
+            self.assertEqual((res["stopped"], res["status"], res["result_text"] if res["status"] == "completed" else None, res.get("usage")), expected)
         zerochat.RUN_SESSION = None
 
     def test_check_agents_borra_solo_a_peticion_las_conversaciones_antiguas_de_los_agentes_vigilados(self):

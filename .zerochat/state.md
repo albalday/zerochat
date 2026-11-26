@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M96 Esquema único de agentes (.md), controlador y subagentes
-- Next task: M96-T15 En py/tools/agents.py: releer get_run_state tras _kill_process_tree en _stop_launched (sin pisar usage, warnings ni un completed recién guardado) y guardar (len, partial) en delivered_results para no releer get_conversation en cada _listing, con pruebas
+- Next task: M96-T16 En launch_agent en línea (py/tools/agents.py): permitir omitir prompt al continuar un conversation_id existente (como con run_file) y unificar en inglés los errores de validación que recibe el modelo, con pruebas
 - Last closed: M94 and M95 (2026-11-26)
 - Last updated: 2026-11-26
