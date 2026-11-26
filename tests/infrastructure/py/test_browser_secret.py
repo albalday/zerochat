@@ -55,8 +55,7 @@ class BrowserFillSecretTest(unittest.TestCase):
             )
         self.assertNotIn("4072", raw)
         data = json.loads(raw)
-        self.assertTrue(data["success"])
-        self.assertEqual(data["steps"], 4)
+        self.assertEqual(data, {"success": True, "mode": "keypad", "secret": "BANK_PIN"}, "sin la longitud del secreto")
         self.assertEqual([c[1].get("target") or (c[1].get("x"), c[1].get("y")) for c in calls], [
             "e4",
             (120.0, 240.0),
@@ -77,6 +76,22 @@ class BrowserFillSecretTest(unittest.TestCase):
         self.assertNotIn("2", raw)
         self.assertNotIn("4072", raw)
         self.assertIn("error", json.loads(raw))
+
+        # Ni una entrada no válida ni un fallo de Playwright a mitad dicen qué tecla (y qué carácter) falló.
+        with patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", side_effect=lambda *a: calls.append(a)):
+            raw_bad = zerochat.browser_fill_secret(secret="BANK_PIN", mode="keypad", ctx=self.ctx,
+                                                   keypad_map={"4": "e4", "0": "e0", "7": "e7", "2": "e2", "9": 5})
+        self.assertEqual(calls, [])
+        self.assertIn("error", json.loads(raw_bad))
+        failures = []
+        for failing in ("e4", "e2"):
+            fake = lambda _name, args, failing=failing: {"isError": args.get("target") == failing,
+                                                        "content": [{"type": "text", "text": f"Ref {args.get('target')} not found"}]}
+            with patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", side_effect=fake):
+                failures.append(zerochat.browser_fill_secret(secret="BANK_PIN", mode="keypad", ctx=self.ctx,
+                                                             keypad_map={"4": "e4", "0": "e0", "7": "e7", "2": "e2"}))
+        self.assertEqual(failures[0], failures[1])
+        self.assertNotIn("e4", failures[0])
 
         # Si Playwright lanza una excepción cuyo mensaje contiene el secreto, también se sanea
         with patch.object(zerochat.GLOBAL_MCP_MANAGER, "call", side_effect=RuntimeError("fallo con 4072 en texto")):

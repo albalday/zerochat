@@ -46,26 +46,31 @@ def _is_xy_target(target) -> bool:
     return all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in target)
 
 
-def _click_keypad_target(target, secret_value: str) -> str | None:
-    if isinstance(target, str) and target.strip():
-        return _mcp_call_error("browser_click", {"element": "keypad button", "target": target.strip()}, secret_value)
+def _keypad_click(target) -> tuple[str, dict]:
+    """Herramienta y argumentos de Playwright MCP que pulsan una tecla: un 'ref' o coordenadas [x, y]."""
     if _is_xy_target(target):
-        return _mcp_call_error("browser_mouse_click_xy", {
-            "x": float(target[0]),
-            "y": float(target[1]),
-        }, secret_value)
-    return "Cada entrada de keypad_map debe ser un 'ref' de texto o coordenadas [x, y]."
+        return "browser_mouse_click_xy", {"x": float(target[0]), "y": float(target[1])}
+    return "browser_click", {"element": "keypad button", "target": target.strip()}
 
 
 def _fill_keypad_secret(secret_value: str, keypad_map) -> str | None:
+    """Pulsa el secreto en un teclado virtual. Ninguna respuesta depende de qué carácter falló ni de la longitud: el
+    mapa se valida entero antes de pulsar y un fallo de Playwright a mitad da siempre el mismo mensaje, sin su detalle
+    (que nombraría la tecla y con ella el carácter)."""
     if not isinstance(keypad_map, dict) or not keypad_map:
         return "El modo 'keypad' requiere un objeto keypad_map no vacío."
+    if not all((isinstance(target, str) and target.strip()) or _is_xy_target(target) for target in keypad_map.values()):
+        return "Cada entrada de keypad_map debe ser un 'ref' de texto o coordenadas [x, y]."
     if any(ch not in keypad_map for ch in secret_value):
         return "keypad_map no cubre todos los caracteres del secreto."
     for ch in secret_value:
-        err = _click_keypad_target(keypad_map[ch], secret_value)
-        if err:
-            return err
+        tool_name, arguments = _keypad_click(keypad_map[ch])
+        try:
+            failed = _mcp_call_error(tool_name, arguments, secret_value) is not None
+        except Exception:
+            failed = True
+        if failed:
+            return "Playwright no pudo pulsar una tecla del teclado virtual: toma una instantánea nueva y repite con sus refs actuales."
     return None
 
 
@@ -99,7 +104,4 @@ def browser_fill_secret(
         return _tool_error(f"Error ejecutando Playwright MCP: {_scrub_secret(str(exc), secret_value)}")
     if err:
         return _tool_error(err)
-    payload: dict = {"success": True, "mode": mode, "secret": secret}
-    if mode == "keypad":
-        payload["steps"] = len(secret_value)
-    return json.dumps(payload)
+    return json.dumps({"success": True, "mode": mode, "secret": secret})
