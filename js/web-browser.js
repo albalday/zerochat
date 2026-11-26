@@ -242,18 +242,18 @@
 
     const scheme = rawUrl.trim().match(URL_SCHEME)?.[1].toLowerCase();
     if (scheme && scheme !== 'http' && scheme !== 'https') {
-      return { valid: false, error: `Protocolo no permitido: ${scheme}:. Solo se admiten http:// y https://.` };
+      return { valid: false, error: `Protocol not allowed: ${scheme}:. Only http:// and https:// are supported.` };
     }
 
     try {
       const parsed = new URL(toWebUrl(rawUrl));
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-        return { valid: false, error: `Protocolo no permitido: ${parsed.protocol}. Solo se admiten http:// y https://.` };
+        return { valid: false, error: `Protocol not allowed: ${parsed.protocol}. Only http:// and https:// are supported.` };
       }
 
       const hostname = parsed.hostname.toLowerCase();
       if (isDangerousIpAddress(hostname)) {
-        return { valid: false, error: 'Acceso bloqueado: intento de acceso a servicios internos, recursos locales o de metadatos de infraestructura (SSRF protection).' };
+        return { valid: false, error: 'Access blocked: the URL points to internal services, local resources or infrastructure metadata (SSRF protection).' };
       }
 
       return { valid: true, url: parsed.toString() };

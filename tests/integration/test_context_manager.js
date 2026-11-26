@@ -144,7 +144,7 @@ test('ContextManager - buildOptimizedContext preserva pares atómicos, poda tool
   const pruned = ChatContextManager.buildOptimizedContext(hugeMessages, { totalContextLimit: 150000 });
   const prunedTool = pruned.messages.find(m => m.role === 'tool');
   assert.ok(prunedTool.content.length <= 4000);
-  assert.ok(prunedTool.content.includes('Truncado por ChatContextManager'));
+  assert.ok(prunedTool.content.includes('Truncated by ChatContextManager'));
   assert.equal(pruned.diagnostics.prunedToolsCount, 1);
 
   const tableContent = '### Financials\n\n' + 'FILA_CONTABLE_'.repeat(2000);
@@ -155,7 +155,7 @@ test('ContextManager - buildOptimizedContext preserva pares atómicos, poda tool
     { role: 'tool', tool_call_id: 'call_read', name: 'read_knowledge_chunk', content: tableContent }
   ], { model: 'configured-model', totalContextLimit: 150000 });
   const ragTool = activeRag.messages.find(m => m.role === 'tool');
-  assert.ok(!ragTool.content.includes('Truncado por ChatContextManager'));
+  assert.ok(!ragTool.content.includes('Truncated by ChatContextManager'));
   assert.equal(ragTool.content.length, tableContent.length);
 });
 
@@ -189,7 +189,7 @@ test('ContextManager - preserva salidas intactas entre pasos del turno activo y 
 
   const byId = Object.fromEntries(multiStep.messages.filter(m => m.role === 'tool').map(m => [m.tool_call_id, m.content]));
   // Turno pasado cerrado: borde exacto N=4000 intacto, N+1=4001 truncado
-  assert.match(byId.c0, /Truncado por ChatContextManager/);
+  assert.match(byId.c0, /Truncated by ChatContextManager/);
   assert.equal(byId.c0b, closedTurnExact);
   assert.equal(multiStep.diagnostics.prunedToolsCount, 1);
   // Turno en curso: pasos previos (c1, c2) intactos y paso activo en borde exacto N=64000 intacto, N+1=64001 truncado
@@ -197,7 +197,7 @@ test('ContextManager - preserva salidas intactas entre pasos del turno activo y 
   assert.equal(byId.c2, step2Output);
   assert.equal(byId.c3, step3Exact);
   // El aviso dice lo que falta de verdad: de 64001 se conservan el 70 % y el 20 % de 64000 (44800 + 12800).
-  assert.match(byId.c4, /Truncado por ChatContextManager: 6401 caracteres omitidos/);
+  assert.match(byId.c4, /Truncated by ChatContextManager: 6401 characters omitted/);
 
   // 2. Modelo pequeño (WebLLM 4K): el techo activo se acota por inputBudget sin exceder la ventana
   const smallModel = ChatContextManager.buildOptimizedContext([
@@ -207,7 +207,7 @@ test('ContextManager - preserva salidas intactas entre pasos del turno activo y 
     { role: 'tool', tool_call_id: 'cs', name: 'read_file', content: 'X'.repeat(10000) }
   ], SMALLEST_CONTEXT);
   const smallTool = smallModel.messages.find(m => m.role === 'tool');
-  assert.match(smallTool.content, /Truncado por ChatContextManager/);
+  assert.match(smallTool.content, /Truncated by ChatContextManager/);
 });
 
 test('ContextManager - ventana deslizante contigua sin huecos y tope agregado por lote en borde exacto N y N+1', () => {
@@ -250,8 +250,8 @@ test('ContextManager - ventana deslizante contigua sin huecos y tope agregado po
   // Borde N+1 = 58907 + 58907 = 117814 -> ambos se truncan al reparto proporcional (58906) con aviso.
   const overLimit = makeBatch(58907, 58907);
   const overLimitTools = overLimit.messages.filter(m => m.role === 'tool');
-  assert.match(overLimitTools[0].content, /Truncado por ChatContextManager/);
-  assert.match(overLimitTools[1].content, /Truncado por ChatContextManager/);
+  assert.match(overLimitTools[0].content, /Truncated by ChatContextManager/);
+  assert.match(overLimitTools[1].content, /Truncated by ChatContextManager/);
 
   // Un resultado corto en el mismo lote se conserva entero y cede su cuota al grande.
   const uneven = makeBatch(1000, 64000);
@@ -601,7 +601,7 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   assert.ok(transcript.includes('User: Notas previas\ncomprueba git'));
   assert.ok(transcript.includes('Assistant: Voy a comprobarlo.\n[Called tools: run_command({"command":"git status"})]'));
   assert.ok(transcript.includes('Tool (run_command):'));
-  assert.ok(transcript.includes('Truncado por ChatContextManager'));
+  assert.ok(transcript.includes('Truncated by ChatContextManager'));
   assert.ok(transcript.includes('User: mira esta imagen'));
   assert.ok(!transcript.includes('Eres un asistente'), 'No debe incluir el prompt de sistema previo');
 
@@ -613,7 +613,7 @@ test('ContextManager - formatHistoryTranscript genera una transcripción neutral
   }], { totalContextLimit: 150000 });
   assert.equal(callWithArgs(4000), `Assistant: [Called tools: write_file(${'a'.repeat(4000)})]`);
   // De 4001 se conservan 2800 + 800: faltan 401.
-  assert.match(callWithArgs(4001), /Truncado por ChatContextManager: 401 caracteres omitidos de la salida de write_file/);
+  assert.match(callWithArgs(4001), /Truncated by ChatContextManager: 401 characters omitted from the write_file output/);
 
   // La transcripción para el resumidor se acota siempre (incluso con totalContextLimit: null usando el respaldo 128K)
   // con aviso propio y en borde exacto N / N+1: con el presupuesto mínimo (1024) el tope es 2048 caracteres.

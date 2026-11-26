@@ -313,11 +313,11 @@
     if (!Array.isArray(records) || records.length > 100) throw new Error('The imported profile list is not valid.');
     const current = initialize();
     const imported = records.map(rec => normalizeRecord(rec, false)).filter(profile => profile.id !== READONLY_PROFILE_ID && profile.name !== MIRROR_PROFILE.name);
-    if (imported.length !== records.length) throw new Error('La copia no puede modificar el perfil Espejo.');
+    if (imported.length !== records.length) throw new Error(`The backup cannot modify the ${MIRROR_PROFILE.name} profile.`);
     const ids = new Set();
     const names = new Set();
     imported.forEach(profile => {
-      if (ids.has(profile.id) || names.has(profile.name)) throw new Error('La copia contiene perfiles duplicados.');
+      if (ids.has(profile.id) || names.has(profile.name)) throw new Error('The backup contains duplicate profiles.');
       ids.add(profile.id); names.add(profile.name);
     });
     const editable = current.profiles.filter(profile => profile.id !== READONLY_PROFILE_ID);
@@ -327,7 +327,7 @@
     let replaced = 0;
     imported.forEach(profile => {
       const nameOwner = existingNames.get(profile.name);
-      if (nameOwner && nameOwner !== profile.id) throw new Error(`Ya existe un perfil llamado "${profile.name}" con otro identificador.`);
+      if (nameOwner && nameOwner !== profile.id) throw new Error(`A profile named "${profile.name}" already exists with another identifier.`);
       if (byId.has(profile.id)) replaced += 1;
       else added += 1;
       byId.set(profile.id, { ...profile, synced: false });

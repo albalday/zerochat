@@ -341,7 +341,7 @@
 
     return sections.map((sec, idx) => (sec.length <= limits[idx]
       ? sec
-      : truncateMiddle(sec, limits[idx], omitted => `[... Truncado fragmento ${idx + 1}: ${omitted} caracteres omitidos de ${toolName} ...]`)
+      : truncateMiddle(sec, limits[idx], omitted => `[... Truncated fragment ${idx + 1}: ${omitted} characters omitted from ${toolName} ...]`)
     )).join(separator);
   }
 
@@ -373,7 +373,7 @@
       }
     }
 
-    return truncateMiddle(str, maxChars, omitted => `[... Truncado por ChatContextManager: ${omitted} caracteres omitidos de la salida de ${toolName} ...]`);
+    return truncateMiddle(str, maxChars, omitted => `[... Truncated by ChatContextManager: ${omitted} characters omitted from the ${toolName} output ...]`);
   }
 
   /**
