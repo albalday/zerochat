@@ -167,7 +167,24 @@ index 1234567..89abcdef 100644
             self.assertIn("html", res_open)
             self.assertIn("btn-full-file", res_open["html"])
 
-            # 6. Default context lines is 5
+            # 6. Tope de bytes: la salida de git diff cabe en N y se corta con aviso en N+1; el archivo entero
+            # del visor solo va si cabe.
+            size = len(res_modified["diff"].encode("utf-8"))
+            with patch.object(zerochat, "DIFF_MAX_BYTES", size):
+                exact = zerochat.generate_file_diff(str(target_file), zerochat.project_context())
+                self.assertEqual((exact["truncated"], exact["diff"]), (False, res_modified["diff"]))
+            with patch.object(zerochat, "DIFF_MAX_BYTES", size - 1):
+                cut = zerochat.generate_file_diff(str(target_file), zerochat.project_context())
+                self.assertTrue(cut["truncated"])
+                self.assertTrue(cut["diff"].endswith(f"[Diff truncated at {size - 1} bytes]\n"))
+                self.assertNotIn("+line 3", cut["diff"])
+            file_size = target_file.stat().st_size
+            for limit, embedded in ((file_size, True), (file_size - 1, False)):
+                with patch.object(zerochat, "DIFF_MAX_BYTES", limit):
+                    html_out = zerochat.generate_file_diff(str(target_file), zerochat.project_context())["html"]
+                    self.assertEqual('onclick="openFullFile()"' in html_out, embedded, limit)
+
+            # 7. Default context lines is 5
             lines_file = repo_path / "context_test.txt"
             lines_file.write_text("".join(f"line {i}\n" for i in range(1, 21)), encoding="utf-8")
             subprocess.run(["git", "add", "context_test.txt"], cwd=str(repo_path), check=True)

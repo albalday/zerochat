@@ -9,6 +9,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 from core.environment import ensure_virtual_environment, get_venv_dir, get_venv_python
@@ -22,6 +23,8 @@ GUI_DIFF_TOOLS = {"vscode": "code", "meld": "meld", "kdiff3": "kdiff3", "kompare
 WEBDIFF_REQUIREMENT = "webdiff==1.4.0"
 WEBDIFF_INSTALL_TIMEOUT_SECONDS = 120
 DIFF_CONTEXT_LINES = 5
+# Tope de la salida de git diff y del archivo entero que lleva el visor.
+DIFF_MAX_BYTES = 5_000_000
 
 
 def _venv_webdiff() -> Path:
@@ -597,9 +600,13 @@ def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = 
         return _no_diff_result(target, in_head, last_commit)
     mode = "commit" if last_commit else "working_tree"
     cmd = _diff_command(base, target, prefix=[git_bin, "diff", f"-U{context_lines}"])
-    diff_text = subprocess.run(cmd, cwd=str(repo_root), capture_output=True, text=True, timeout=10, check=False).stdout
+    diff_bytes, truncated, _ = _capped_git_output(cmd, repo_root, 10)
+    diff_text = diff_bytes.decode("utf-8", errors="replace")
     if not diff_text.strip():
         return _no_diff_result(target, in_head, last_commit)
+    if truncated:
+        # Sin la última línea, que puede llegar cortada; el aviso se pinta como una fila más del visor.
+        diff_text = diff_text[:diff_text.rfind("\n") + 1] + f"[Diff truncated at {DIFF_MAX_BYTES} bytes]\n"
     rel_path = rel_path or target.name
     html_content = render_diff_html(
         diff_text=diff_text,
@@ -617,18 +624,40 @@ def generate_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool = 
         "in_head": in_head,
         "commit": last_commit or None,
         "diff": diff_text,
+        "truncated": truncated,
         "html": html_content
     }
 
 
-def _full_file_bytes(git_bin: str, repo_root: Path, target: Path, rel_path: str, commit: str) -> bytes | None:
-    """El archivo entero para el visor: el del commit si se muestra uno, si no el del disco (hasta 5 MB)."""
-    if commit:
-        show_res = subprocess.run([git_bin, "show", f"{commit}:{rel_path}"], cwd=str(repo_root), capture_output=True, timeout=5, check=False)
-        if show_res.returncode == 0:
-            return show_res.stdout
+def _capped_git_output(cmd: list[str], repo_root: Path, timeout: float) -> tuple[bytes, bool, int]:
+    """Salida de una orden git hasta DIFF_MAX_BYTES, sin leer el resto: (salida, truncada, código de salida)."""
+    proc = subprocess.Popen(cmd, cwd=str(repo_root), stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    expired = threading.Event()
+    timer = threading.Timer(timeout, lambda: (expired.set(), proc.kill()))
+    timer.start()
     try:
-        if target.is_file() and target.stat().st_size <= 5_000_000:
+        data = proc.stdout.read(DIFF_MAX_BYTES + 1) if proc.stdout else b""
+        if len(data) > DIFF_MAX_BYTES:
+            proc.kill()
+        proc.wait()
+    finally:
+        timer.cancel()
+        if proc.stdout:
+            proc.stdout.close()
+    truncated = len(data) > DIFF_MAX_BYTES
+    if expired.is_set() and not truncated:
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    return data[:DIFF_MAX_BYTES], truncated, proc.returncode
+
+
+def _full_file_bytes(git_bin: str, repo_root: Path, target: Path, rel_path: str, commit: str) -> bytes | None:
+    """El archivo entero para el visor: el del commit si se muestra uno, si no el del disco (hasta DIFF_MAX_BYTES)."""
+    if commit:
+        shown, truncated, code = _capped_git_output([git_bin, "show", f"{commit}:{rel_path}"], repo_root, 5)
+        if code == 0 and not truncated:
+            return shown
+    try:
+        if target.is_file() and target.stat().st_size <= DIFF_MAX_BYTES:
             return target.read_bytes()
     except OSError:
         pass

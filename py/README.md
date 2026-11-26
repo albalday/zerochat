@@ -157,7 +157,7 @@ Todo el estado persistente reside en `~/zerochat/storage/zerochat.db` (`0600`):
 * **Transporte web seguro (`py/web/fetch.py`, `zerochat/web/fetch`):** proxy local anti-CORS con validación anti-SSRF en la URL inicial y en cada redirección (bloquea metadatos cloud, nombres locales, IPv4 no canónicas como `127.1` o `0x7f.1` y cualquier IP resuelta que no sea unicast global), cabeceras de navegador estándar, control de frecuencia por dominio (`WEB_FETCH_DOMAIN_LIMITS`), rechazo de retos anti-bot (HTTP 202) y lectura descomprimida hasta `max_bytes` (`truncated`).
 * **Navegador de ficheros y visor de diferencias (para la persona, no para el modelo):**
   * `zerochat/files/list|read|download` (`tools/project_files.py`): sirve a `files.html` acotado estrictamente a la carpeta del proyecto (resuelta contra symlinks), sin pasar por el motor de permisos del modelo y bloqueado para la credencial del runner.
-  * `zerochat/diff/open|configure` (`tools/diff.py`): genera el diff frente a `HEAD` (o último commit si está limpio) en el visor HTML propio o lanza `git difftool` externo (`gui=true`).
+  * `zerochat/diff/open|configure` (`tools/diff.py`): genera el diff frente a `HEAD` (o último commit si está limpio) en el visor HTML propio, con la salida de `git diff` y el archivo entero acotados a `DIFF_MAX_BYTES` (5 MB; el diff se corta con aviso y `truncated`, y el archivo entero no se incluye), o lanza `git difftool` externo (`gui=true`).
 
 ---
 

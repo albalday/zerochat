@@ -113,6 +113,15 @@ class DiagnosticsTest(unittest.TestCase):
             full = json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))
             self.assertEqual((full["files_checked"], full["truncated"]), (limit, truncated))
 
+    def test_los_ficheros_por_encima_del_tope_de_bytes_se_listan_sin_comprobar(self):
+        limit = 64
+        big = self.project / "big.json"
+        with patch.object(zerochat, "DIAGNOSTICS_MAX_FILE_BYTES", limit):
+            for size, skipped in ((limit, []), (limit + 1, ["big.json"])):
+                big.write_text("[" + " " * (size - 3) + "]\n", encoding="utf-8")
+                result = json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))
+                self.assertEqual((result["files_checked"], [Path(p).name for p in result["skipped_too_large"]]), (4 - len(skipped), skipped), size)
+
 
 class ReadFileTest(unittest.TestCase):
     def test_read_file_devuelve_el_rango_de_lineas_pedido_y_como_maximo_2000_lineas(self):
@@ -179,6 +188,15 @@ class EditFileTest(unittest.TestCase):
         self.assertEqual(self.path.read_text(encoding="utf-8"), "primera linea\nsegunda linea modificada\ntercera linea\n")
         self.assertEqual(self.edit("linea", "fila", replace_all=True)["replacements"], 3)
         self.assertEqual(self.path.read_text(encoding="utf-8"), "primera fila\nsegunda fila modificada\ntercera fila\n")
+
+    def test_rechaza_editar_por_encima_del_tope_de_bytes_sin_tocar_el_fichero(self):
+        limit = 64
+        with patch.object(zerochat, "EDIT_FILE_MAX_BYTES", limit):
+            self.path.write_text("objetivo" + "x" * (limit - 8), encoding="utf-8")
+            self.assertEqual(self.edit("objetivo", "hecho")["replacements"], 1)
+            self.path.write_text("objetivo" + "x" * (limit - 7), encoding="utf-8")
+            self.assertIn("over the 64-byte limit", self.edit("objetivo", "hecho")["error"])
+            self.assertTrue(self.path.read_text(encoding="utf-8").startswith("objetivo"))
 
     @unittest.skipIf(os.name == "nt", "permisos POSIX")
     def test_la_escritura_conserva_los_permisos_y_no_deja_temporales_si_falla(self):

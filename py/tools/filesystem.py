@@ -242,6 +242,10 @@ def write_file(path: str, content: str, *, ctx: SecurityContext) -> str:
         return _tool_error(str(e))
 
 
+# edit_file carga el fichero entero en memoria: por encima, mejor run_command (sed) o write_file.
+EDIT_FILE_MAX_BYTES = 10 * 1024 * 1024
+
+
 def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, *, ctx: SecurityContext) -> str:
     """Replace old_str with new_str in an existing file: its single occurrence, or all of them with replace_all."""
     try:
@@ -250,6 +254,10 @@ def edit_file(path: str, old_str: str, new_str: str, replace_all: bool = False, 
             return _tool_error(f"File '{path}' does not exist. Use read_file to verify existing paths.")
         if not target.is_file():
             return _tool_error(f"Path '{path}' is not a regular file.")
+        size = target.stat().st_size
+        if size > EDIT_FILE_MAX_BYTES:
+            return _tool_error(f"File '{path}' has {size} bytes, over the {EDIT_FILE_MAX_BYTES}-byte limit of edit_file. "
+                               "Use run_command (for example sed) or write_file instead.")
 
         with open(target, "r", encoding="utf-8", errors="replace") as f:
             file_text = f.read()
@@ -561,17 +569,22 @@ DIAGNOSTIC_CHECKS = {
     ".json": _json_diagnostics,
 }
 DIAGNOSTICS_MAX_FILES = 200
+# Cada comprobación lee el fichero entero; los mayores se listan sin comprobar, como en search_files.
+DIAGNOSTICS_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
+def _display_path(fpath: Path, workspace_dir: Path) -> str:
+    try:
+        return fpath.relative_to(workspace_dir).as_posix()
+    except ValueError:
+        return str(fpath)
 
 
 def _file_diagnostics(fpath: Path, workspace_dir: Path) -> list[dict]:
     check = DIAGNOSTIC_CHECKS.get(fpath.suffix.lower())
     if check is None:
         return []
-    try:
-        display = fpath.relative_to(workspace_dir).as_posix()
-    except ValueError:
-        display = str(fpath)
-    return check(fpath, display)
+    return check(fpath, _display_path(fpath, workspace_dir))
 
 
 def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
@@ -588,17 +601,21 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
             checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
             checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES + 1))
         truncated = len(checked) > DIAGNOSTICS_MAX_FILES
-        checked = checked[:DIAGNOSTICS_MAX_FILES]
+        oversized = [fp for fp in checked[:DIAGNOSTICS_MAX_FILES] if fp.stat().st_size > DIAGNOSTICS_MAX_FILE_BYTES]
+        checked = [fp for fp in checked[:DIAGNOSTICS_MAX_FILES] if fp not in oversized]
         files_checked = len(checked)
         diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
 
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
+        if oversized:
+            msg += f" {len(oversized)} file(s) over {DIAGNOSTICS_MAX_FILE_BYTES} bytes were not checked (skipped_too_large)."
 
         return json.dumps({
             "success": True,
             "path": str(target),
             "files_checked": files_checked,
             "truncated": truncated,
+            "skipped_too_large": [_display_path(fp, ctx.workspace_dir) for fp in oversized],
             "error_count": len(diagnostics),
             "diagnostics": diagnostics,
             "message": msg
