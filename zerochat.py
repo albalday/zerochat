@@ -811,8 +811,10 @@ def login(params: dict) -> dict:
     global LOGIN_FAILURES, LOGIN_LOCKED_UNTIL
     user = params.get("user")
     password = params.get("password")
-    if not all(isinstance(value, str) and 0 < len(value) <= LOGIN_MAX_FIELD_LENGTH for value in (user, password)):
-        raise LoginError(-32602, f"user y password deben ser textos de 1 a {LOGIN_MAX_FIELD_LENGTH} caracteres.")
+    # Sin \x00: PAM y LogonUserW reciben cadenas C, y en Windows ctypes lanzaría ValueError al convertirlas.
+    if not all(isinstance(value, str) and 0 < len(value) <= LOGIN_MAX_FIELD_LENGTH and "\x00" not in value
+               for value in (user, password)):
+        raise LoginError(-32602, f"user y password deben ser textos de 1 a {LOGIN_MAX_FIELD_LENGTH} caracteres sin \\x00.")
     with LOGIN_LOCK:
         remaining = LOGIN_LOCKED_UNTIL - time.monotonic()
         if remaining > 0:

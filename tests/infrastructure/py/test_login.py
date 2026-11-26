@@ -57,7 +57,8 @@ class LoginTest(unittest.TestCase):
     def test_usuario_y_contrasena_son_textos_acotados(self):
         limit = zerochat.LOGIN_MAX_FIELD_LENGTH
         for params in ({}, {"user": "ana"}, {"user": "", "password": "x"}, {"user": "ana", "password": 7},
-                       {"user": "ana", "password": "x" * (limit + 1)}):
+                       {"user": "ana", "password": "x" * (limit + 1)}, {"user": "ana\x00", "password": "x"},
+                       {"user": "ana", "password": "x\x00y"}):
             with self.subTest(params=params):
                 with self.assertRaises(zerochat.LoginError) as raised:
                     zerochat.login(params)
