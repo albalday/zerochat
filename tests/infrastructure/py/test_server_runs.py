@@ -815,11 +815,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                         "pid_start": zerochat._process_start_token(os.getpid())})
             self.assertIn("already running", launch(run_file="agents/fijo.json")["error"])
 
-            # Otro proyecto: hace falta R sobre su carpeta (RW para borrar) y su propio entorno guardado.
-            self.assertIn("do not give R access", launch(run_file="agents/diario.json", project=str(other))["error"])
+            # Otro proyecto: consultar pide R sobre su carpeta, lanzar RX (RW para borrar) y su propio entorno guardado.
             self.assertIn("do not give R access", check(project=str(other))["error"])
             default_rule = zerochat.AccessController.get_default_directory_rule(ctx)
             zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"R:{other}/**"]}, ctx)
+            self.assertIn("do not give X access", launch(run_file="agents/diario.json", project=str(other))["error"])
+            zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"X:{other}/**"]}, ctx)
+            self.assertIn("do not give R access", launch(run_file="agents/diario.json", project=str(other))["error"])
+            zerochat.ACCESS_CONTROLLER.import_state({"directoryRules": [default_rule, f"RX:{other}/**"]}, ctx)
             self.assertIn("no saved environment", launch(run_file="agents/diario.json", project=str(other))["error"])
             other_key = zerochat.SecurityContext(workspace_dir=other).key
             zerochat.save_project_environment(other_key, {"systemDataPrompt": "Otro"})

@@ -8733,7 +8733,7 @@ watchAgents.
 Leen conversaciones y ejecuciones de SQLite filtrando estrictamente por un proyecto (el de la ejecución o, con project,
 otro sobre el que sus reglas de directorio den lectura) y por los patrones de watchAgents: nunca chats humanos (sin
 agent). launch_agent lanza un run-file de ese proyecto separado del master, con el entorno guardado y los permisos del
-proyecto en que se ejecuta. Con wait_seconds espera, sin que el
+proyecto en que se ejecuta (con project, X sobre esa carpeta además de R sobre el run-file). Con wait_seconds espera, sin que el
 modelo tenga que sondear, a que cambie el estado de alguno de los agentes consultados. Con prune_keep borra, solo
 cuando el master lo pide, las conversaciones antiguas de sus agentes vigilados (nunca hay limpieza automática).
 """
@@ -8779,7 +8779,7 @@ def _conversation_project(ctx: SecurityContext) -> str:
 
 def _target_project(ctx: SecurityContext, project: str | None, access: str) -> SecurityContext:
     """El proyecto sobre el que actúa el master: el suyo o, con project, otra carpeta sobre la que sus reglas de
-    directorio den `access` (R para consultar y lanzar, RW para borrar). ValueError con el motivo si no vale."""
+    directorio den `access` (R para consultar, X para lanzar, RW para borrar). ValueError con el motivo si no vale."""
     if project is None:
         return ctx
     if not isinstance(project, str) or not project.strip():
@@ -9024,7 +9024,9 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
     if not isinstance(run_file, str) or not run_file.strip():
         return _tool_error("run_file is required: the path of the agent's run-file JSON in the project, such as agents/report.json.")
     try:
-        target = _target_project(ctx, project, "R")
+        # Lanzar en otra carpeta es ejecutar en ella: el agente corre con su entorno y sus permisos, y prompt
+        # sustituye las instrucciones del run-file.
+        target = _target_project(ctx, project, "X")
         path = target.absolute(run_file.strip())
         if not path.is_relative_to(target.workspace_dir.resolve()):
             raise ValueError(f"run_file must be inside the project folder {target.workspace_dir}.")
@@ -11241,7 +11243,7 @@ LAUNCH_AGENT_DEFINITION = {
         "properties": {
             "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file JSON inside the project"},
             "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run, instead of the run-file's prompt"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give R"}
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give RX"}
         },
         "required": ["run_file"]
     }
