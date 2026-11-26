@@ -48,10 +48,12 @@ from web.fetch import fetch_web_resource
 
 
 def _local_tools() -> list[dict]:
-    """Las herramientas locales y, solo en la ejecución --run-file con controller: true, las del controlador."""
+    """Las herramientas locales y las del controlador, en el servidor de la interfaz o en una ejecución controladora,
+    marcadas con metadata.controller: la interfaz solo las ofrece al modelo con «Subagentes» encendido."""
     session = current_run_session()
-    extra = CONTROLLER_TOOL_DEFINITIONS if session is not None and session.controller else ()
-    return [dict(definition) for definition in (*LOCAL_TOOLS_DEFINITIONS, *extra)]
+    extra = CONTROLLER_TOOL_DEFINITIONS if session is None or session.controller else ()
+    return [*(dict(definition) for definition in LOCAL_TOOLS_DEFINITIONS),
+            *({**definition, "metadata": {"controller": True}} for definition in extra)]
 
 
 def rpc_login(params: dict) -> RpcOutcome:

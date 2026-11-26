@@ -349,7 +349,8 @@ def reset_session_authorizations():
                 server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) or ""
                 ACCESS_CONTROLLER.apply_tool_decision(tool_decision, ctx, server_id=server_id)
         # Ninguna herramienta se autoriza sola por ser una ejecución desatendida: siguen las reglas guardadas, y lo que
-        # pediría permiso pausa la ejecución (needs_input). Solo las del controlador, que el run-file pide con controller: true.
+        # pediría permiso pausa la ejecución (needs_input). Solo las del controlador, que piden controller: true del
+        # run-file o «Subagentes» al lanzar un chat en segundo plano.
         permanent_tools = ACCESS_CONTROLLER.export_state(ctx).get("tools") or {}
         ACCESS_CONTROLLER.apply_session_overlay({
             "allowAll": False,

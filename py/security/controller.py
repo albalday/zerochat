@@ -428,7 +428,7 @@ class AccessController:
 
     def allows_path(self, access: str, path: str, context: SecurityContext) -> bool:
         """Si las reglas de directorio del proyecto (o su allowAll) dan `access` sobre `path`, sin preguntar: para las
-        herramientas que actúan sobre otra carpeta en una ejecución desatendida (check_agents y launch_agent)."""
+        herramientas del controlador que actúan sobre otra carpeta (check_agents, launch_agent, stop_agent y prune_agents)."""
         view = self._effective_state(context)
         return bool(view["allowAll"]) or self.evaluate_directory_rule(access, path, view["directoryRules"], context)["allowed"]
 

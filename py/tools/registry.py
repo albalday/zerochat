@@ -227,18 +227,18 @@ LOCAL_TOOLS_DEFINITIONS = [
         }
     }
 ]
-# Solo se publican en una ejecución --run-file con controller: true (server/rpc.py), que además las autoriza; fuera
-# de ella sus manejadores se niegan a responder.
+# Se publican en el servidor de la interfaz y en una ejecución controladora (server/rpc.py), que además las autoriza;
+# en otra ejecución sus manejadores se niegan a responder.
 CHECK_AGENTS_DEFINITION = {
     "name": AGENTS_TOOL,
     "description": (
-        "Status of the agents of this project, which this run controls, or, with project, of another one. Without arguments, one entry for each "
-        "conversation this run launched (several of the same agent if it split the work) and for the latest conversation "
+        "Status of the agents of this project, which you control, or, with project, of another one. Without arguments, one entry for each "
+        "conversation you launched (several of the same agent if it split the work) and for the latest conversation "
         "of every other agent: status (running, needs_input, completed, error, limit), step, pending input, "
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). An agent cut off by limit or error has no final "
         "answer: it then brings its last text with partial=true, which tells where it stopped. An answer already delivered "
-        "in full during this run is not repeated in the listing (result_seen, with result_chars). The listing also gives "
+        "in full is not repeated in the listing (result_seen, with result_chars). The listing also gives "
         "runs: how many runs are going on the machine and the most allowed at a time. With agent or conversation_id, the final answer in blocks of "
         f"{AGENT_RESULT_PAGE_CHARS} characters (pass next_offset as offset for the next one) and, with include_turn=true, the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it keeps waiting while any of the "
@@ -252,7 +252,7 @@ CHECK_AGENTS_DEFINITION = {
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): details of its latest conversation"},
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Details of this agent conversation"},
             "wait_seconds": {"type": "integer", "description": f"Maximum seconds to wait for a change of the agents asked about before answering (default 0, max {AGENT_MAX_WAIT})", "default": 0},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this run's project); its directory rules must give R"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to check (default: this project); its directory rules must give R"},
             "offset": {"type": "integer", "description": "With agent or conversation_id: character offset of the final answer to read from (the next_offset of the previous call)", "default": 0},
             "include_turn": {"type": "boolean", "description": "With agent or conversation_id: also return the messages of its last turn, including tool results", "default": False},
         }
@@ -261,14 +261,14 @@ CHECK_AGENTS_DEFINITION = {
 STOP_AGENT_DEFINITION = {
     "name": STOP_AGENT_TOOL,
     "description": (
-        "Stop a running agent conversation launched by this controller during this run, when it is stuck or no longer "
+        "Stop a running agent conversation you launched, when it is stuck or no longer "
         "needed. Kills its run process and keeps what it finished as error so check_agents shows its partial progress."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
             "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Conversation id of the running agent launched by this controller"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project where the agent runs (default: this run's project); its directory rules must give R"}
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project where the agent runs (default: this project); its directory rules must give R"}
         },
         "required": ["conversation_id"]
     }
@@ -285,7 +285,7 @@ PRUNE_AGENTS_DEFINITION = {
         "properties": {
             "keep": {"type": "integer", "description": f"How many most recent conversations to keep per agent (0 to {AGENT_PRUNE_KEEP_MAX})"},
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Agent id (<name> or <set>.<name>): prune only this agent's conversations (default: all agents)"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to prune (default: this run's project); its directory rules must give RW"}
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project whose agents to prune (default: this project); its directory rules must give RW"}
         },
         "required": ["keep"]
     }
@@ -293,7 +293,7 @@ PRUNE_AGENTS_DEFINITION = {
 LAUNCH_AGENT_DEFINITION = {
     "name": LAUNCH_AGENT_TOOL,
     "description": (
-        "Start an agent as a separate run that keeps going after this run ends, and return its conversation_id and "
+        "Start an agent as a separate run that keeps going on its own after your turn ends, and return its conversation_id and "
         "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
         "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
         "max_steps, timeout, conversation_id and disabled_tools). It runs with the saved environment and permissions of its project and "
@@ -307,7 +307,7 @@ LAUNCH_AGENT_DEFINITION = {
         "properties": {
             "run_file": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Path of the agent's run-file (.md) inside the project; leave it out to give the agent inline"},
             "prompt": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Task for this run (optional when continuing an existing conversation_id; with run_file, instead of the run-file's task)"},
-            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this run's project); its directory rules must give X, and R to read run_file"},
+            "project": {"type": "string", "maxLength": MAX_PATH_LENGTH, "description": "Folder of another project to launch the agent in (default: this project); its directory rules must give X, and R to read run_file"},
             "agent": {"type": "string", "maxLength": MAX_AGENT_ID_LENGTH, "description": "Inline: agent id (<name> or <set>.<name>)"},
             "system_prompt": {"type": "string", "maxLength": MAX_PROJECT_PROMPT_LENGTH, "description": "Inline: the agent's manual, instead of the project's system data prompt"},
             "profile": {"type": "string", "maxLength": MAX_PROFILE_NAME_LENGTH, "description": "Inline: server profile name or id (default: local)"},
@@ -319,7 +319,7 @@ LAUNCH_AGENT_DEFINITION = {
         }
     }
 }
-# Las de un controlador, que solo se publican en una ejecución --run-file con controller: true.
+# Las de un controlador: en el servidor de la interfaz y en una ejecución controladora.
 CONTROLLER_TOOL_DEFINITIONS = (CHECK_AGENTS_DEFINITION, LAUNCH_AGENT_DEFINITION, STOP_AGENT_DEFINITION, PRUNE_AGENTS_DEFINITION)
 
 LOCAL_TOOL_HANDLERS = {

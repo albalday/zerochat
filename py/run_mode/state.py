@@ -636,7 +636,17 @@ def _approved_call(tool_security) -> tuple[str, dict] | None:
     return tool_name, args
 
 
-class RunSession:
+class ControllerState:
+    """Lo que un controlador recuerda mientras vive: las conversaciones que lanzó con launch_agent
+    ({id: {agent, project, updatedAt}}), que check_agents ve desde el lanzamiento, antes de que el agente las guarde, y
+    las respuestas finales ya entregadas, por (conversación, run_id) -> (result_chars, partial), que el listado no repite
+    ni relee en conversaciones cortadas. Lo tiene cada ejecución y cada conversación del servidor de la interfaz."""
+    def __init__(self):
+        self.launched_agents: dict[str, dict] = {}
+        self.delivered_results: dict[tuple[str, str], tuple[int, bool]] = {}
+
+
+class RunSession(ControllerState):
     """Estado de la ejecución: prompt, opciones, último progreso, exportación, resultado y motivo de un final sin él."""
     def __init__(self, prompt: str | None = None, profile: str | None = None, export_path: Path | None = None,
                  conversation_id: str | None = None, run_id: str | None = None,
@@ -645,6 +655,7 @@ class RunSession:
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
                  agent: str | None = None, launch: dict | None = None, controller: bool = False, disabled_tools: tuple[str, ...] = (),
                  track_run: bool = False, reasoning: str | None = None, subagents: bool = False):
+        super().__init__()
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
         self.conversation_id = conversation_id
@@ -662,18 +673,11 @@ class RunSession:
         self.agent = agent
         # Petición de lanzamiento de un agente (--run-file): finish_run la guarda en su conversación.
         self.launch = launch
-        # controller: true de --run-file: habilita y autoriza check_agents y launch_agent solo en esta ejecución.
-        self.controller = controller
+        # Controladora: la de controller: true de --run-file o la de un chat lanzado en segundo plano con «Subagentes»
+        # (nunca la de un agente). Publica y autoriza las herramientas del controlador solo en esta ejecución.
+        self.controller = bool(controller or (subagents and not agent and not track_run))
         # disabledTools de --run-file: lo que run_project_environment le quita del entorno del proyecto.
         self.disabled_tools = tuple(disabled_tools)
-        # Solo una ejecución interactiva en servidor (sin --run-file ni agente) puede heredar «Subagentes».
-        self.subagents = bool(subagents and not agent and not track_run)
-        # Respuestas finales ya entregadas en esta ejecución, por (conversación, run_id) -> (result_chars, partial): el
-        # listado no las repite ni relee conversaciones cortadas.
-        self.delivered_results: dict[tuple[str, str], tuple[int, bool]] = {}
-        # Conversaciones que este controlador lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
-        # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
-        self.launched_agents: dict[str, dict] = {}
         # projectMode de --run-file: si el runner inyecta las normas y el estado del proyecto; None (--prompt y
         # --conversation) deja el modo proyecto por defecto del runner.
         self.project_mode = project_mode
@@ -869,7 +873,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
                        "export": export_format, "max_steps": session.max_steps, "project_mode": session.project_mode,
-                       "reasoning": session.reasoning, "subagents": session.subagents, "disabled_tools": list(session.disabled_tools)})
+                       "reasoning": session.reasoning, "subagents": session.controller, "disabled_tools": list(session.disabled_tools)})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:

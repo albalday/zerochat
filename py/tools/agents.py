@@ -1,5 +1,6 @@
-"""check_agents, launch_agent, stop_agent y prune_agents: las herramientas de un agente controlador, solo en la
-ejecución --run-file con controller: true.
+"""check_agents, launch_agent, stop_agent y prune_agents: las herramientas de un agente controlador. Lo es una
+ejecución --run-file con controller: true, una ejecución en segundo plano de un chat con «Subagentes» y cada
+conversación del servidor de la interfaz, que solo las ofrece al modelo con «Subagentes» encendido.
 
 check_agents lee conversaciones y ejecuciones de SQLite filtrando estrictamente por un proyecto (el de la ejecución o,
 con project, otro sobre el que sus reglas de directorio den lectura) y por tener agente: nunca chats humanos (sin agent)
@@ -27,6 +28,7 @@ from run_mode.state import (
     RUN_FILE_LIMIT_KEYS,
     RUN_FILE_MAX_BYTES,
     RUN_REASONING_LEVELS,
+    ControllerState,
     check_no_active_run,
     current_run_session,
     format_run_request,
@@ -58,7 +60,8 @@ AGENTS_TOOL = "check_agents"
 LAUNCH_AGENT_TOOL = "launch_agent"
 STOP_AGENT_TOOL = "stop_agent"
 PRUNE_AGENTS_TOOL = "prune_agents"
-# Las herramientas del controlador: se publican y autorizan juntas, solo en una ejecución --run-file con controller: true.
+# Las herramientas del controlador: se publican juntas en el servidor de la interfaz y en una ejecución controladora,
+# que además las autoriza; nunca en otra ejecución.
 CONTROLLER_TOOLS = (AGENTS_TOOL, LAUNCH_AGENT_TOOL, STOP_AGENT_TOOL, PRUNE_AGENTS_TOOL)
 # Tope del prompt que launch_agent pone en lugar del del run-file.
 MAX_LAUNCH_PROMPT_LENGTH = 32768
@@ -84,6 +87,11 @@ AGENT_STOP_GRACE_SECONDS = 2.0
 AGENT_STOPPED_ERROR = "Stopped by its controller."
 # Estados que la limpieza nunca borra: una ejecución en marcha o una pausa que espera a una persona.
 AGENT_PRUNE_PROTECTED = ("running", "needs_input")
+
+
+# En el servidor de la interfaz, el de cada conversación que usa las herramientas, en memoria hasta que el servidor se
+# cierra, como en una ejecución.
+INTERACTIVE_CONTROLLERS: dict[str, ControllerState] = {}
 
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
@@ -114,15 +122,14 @@ def _target_project(ctx: SecurityContext, project: str | None, access: str) -> S
     return target
 
 
-def _agent_conversations(ctx: SecurityContext, own_id: str) -> list[dict]:
+def _agent_conversations(ctx: SecurityContext, own_id: str, state: ControllerState) -> list[dict]:
     """Conversaciones de agentes del proyecto, de la más reciente a la más antigua, sin la del propio controlador.
     Incluye las que este controlador lanzó y el agente aún no ha guardado: su fila de runs ya está en marcha."""
     project = _conversation_project(ctx)
     convs = [conv for conv in list_conversations()
              if conv["id"] != own_id and conv.get("agent") and (conv.get("project") or "") == project]
-    session = current_run_session()
     saved = {conv["id"] for conv in convs}
-    pending = [{"id": conv_id, **meta} for conv_id, meta in (session.launched_agents if session else {}).items()
+    pending = [{"id": conv_id, **meta} for conv_id, meta in state.launched_agents.items()
                if conv_id not in saved and meta["project"] == project]
     if not pending:
         return convs
@@ -168,22 +175,19 @@ def _runs() -> dict:
     return {"running": running_run_count(), "max": MAX_CONCURRENT_RUNS}
 
 
-def _delivered(conv: dict, run: dict) -> tuple[dict[tuple[str, str], tuple[int, bool]], tuple[str, str] | None]:
-    """Las respuestas ya entregadas en esta ejecución ((result_chars, partial)) y la clave de esta, que cambia con
-    cada ejecución de la conversación (None fuera de una ejecución)."""
-    session = current_run_session()
-    if session is None:
-        return {}, None
-    return session.delivered_results, (conv["id"], run.get("run_id") or "")
+def _delivered_key(conv: dict, run: dict) -> tuple[str, str]:
+    """La clave de una respuesta entregada, que cambia con cada ejecución de la conversación."""
+    return conv["id"], run.get("run_id") or ""
 
 
-def _listing(selected: list[tuple[dict, dict]]) -> dict:
+def _listing(selected: list[tuple[dict, dict]], state: ControllerState) -> dict:
     """El listado con la respuesta final entera de cada agente mientras quepa (por agente y entre todos); la que no,
     sin texto y con result_chars, y la ya entregada en esta ejecución, sin texto y con result_seen."""
     budget, agents, omitted, seen = AGENT_LIST_TOTAL_CHARS, [], False, False
+    delivered = state.delivered_results
     for conv, run in selected:
         entry = _agent_state(conv, run)
-        delivered, key = _delivered(conv, run)
+        key = _delivered_key(conv, run)
         if key in delivered:
             result_chars, partial = delivered[key]
             if partial:
@@ -198,7 +202,7 @@ def _listing(selected: list[tuple[dict, dict]]) -> dict:
         if len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
             entry["result_text"] = result
             budget -= len(result)
-            if result and key:
+            if result:
                 delivered[key] = (len(result), partial)
         else:
             entry["result_chars"] = len(result)
@@ -237,19 +241,18 @@ def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
     return messages, truncated
 
 
-def _selected(ctx: SecurityContext, own_id: str, agent: str | None,
+def _selected(ctx: SecurityContext, own_id: str, state: ControllerState, agent: str | None,
               conversation_id: str | None) -> list[tuple[dict, dict]] | None:
     """Las conversaciones consultadas con su ejecución: sin agent ni conversation_id, todas las que lanzó este
     controlador en esta ejecución (varias del mismo agente si repartió el trabajo) y la más reciente de cada agente;
     si no, la de agent o la de conversation_id. None si agent o conversation_id no es de un agente del proyecto."""
-    convs = _agent_conversations(ctx, own_id)
+    convs = _agent_conversations(ctx, own_id, state)
     if conversation_id is not None:
         picked = [conv for conv in convs if conv["id"] == conversation_id][:1]
     elif agent is not None:
         picked = [conv for conv in convs if conv["agent"] == agent][:1]
     else:
-        session = current_run_session()
-        launched = session.launched_agents if session else {}
+        launched = state.launched_agents
         seen: set[str] = set()
         picked = []
         for conv in convs:  # De la más reciente a la más antigua.
@@ -315,24 +318,35 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
     return json.dumps({"success": True, "deleted": deleted, "skipped": skipped}, ensure_ascii=False)
 
 
-def _controller_context(tool_name: str, ctx: SecurityContext | None, project: str | None, access: str):
-    """Valida que la herramienta corre bajo un controlador y resuelve su propio id y el proyecto destino."""
+def _controller_context(tool_name: str, ctx: SecurityContext | None, project: str | None, access: str,
+                        own_conversation: str = "") -> tuple[ControllerState, str, SecurityContext]:
+    """El estado y el id de la conversación del controlador, y el proyecto destino. En el servidor de la interfaz, el
+    controlador es la conversación que llama (own_conversation, de _meta y no del modelo); en una ejecución, la suya,
+    que tiene que ser controladora."""
+    if ctx is None:
+        raise ValueError(f"{tool_name} needs the project of the call.")
     session = current_run_session()
-    if session is None or not session.controller or ctx is None:
-        raise ValueError(f"{tool_name} is only available in a --run-file run with controller: true.")
-    own_id = session.conversation_id or session.new_conversation_id or ""
-    return session, own_id, _target_project(ctx, project, access)
+    if session is not None:
+        if not session.controller:
+            raise ValueError(f"{tool_name} is only available to a controller: a --run-file run with controller: true "
+                             "or a chat with Subagents on.")
+        return session, session.conversation_id or session.new_conversation_id or "", _target_project(ctx, project, access)
+    own_id = own_conversation.strip() if isinstance(own_conversation, str) else ""
+    if not own_id:
+        raise ValueError(f"{tool_name} needs the conversation that calls it.")
+    target = _target_project(ctx, project, access)
+    return INTERACTIVE_CONTROLLERS.setdefault(own_id, ControllerState()), own_id, target
 
 
 def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
                  project: str | None = None, offset: int = 0, include_turn: bool = False,
-                 ctx: SecurityContext | None = None) -> str:
+                 ctx: SecurityContext | None = None, own_conversation: str = "") -> str:
     """Sin argumentos, el estado de cada agente del proyecto (y de todos los que lanzó este controlador en esta
     ejecución) con su respuesta final si cabe; con agent o conversation_id, su respuesta final por bloques desde offset
     y, con include_turn, los mensajes de su último turno. Con wait_seconds, antes espera como mucho ese tiempo a que
     cambie. Con project, los agentes de esa carpeta en lugar de los del proyecto de la ejecución."""
     try:
-        _session, own_id, target = _controller_context(AGENTS_TOOL, ctx, project, "R")
+        state, own_id, target = _controller_context(AGENTS_TOOL, ctx, project, "R", own_conversation)
     except ValueError as exc:
         return _tool_error(str(exc))
     detail = agent is not None or conversation_id is not None
@@ -342,7 +356,7 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
         return _tool_error("offset must be a non-negative integer.")
 
     def read():
-        return _selected(target, own_id, agent, conversation_id)
+        return _selected(target, own_id, state, agent, conversation_id)
 
     wait = max(0, min(int(wait_seconds or 0), AGENT_MAX_WAIT))
     extra = {}
@@ -355,24 +369,24 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     if selected is None:
         return _tool_error("That agent or conversation is not an agent of this project.")
     if not detail:
-        return json.dumps({"success": True, **_listing(selected), "runs": _runs(), **extra}, ensure_ascii=False)
-    return _detail(*selected[0], offset, include_turn, extra)
+        return json.dumps({"success": True, **_listing(selected, state), "runs": _runs(), **extra}, ensure_ascii=False)
+    return _detail(*selected[0], state, offset, include_turn, extra)
 
 
 def stop_agent(conversation_id: str | None = None, project: str | None = None,
-               ctx: SecurityContext | None = None) -> str:
+               ctx: SecurityContext | None = None, own_conversation: str = "") -> str:
     """Detiene una conversación que este controlador lanzó en esta ejecución: mata su proceso con su árbol (runner y
     servicios MCP) y deja su fila en error, para que check_agents la muestre con lo que avanzó (respuesta parcial)."""
     try:
-        session, own_id, target = _controller_context(STOP_AGENT_TOOL, ctx, project, "R")
+        state, own_id, target = _controller_context(STOP_AGENT_TOOL, ctx, project, "R", own_conversation)
     except ValueError as exc:
         return _tool_error(str(exc))
     if not isinstance(conversation_id, str) or not conversation_id.strip():
         return _tool_error("conversation_id must be a non-empty string.")
     conv_id = conversation_id.strip()
-    if conv_id not in session.launched_agents:
+    if conv_id not in state.launched_agents:
         return _tool_error("A controller only stops the agents it launched in this run.")
-    selected = _selected(target, own_id, None, conv_id)
+    selected = _selected(target, own_id, state, None, conv_id)
     if selected is None:
         return _tool_error("That conversation is not an agent of this project.")
     conv, run = selected[0]
@@ -382,29 +396,29 @@ def stop_agent(conversation_id: str | None = None, project: str | None = None,
     # Releer tras el plazo de gracia para conservar usage/warnings recientes o un resultado terminado a tiempo.
     fresh = get_run_state(conv_id) or run
     if fresh.get("status") != "running":
-        return _detail(conv, fresh, 0, False, {"stopped": False})
+        return _detail(conv, fresh, state, 0, False, {"stopped": False})
     now = int(time.time() * 1000)
     upsert_run_state({**fresh, "status": "error", "error": AGENT_STOPPED_ERROR, "updated_at": now, "finished_at": now})
-    return _detail(conv, get_run_state(conv_id) or {}, 0, False, {"stopped": True})
+    return _detail(conv, get_run_state(conv_id) or {}, state, 0, False, {"stopped": True})
 
 
 def prune_agents(keep: int | None = None, agent: str | None = None, project: str | None = None,
-                 ctx: SecurityContext | None = None) -> str:
+                 ctx: SecurityContext | None = None, own_conversation: str = "") -> str:
     """Borra las conversaciones antiguas de los agentes del proyecto (o solo de agent) conservando las keep más
     recientes, nunca una en marcha o esperando respuesta, y devuelve las borradas y las conservadas."""
     try:
-        _session, own_id, target = _controller_context(PRUNE_AGENTS_TOOL, ctx, project, "RW")
+        state, own_id, target = _controller_context(PRUNE_AGENTS_TOOL, ctx, project, "RW", own_conversation)
     except ValueError as exc:
         return _tool_error(str(exc))
     if isinstance(keep, bool) or not isinstance(keep, int) or not 0 <= keep <= AGENT_PRUNE_KEEP_MAX:
         return _tool_error(f"keep must be an integer between 0 and {AGENT_PRUNE_KEEP_MAX}.")
-    convs = _agent_conversations(target, own_id)
+    convs = _agent_conversations(target, own_id, state)
     if agent is not None and not any(conv["agent"] == agent for conv in convs):
         return _tool_error("That agent is not an agent of this project.")
     return _prune(convs, agent, keep)
 
 
-def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict) -> str:
+def _detail(conv: dict, run: dict, controller: ControllerState, offset: int, include_turn: bool, extra: dict) -> str:
     """El detalle de una conversación: su estado, un bloque de su respuesta final y, con include_turn, su último turno."""
     state = _agent_state(conv, run)
     result, partial = _final_answer(conv, state, run)
@@ -417,9 +431,8 @@ def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict)
         messages, truncated = _last_turn((get_conversation(conv["id"]) or {}).get("history") or [])
         turn = {"last_turn": messages, **({"last_turn_truncated": True} if truncated else {})}
     page = _result_page(result, offset)
-    delivered, key = _delivered(conv, run)
-    if result and key and page["next_offset"] is None:
-        delivered[key] = (len(result), partial)
+    if result and page["next_offset"] is None:
+        controller.delivered_results[_delivered_key(conv, run)] = (len(result), partial)
     return json.dumps({"success": True, **state, **page, **turn, **extra},
                       ensure_ascii=False)
 
@@ -495,23 +508,25 @@ def _inline_request(fields: dict, prompt: str | None) -> dict:
 def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
                  agent: str | None = None, system_prompt: str | None = None, profile: str | None = None,
                  reasoning: str | None = None, max_steps: int | None = None, timeout: int | None = None,
-                 conversation_id: str | None = None, disabled_tools: str | None = None, ctx: SecurityContext | None = None) -> str:
+                 conversation_id: str | None = None, disabled_tools: str | None = None, ctx: SecurityContext | None = None,
+                 own_conversation: str = "") -> str:
     """Lanza un agente separado de este controlador y devuelve su conversation_id y run_id: el de su run-file
     `run_file` (ruta dentro del proyecto) o, sin él, el que se da en línea (agent, system_prompt y prompt, con profile,
     reasoning, max_steps, timeout, conversation_id y disabled_tools opcionales). Con prompt sustituye el del fichero; con project, el
     agente se lanza en esa carpeta, con su entorno guardado y sus permisos."""
-    session = current_run_session()
-    if session is None or not session.controller or ctx is None:
-        return _tool_error("launch_agent is only available in a --run-file run with controller: true.")
     fields = {key: value for key, value in (("agent", agent), ("system_prompt", system_prompt), ("profile", profile),
               ("reasoning", reasoning), ("max_steps", max_steps), ("timeout", timeout), ("conversation_id", conversation_id),
               ("disabled_tools", disabled_tools))
               if value is not None}
-    own_id = session.conversation_id or session.new_conversation_id or ""
+    # Lanzar en otra carpeta es ejecutar en ella: el agente corre con su entorno y sus permisos, y prompt sustituye
+    # las instrucciones del run-file.
+    try:
+        state, own_id, target = _controller_context(LAUNCH_AGENT_TOOL, ctx, project, "X", own_conversation)
+    except ValueError as exc:
+        return _tool_error(str(exc))
     if run_file is None:
         try:
-            target = _target_project(ctx, project, "X")
-            return _launch(_inline_request(fields, prompt), prompt, target, own_id=own_id)
+            return _launch(_inline_request(fields, prompt), prompt, target, own_id, state)
         except ValueError as exc:
             return _tool_error(str(exc))
     if fields:
@@ -519,9 +534,6 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
     if not isinstance(run_file, str) or not run_file.strip():
         return _tool_error("run_file must be the path of the agent's run-file in the project, such as agents/report.md.")
     try:
-        # Lanzar en otra carpeta es ejecutar en ella: el agente corre con su entorno y sus permisos, y prompt
-        # sustituye las instrucciones del run-file.
-        target = _target_project(ctx, project, "X")
         path = target.absolute(run_file.strip())
         if not path.is_relative_to(target.workspace_dir.resolve()):
             raise ValueError(f"run_file must be inside the project folder {target.workspace_dir}.")
@@ -532,7 +544,7 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
                 request = parse_run_request(handle.read(RUN_FILE_MAX_BYTES + 1))
             except ValueError as exc:
                 raise ValueError(_format_run_error(exc, inline=False)) from None
-        return _launch(request, prompt, target, own_id=own_id)
+        return _launch(request, prompt, target, own_id, state)
     except OSError as exc:
         return _tool_error(f"Could not read the run-file: {exc}")
     except ValueError as exc:
@@ -555,7 +567,7 @@ def _target_conversation(conv_id: str | None, agent: str, target: SecurityContex
     return conv
 
 
-def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str) -> str:
+def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str, state: ControllerState) -> str:
     agent = request.get("agent")
     if not agent:
         raise ValueError("The run-file must set an agent.")
@@ -579,10 +591,8 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
     except ValueError:
         raise ValueError(f"The conversation {request['conversation_id']} is already running: nothing was launched.") from None
     launched = launch_run_file(request, Path(target.workspace_dir))
-    session = current_run_session()
-    if session is not None:
-        session.launched_agents[request["conversation_id"]] = {
-            "agent": agent, "project": _conversation_project(target), "updatedAt": int(time.time() * 1000)}
+    state.launched_agents[request["conversation_id"]] = {
+        "agent": agent, "project": _conversation_project(target), "updatedAt": int(time.time() * 1000)}
     return json.dumps({"success": True, "agent": agent, "conversation_id": request["conversation_id"], "new": conv is None,
                        "run_id": launched["run_id"], "project": target.key, "runs": _runs(),
                        "note": "It runs on its own: follow it with check_agents (with the same project), which can wait for it."},
