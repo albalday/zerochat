@@ -8596,16 +8596,24 @@ class AccessController:
             raw_dir_rule = None
         # «Solo esta vez» no guarda nada, ni en sesión ni de forma permanente: al reanudar, el runner contesta
         # con ella el reto de esa misma llamada, que se ejecuta y se consume. Tampoco vuelve con la rotación del token.
-        if not isinstance(dec_type, str) or dec_type not in AUTHORIZE_DECISIONS or dec_type == "allow_once":
+        if dec_type == "allow_once":
             return
-        pattern = normalize_command_pattern(raw_pattern) if (raw_pattern and tool_name == COMMAND_TOOL) else None
-        rules = self._validate_directory_rules([raw_dir_rule]) if raw_dir_rule else []
+        args = tool_decision.get("args")
         challenge = {
             "toolName": tool_name,
             "serverName": server_id or "mcp-proxy",
             "serverId": server_id,
+            "arguments": args if isinstance(args, dict) else {},
         }
-        self._record_decision(challenge, dec_type, pattern, rules, context)
+        # Las mismas comprobaciones que un reto contestado en la interfaz; una decisión que no pasa no se aplica
+        # (la llamada volverá a pedir permiso), sin cortar la reanudación ni la rotación del token.
+        try:
+            checked = self._checked_decision(dec_type, raw_pattern, raw_dir_rule, challenge)
+        except ValueError as exc:
+            log_event(f"[security] Decisión de {tool_name} al reanudar no aplicada: {exc}")
+            return
+        if checked is not None:
+            self._record_decision(challenge, dec_type, *checked, context)
 
     def create_challenge(self, tool_name: str, args: dict, decision: AccessDecision, *, context: SecurityContext,
                          server_name: str = "", server_id: str = "", origin: str = "local",
@@ -8649,21 +8657,29 @@ class AccessController:
             if now - challenge.get("createdAt", 0) > CHALLENGE_TTL_MS:
                 challenges.pop(challenge_id, None)
                 return None
-            if decision not in AUTHORIZE_DECISIONS:
+            checked = self._checked_decision(decision, command_pattern, directory_rule, challenge)
+            if checked is None:
                 return None
-            if decision == "allow_server_always" and not challenge.get("serverId"):
-                return None
-            rules = self._validate_directory_rules([directory_rule]) if directory_rule else []
-            if rules and command_pattern:
-                raise ValueError("Una decisión lleva un patrón de comando o una regla de carpeta, no los dos.")
-            pattern = None if rules else self._validate_command_pattern(decision, command_pattern, challenge)
             challenges.pop(challenge_id)
-        self._record_decision(challenge, decision, pattern, rules, context)
+        self._record_decision(challenge, decision, *checked, context)
         return challenge
 
     def revoke_challenge(self, challenge_id: str, *, context: SecurityContext) -> bool:
         with self._lock:
             return self._session(context).challenges.pop(challenge_id, None) is not None
+
+    def _checked_decision(self, decision, command_pattern, directory_rule, challenge: dict) -> tuple[str | None, list[str]] | None:
+        """(patrón, reglas) de una decisión sobre un reto, la de la interfaz (authorize_challenge) o la de una
+        ejecución que se reanuda (apply_tool_decision); None si la decisión no aplica a este reto y ValueError si
+        está mal formada (M91-D2, M61-D25)."""
+        if not isinstance(decision, str) or decision not in AUTHORIZE_DECISIONS:
+            return None
+        if decision == "allow_server_always" and not challenge.get("serverId"):
+            return None
+        rules = self._validate_directory_rules([directory_rule]) if directory_rule else []
+        if rules and command_pattern:
+            raise ValueError("Una decisión lleva un patrón de comando o una regla de carpeta, no los dos.")
+        return (None if rules else self._validate_command_pattern(decision, command_pattern, challenge)), rules
 
     @staticmethod
     def _validate_command_pattern(decision: str, raw_pattern: str | None, challenge: dict) -> str | None:

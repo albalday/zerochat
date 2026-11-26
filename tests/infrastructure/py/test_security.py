@@ -493,6 +493,22 @@ class PolicyStateTest(ControllerTestCase):
         self.assertNotIn("write_file", stored("tools"))
         self.assertEqual(self.evaluate("write_file", {"path": "/etc/hosts"}).status, zerochat.POLICY_ASK)
 
+        # Al reanudar valen las mismas comprobaciones que en la interfaz: lo que no pasaría allí no se guarda.
+        rule = f"RW:{zerochat.normalize_directory_path(str(outside))}/**"
+        before = self.controller.export_state(self.ctx)
+        for decision in ({"toolName": "write_file", "decision": {"decision": "allow_always", "directoryRule": rule, "commandPattern": "git *"}},
+                         {"toolName": "run_command", "args": {"command": "rm -rf x"}, "decision": "allow_always"},
+                         {"toolName": "run_command", "args": {"command": "rm -rf x"}, "decision": {"decision": "allow_always", "commandPattern": "git *"}},
+                         {"toolName": "run_command", "args": {"command": "git log"}, "decision": "allow_project"},
+                         {"toolName": "read_file", "args": {"path": "/x"}, "decision": "allow_project"},
+                         {"toolName": "mcp_tool", "decision": "allow_server_always"}):
+            with self.subTest(decision=decision):
+                self.controller.apply_tool_decision(decision, self.ctx)
+                self.assertEqual(self.controller.export_state(self.ctx), before)
+        self.controller.apply_tool_decision({"toolName": "run_command", "args": {"command": "git log"},
+                                             "decision": {"decision": "allow_project", "commandPattern": "git *"}}, self.ctx)
+        self.assertTrue(self.evaluate("run_command", {"command": "git status"}).allowed)
+
     def test_storage_failure_or_corrupt_policies_fail_visibly_and_are_not_overwritten(self):
         initial = self.controller.export_state(self.ctx)
         with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")):

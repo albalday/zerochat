@@ -96,5 +96,6 @@ class DailyTokenTest(unittest.TestCase):
             zerochat.reset_session_authorizations()
         self.assertTrue(controller.evaluate_authorization("run_command", {"command": "sudo npm test"}, ctx).requires_approval)
         # Las decisiones que sí se guardan siguen aplicándose al reanudar.
-        controller.apply_tool_decision({"toolName": "run_command", "decision": {"decision": "allow_session", "commandPattern": "sudo npm test"}}, ctx)
+        controller.apply_tool_decision({"toolName": "run_command", "args": {"command": "sudo npm test"},
+                                        "decision": {"decision": "allow_session", "commandPattern": "sudo npm test"}}, ctx)
         self.assertTrue(controller.evaluate_authorization("run_command", {"command": "sudo npm test"}, ctx).allowed)
