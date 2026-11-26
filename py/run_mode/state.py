@@ -440,11 +440,15 @@ def check_no_active_run(conv_id: str, own_run_id: str | None = None):
 MAX_CONCURRENT_RUNS = 8
 
 
+def running_run_count() -> int:
+    """Ejecuciones en marcha con su proceso vivo en toda la máquina: las que cuenta MAX_CONCURRENT_RUNS."""
+    return sum(1 for data in list_run_states() if data.get("status") == "running" and run_process_alive(data))
+
+
 def check_run_capacity():
     """ValueError si ya hay MAX_CONCURRENT_RUNS ejecuciones vivas. Dos lanzamientos en el mismo instante pueden pasar
     uno de más, y una ejecución arrancada a mano (zerochat --prompt) no se frena, aunque cuenta."""
-    running = sum(1 for data in list_run_states() if data.get("status") == "running" and run_process_alive(data))
-    if running >= MAX_CONCURRENT_RUNS:
+    if running_run_count() >= MAX_CONCURRENT_RUNS:
         raise ValueError(f"Too many runs in progress ({MAX_CONCURRENT_RUNS} at a time on this machine): "
                          "wait for one to finish before starting another.")
 
@@ -611,6 +615,9 @@ class RunSession:
         self.controller = controller
         # disabledTools de --run-file: lo que run_project_environment le quita del entorno del proyecto.
         self.disabled_tools = tuple(disabled_tools)
+        # Respuestas finales que check_agents ya entregó enteras en esta ejecución, por (conversación, run_id): el
+        # listado no las repite.
+        self.delivered_results: set[tuple[str, str]] = set()
         # Conversaciones que este controlador lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
         # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
         self.launched_agents: dict[str, dict] = {}

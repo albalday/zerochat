@@ -5696,11 +5696,15 @@ def check_no_active_run(conv_id: str, own_run_id: str | None = None):
 MAX_CONCURRENT_RUNS = 8
 
 
+def running_run_count() -> int:
+    """Ejecuciones en marcha con su proceso vivo en toda la máquina: las que cuenta MAX_CONCURRENT_RUNS."""
+    return sum(1 for data in list_run_states() if data.get("status") == "running" and run_process_alive(data))
+
+
 def check_run_capacity():
     """ValueError si ya hay MAX_CONCURRENT_RUNS ejecuciones vivas. Dos lanzamientos en el mismo instante pueden pasar
     uno de más, y una ejecución arrancada a mano (zerochat --prompt) no se frena, aunque cuenta."""
-    running = sum(1 for data in list_run_states() if data.get("status") == "running" and run_process_alive(data))
-    if running >= MAX_CONCURRENT_RUNS:
+    if running_run_count() >= MAX_CONCURRENT_RUNS:
         raise ValueError(f"Too many runs in progress ({MAX_CONCURRENT_RUNS} at a time on this machine): "
                          "wait for one to finish before starting another.")
 
@@ -5867,6 +5871,9 @@ class RunSession:
         self.controller = controller
         # disabledTools de --run-file: lo que run_project_environment le quita del entorno del proyecto.
         self.disabled_tools = tuple(disabled_tools)
+        # Respuestas finales que check_agents ya entregó enteras en esta ejecución, por (conversación, run_id): el
+        # listado no las repite.
+        self.delivered_results: set[tuple[str, str]] = set()
         # Conversaciones que este controlador lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
         # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
         self.launched_agents: dict[str, dict] = {}
@@ -8946,25 +8953,46 @@ def _final_answer(conv: dict, state: dict, run: dict) -> tuple[str, bool]:
     return partial, bool(partial)
 
 
+def _runs() -> dict:
+    """Ejecuciones en marcha en la máquina frente al tope, para que el controlador lance en tandas sin chocar con él."""
+    return {"running": running_run_count(), "max": MAX_CONCURRENT_RUNS}
+
+
+def _delivered(conv: dict, run: dict) -> tuple[set[tuple[str, str]], tuple[str, str] | None]:
+    """Las respuestas ya entregadas en esta ejecución y la clave de esta, que cambia con cada ejecución de la
+    conversación (None fuera de una ejecución)."""
+    session = current_run_session()
+    if session is None:
+        return set(), None
+    return session.delivered_results, (conv["id"], run.get("run_id") or "")
+
+
 def _listing(selected: list[tuple[dict, dict]]) -> dict:
     """El listado con la respuesta final entera de cada agente mientras quepa (por agente y entre todos); la que no,
-    sin texto y con result_chars."""
-    budget, agents, omitted = AGENT_LIST_TOTAL_CHARS, [], False
+    sin texto y con result_chars, y la ya entregada en esta ejecución, sin texto y con result_seen."""
+    budget, agents, omitted, seen = AGENT_LIST_TOTAL_CHARS, [], False, False
     for conv, run in selected:
         entry = _agent_state(conv, run)
         result, partial = _final_answer(conv, entry, run)
         if partial:
             entry["partial"] = True
-        if len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
+        delivered, key = _delivered(conv, run)
+        if result and key in delivered:
+            entry.update(result_seen=True, result_chars=len(result))
+            seen = True
+        elif len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
             entry["result_text"] = result
             budget -= len(result)
+            if result and key:
+                delivered.add(key)
         else:
             entry["result_chars"] = len(result)
             omitted = True
         agents.append(entry)
-    note = ("Final answers that did not fit are omitted (see result_chars): read them with check_agents(conversation_id=...)."
-            if omitted else None)
-    return {"agents": agents, **({"note": note} if note else {})}
+    notes = [note for flag, note in (
+        (omitted, "Final answers that did not fit are omitted (see result_chars): read them with check_agents(conversation_id=...)."),
+        (seen, "Final answers with result_seen were already delivered in this run: read one again with check_agents(conversation_id=...).")) if flag]
+    return {"agents": agents, **({"note": " ".join(notes)} if notes else {})}
 
 
 def _result_page(result: str, offset: int) -> dict:
@@ -9116,7 +9144,7 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     if selected is None:
         return _tool_error("That agent or conversation is not an agent of this project.")
     if not detail:
-        return json.dumps({"success": True, **_listing(selected), **extra}, ensure_ascii=False)
+        return json.dumps({"success": True, **_listing(selected), "runs": _runs(), **extra}, ensure_ascii=False)
     return _detail(*selected[0], offset, include_turn, extra)
 
 
@@ -9160,7 +9188,11 @@ def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict)
     if include_turn:
         messages, truncated = _last_turn((get_conversation(conv["id"]) or {}).get("history") or [])
         turn = {"last_turn": messages, **({"last_turn_truncated": True} if truncated else {})}
-    return json.dumps({"success": True, **state, **_result_page(result, offset), **turn, **extra},
+    page = _result_page(result, offset)
+    delivered, key = _delivered(conv, run)
+    if result and key and page["next_offset"] is None:
+        delivered.add(key)
+    return json.dumps({"success": True, **state, **page, **turn, **extra},
                       ensure_ascii=False)
 
 # Lo que launch_agent acepta en línea, en lugar de run_file, y el campo del run-file que ocupa cada argumento.
@@ -9257,7 +9289,7 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
         session.launched_agents[request["conversation_id"]] = {
             "agent": agent, "project": _conversation_project(target), "updatedAt": int(time.time() * 1000)}
     return json.dumps({"success": True, "agent": agent, "conversation_id": request["conversation_id"], "new": conv is None,
-                       "run_id": launched["run_id"], "project": target.key,
+                       "run_id": launched["run_id"], "project": target.key, "runs": _runs(),
                        "note": "It runs on its own: follow it with check_agents (with the same project), which can wait for it."},
                       ensure_ascii=False)
 
@@ -11417,7 +11449,9 @@ CHECK_AGENTS_DEFINITION = {
         "of every other agent: status (running, needs_input, completed, error, limit), step, pending input, "
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). An agent cut off by limit or error has no final "
-        "answer: it then brings its last text with partial=true, which tells where it stopped. With agent or conversation_id, the final answer in blocks of "
+        "answer: it then brings its last text with partial=true, which tells where it stopped. An answer already delivered "
+        "in full during this run is not repeated in the listing (result_seen, with result_chars). The listing also gives "
+        "runs: how many runs are going on the machine and the most allowed at a time. With agent or conversation_id, the final answer in blocks of "
         f"{AGENT_RESULT_PAGE_CHARS} characters (pass next_offset as offset for the next one) and, with include_turn=true, the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it keeps waiting while any of the "
         "agents asked about is running and returns at once when none is (returned_because: not_running), as soon as one "
@@ -11448,7 +11482,7 @@ LAUNCH_AGENT_DEFINITION = {
         "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
         "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
         "max_steps, timeout, conversation_id and disabled_tools). It runs with the saved environment and permissions of its project and "
-        "is never a controller. With run_file, prompt replaces the run-file's task; give project to launch an agent of "
+        "is never a controller; the answer also gives runs (running and max at a time on the machine). With run_file, prompt replaces the run-file's task; give project to launch an agent of "
         "another project. Then follow it with check_agents, which can wait for it."
     ),
     "inputSchema": {

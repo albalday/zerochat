@@ -233,7 +233,9 @@ CHECK_AGENTS_DEFINITION = {
         "of every other agent: status (running, needs_input, completed, error, limit), step, pending input, "
         f"error, warnings, token usage of the run and its final answer when it fits ({AGENT_LIST_RESULT_MAX_CHARS} characters each, "
         f"{AGENT_LIST_TOTAL_CHARS} in all; otherwise only result_chars). An agent cut off by limit or error has no final "
-        "answer: it then brings its last text with partial=true, which tells where it stopped. With agent or conversation_id, the final answer in blocks of "
+        "answer: it then brings its last text with partial=true, which tells where it stopped. An answer already delivered "
+        "in full during this run is not repeated in the listing (result_seen, with result_chars). The listing also gives "
+        "runs: how many runs are going on the machine and the most allowed at a time. With agent or conversation_id, the final answer in blocks of "
         f"{AGENT_RESULT_PAGE_CHARS} characters (pass next_offset as offset for the next one) and, with include_turn=true, the messages of its last turn. "
         "To wait for the agents instead of calling it repeatedly, give wait_seconds: it keeps waiting while any of the "
         "agents asked about is running and returns at once when none is (returned_because: not_running), as soon as one "
@@ -264,7 +266,7 @@ LAUNCH_AGENT_DEFINITION = {
         "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
         "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
         "max_steps, timeout, conversation_id and disabled_tools). It runs with the saved environment and permissions of its project and "
-        "is never a controller. With run_file, prompt replaces the run-file's task; give project to launch an agent of "
+        "is never a controller; the answer also gives runs (running and max at a time on the machine). With run_file, prompt replaces the run-file's task; give project to launch an agent of "
         "another project. Then follow it with check_agents, which can wait for it."
     ),
     "inputSchema": {

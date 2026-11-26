@@ -622,7 +622,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 conv_id = f"a{index}"
                 zerochat.save_conversation({"id": conv_id, "title": conv_id, "updatedAt": 100000 - index, "project": ctx.key,
                                             "agent": f"informes.n{index}"}, [{"id": "u", "role": "user", "content": "Empieza"}])
-                upsert_run({"run_id": f"r{index}", "conversation_id": conv_id, "status": "completed", "result_text": "r" * length})
+                # Una ejecución nueva por llamada: lo que ya se entregó de una ejecución no se repite (otra prueba).
+                upsert_run({"run_id": f"r{index}_{len(lengths)}", "conversation_id": conv_id, "status": "completed", "result_text": "r" * length})
 
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
         # Por agente, entera hasta N; con N+1 se omite con result_chars y una nota para leerla en el detalle.
@@ -660,6 +661,38 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                         {"conversation_id": "solo", "offset": True}, {"offset": 10}, {"include_turn": True},
                         {"agent": "informes.solo", "prune_keep": 1, "include_turn": True}):
             self.assertFalse(check(**invalid)["success"], invalid)
+
+    def test_el_listado_no_repite_lo_ya_entregado_y_dice_cuantas_ejecuciones_hay_en_marcha(self):
+        ctx = use_project(self, Path(tempfile.mkdtemp()))
+        self.addCleanup(shutil.rmtree, ctx.workspace_dir, True)
+        check = lambda **args: json.loads(zerochat.check_agents(**args, ctx=ctx))
+        long_text = "x" * (zerochat.AGENT_LIST_RESULT_MAX_CHARS + 1)
+        for conv_id, text in (("corto", "Resumen"), ("largo", long_text)):
+            zerochat.save_conversation({"id": conv_id, "title": conv_id, "project": ctx.key, "agent": f"lector.{conv_id}"}, [])
+            upsert_run({"run_id": f"r_{conv_id}", "conversation_id": conv_id, "status": "completed", "result_text": text})
+        upsert_run({"run_id": "r_vivo", "conversation_id": "vivo", "status": "running", "pid": os.getpid(),
+                    "pid_start": zerochat._process_start_token(os.getpid())})
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
+
+        first = check()
+        self.assertEqual(first["runs"], {"running": zerochat.running_run_count(), "max": zerochat.MAX_CONCURRENT_RUNS})
+        self.assertGreaterEqual(first["runs"]["running"], 1)
+        self.assertEqual({item["conversation_id"]: item.get("result_text") for item in first["agents"]}, {"corto": "Resumen", "largo": None})
+        # La segunda vez, la entregada sale sin texto y con result_seen; la que no cupo, igual que antes.
+        second = {item["conversation_id"]: item for item in check()["agents"]}
+        self.assertEqual((second["corto"].get("result_seen"), second["corto"]["result_chars"], "result_text" in second["corto"]), (True, 7, False))
+        self.assertNotIn("result_seen", second["largo"])
+        self.assertIn("already delivered", check()["note"])
+        # El detalle la da siempre; leer entera la larga por bloques también cuenta como entregada.
+        self.assertEqual(check(conversation_id="corto")["result_text"], "Resumen")
+        self.assertEqual(check(conversation_id="largo")["result_chars"], len(long_text))
+        self.assertTrue({item["conversation_id"]: item for item in check()["agents"]}["largo"]["result_seen"])
+        # Una ejecución nueva de la misma conversación se entrega otra vez, y otra ejecución del controlador también.
+        upsert_run({"run_id": "r_corto_2", "conversation_id": "corto", "status": "completed", "result_text": "Otro"})
+        self.assertEqual({item["conversation_id"]: item.get("result_text") for item in check()["agents"]}["corto"], "Otro")
+        zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
+        self.assertEqual({item["conversation_id"]: item.get("result_text") for item in check()["agents"]}["corto"], "Otro")
+        zerochat.RUN_SESSION = None
 
     def test_un_agente_cortado_sin_respuesta_trae_su_ultimo_texto_como_parcial(self):
         ctx = use_project(self, Path(tempfile.mkdtemp()))
@@ -809,8 +842,9 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         started = time.monotonic()
         result = check(wait_seconds=30)
         self.assertGreaterEqual(time.monotonic() - started, 0.7, "Espera también a la segunda")
-        self.assertEqual((result["returned_because"], sorted(item["result_text"] for item in result["agents"])),
-                         ("not_running", ["Nuevo", "Parte 0", "Parte 1"]))
+        # La de antes ya se entregó en el detalle: no se repite, y las dos nuevas llegan enteras.
+        self.assertEqual((result["returned_because"], sorted(item.get("result_text", "visto") for item in result["agents"])),
+                         ("not_running", ["Parte 0", "Parte 1", "visto"]))
         # Fuera de lo que lanzó, sigue la más reciente de cada agente: otra ejecución (sin este controlador) ve una.
         zerochat.RUN_SESSION = zerochat.RunSession("Otra", conversation_id="otro_controlador", controller=True)
         self.assertEqual(len(check()["agents"]), 1)
@@ -943,6 +977,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             # Una conversación nueva por lanzamiento, con el prompt pedido, en la carpeta del proyecto.
             result = launch(run_file="agents/diario.md", prompt="Informe de marzo")
             self.assertEqual((result["agent"], result["new"], result["run_id"], result["project"]), ("informes.diario", True, "run_1", ctx.key))
+            self.assertEqual(result["runs"], {"running": zerochat.running_run_count(), "max": zerochat.MAX_CONCURRENT_RUNS})
             self.assertTrue(result["conversation_id"].startswith("session_"))
             self.assertEqual(launched[0], ({"agent": "informes.diario", "prompt": "Informe de marzo", "projectMode": False, "reasoning": "medium",
                                             "conversation_id": result["conversation_id"]},

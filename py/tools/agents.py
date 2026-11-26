@@ -22,6 +22,7 @@ from core.limits import TOOL_WAIT_MAX_SECONDS
 from core.live_events import live_change_seq, wait_live_change
 from core.process import _kill_process_tree
 from run_mode.state import (
+    MAX_CONCURRENT_RUNS,
     RUN_FILE_MAX_BYTES,
     check_no_active_run,
     current_run_session,
@@ -29,6 +30,7 @@ from run_mode.state import (
     launch_run_file,
     parse_run_request,
     run_process_alive,
+    running_run_count,
     watch_run_exit,
 )
 from security.context import SecurityContext, normalize_directory_path
@@ -152,25 +154,46 @@ def _final_answer(conv: dict, state: dict, run: dict) -> tuple[str, bool]:
     return partial, bool(partial)
 
 
+def _runs() -> dict:
+    """Ejecuciones en marcha en la máquina frente al tope, para que el controlador lance en tandas sin chocar con él."""
+    return {"running": running_run_count(), "max": MAX_CONCURRENT_RUNS}
+
+
+def _delivered(conv: dict, run: dict) -> tuple[set[tuple[str, str]], tuple[str, str] | None]:
+    """Las respuestas ya entregadas en esta ejecución y la clave de esta, que cambia con cada ejecución de la
+    conversación (None fuera de una ejecución)."""
+    session = current_run_session()
+    if session is None:
+        return set(), None
+    return session.delivered_results, (conv["id"], run.get("run_id") or "")
+
+
 def _listing(selected: list[tuple[dict, dict]]) -> dict:
     """El listado con la respuesta final entera de cada agente mientras quepa (por agente y entre todos); la que no,
-    sin texto y con result_chars."""
-    budget, agents, omitted = AGENT_LIST_TOTAL_CHARS, [], False
+    sin texto y con result_chars, y la ya entregada en esta ejecución, sin texto y con result_seen."""
+    budget, agents, omitted, seen = AGENT_LIST_TOTAL_CHARS, [], False, False
     for conv, run in selected:
         entry = _agent_state(conv, run)
         result, partial = _final_answer(conv, entry, run)
         if partial:
             entry["partial"] = True
-        if len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
+        delivered, key = _delivered(conv, run)
+        if result and key in delivered:
+            entry.update(result_seen=True, result_chars=len(result))
+            seen = True
+        elif len(result) <= min(AGENT_LIST_RESULT_MAX_CHARS, budget):
             entry["result_text"] = result
             budget -= len(result)
+            if result and key:
+                delivered.add(key)
         else:
             entry["result_chars"] = len(result)
             omitted = True
         agents.append(entry)
-    note = ("Final answers that did not fit are omitted (see result_chars): read them with check_agents(conversation_id=...)."
-            if omitted else None)
-    return {"agents": agents, **({"note": note} if note else {})}
+    notes = [note for flag, note in (
+        (omitted, "Final answers that did not fit are omitted (see result_chars): read them with check_agents(conversation_id=...)."),
+        (seen, "Final answers with result_seen were already delivered in this run: read one again with check_agents(conversation_id=...).")) if flag]
+    return {"agents": agents, **({"note": " ".join(notes)} if notes else {})}
 
 
 def _result_page(result: str, offset: int) -> dict:
@@ -322,7 +345,7 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     if selected is None:
         return _tool_error("That agent or conversation is not an agent of this project.")
     if not detail:
-        return json.dumps({"success": True, **_listing(selected), **extra}, ensure_ascii=False)
+        return json.dumps({"success": True, **_listing(selected), "runs": _runs(), **extra}, ensure_ascii=False)
     return _detail(*selected[0], offset, include_turn, extra)
 
 
@@ -366,7 +389,11 @@ def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict)
     if include_turn:
         messages, truncated = _last_turn((get_conversation(conv["id"]) or {}).get("history") or [])
         turn = {"last_turn": messages, **({"last_turn_truncated": True} if truncated else {})}
-    return json.dumps({"success": True, **state, **_result_page(result, offset), **turn, **extra},
+    page = _result_page(result, offset)
+    delivered, key = _delivered(conv, run)
+    if result and key and page["next_offset"] is None:
+        delivered.add(key)
+    return json.dumps({"success": True, **state, **page, **turn, **extra},
                       ensure_ascii=False)
 
 # Lo que launch_agent acepta en línea, en lugar de run_file, y el campo del run-file que ocupa cada argumento.
@@ -463,6 +490,6 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
         session.launched_agents[request["conversation_id"]] = {
             "agent": agent, "project": _conversation_project(target), "updatedAt": int(time.time() * 1000)}
     return json.dumps({"success": True, "agent": agent, "conversation_id": request["conversation_id"], "new": conv is None,
-                       "run_id": launched["run_id"], "project": target.key,
+                       "run_id": launched["run_id"], "project": target.key, "runs": _runs(),
                        "note": "It runs on its own: follow it with check_agents (with the same project), which can wait for it."},
                       ensure_ascii=False)
