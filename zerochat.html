@@ -658,6 +658,18 @@
           <div class="reasoning-intensity-scale" aria-hidden="true"><span data-i18n="reasoning_intensity_none">Ninguno</span><span data-i18n="reasoning_intensity_max">Máximo</span></div>
         </div>
       </div>
+      <div class="settings-section-card">
+        <div class="reasoning-agent-toggle-wrapper">
+          <div class="reasoning-agent-toggle-info">
+            <div class="reasoning-agent-toggle-title"><svg class="ui-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-bot"></use></svg><span data-i18n="agent_delegate_task_title">Subagentes</span></div>
+            <div class="reasoning-agent-toggle-desc" data-i18n="agent_delegate_task_desc">Permite al modelo encargar una investigación a un subagente de solo lectura con contexto propio; a la conversación solo llega su informe final.</div>
+          </div>
+          <label class="switch switch-sm">
+            <input type="checkbox" id="chk-subagents" data-i18n-aria="agent_delegate_task_title" aria-label="Subagentes">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
       <div id="project-mode-panel" class="project-mode-panel"></div>
     </div>
   </dialog>

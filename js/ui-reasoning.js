@@ -1,4 +1,4 @@
-/** Menú de intensidad de razonamiento y panel del modo proyecto, junto al botón del compositor. */
+/** Menú de intensidad de razonamiento, interruptor «Subagentes» y panel del modo proyecto, junto al botón del compositor. */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') module.exports = factory(require('./utils.js'), require('./i18n.js'), require('./icons.js'));
   else root.ChatUIReasoning = factory(root.ChatUtils, root.ChatI18n, root.ChatIcons);
@@ -65,6 +65,7 @@
     }
     elements.btnReasoning.setAttribute('aria-expanded', 'true');
     syncReasoningIntensity(elements, appConfig.reasoningEffort || 'medium');
+    elements.chkSubagents.checked = appConfig.subagents === true;
     elements.reasoningIntensity.focus();
   }
 
@@ -191,10 +192,11 @@
   }
 
   /**
-   * Conecta el panel modal: el control deslizante llama a `onSelectLevel` con el nivel elegido y el panel
-   * del proyecto a `handlers` (toggle, initialize, compact, updateRules, changeDirectory, deleteProject).
+   * Conecta el panel modal: el control deslizante llama a `onSelectLevel` con el nivel elegido, el interruptor
+   * «Subagentes» a `onToggleSubagents` y el panel del proyecto a `handlers` (toggle, initialize, compact,
+   * updateRules, changeDirectory, deleteProject).
    */
-  function mount(elements, { onSelectLevel, handlers }) {
+  function mount(elements, { onSelectLevel, onToggleSubagents, handlers }) {
     projectHandlers = handlers;
     const modal = getModal(elements);
     elements.reasoningIntensity.addEventListener('input', event => {
@@ -203,6 +205,7 @@
       onSelectLevel(level);
     });
     elements.btnCloseReasoning.addEventListener('click', () => closeReasoningMenu(elements));
+    elements.chkSubagents.addEventListener('change', event => onToggleSubagents(event.target.checked));
     if (modal) {
       modal.addEventListener('cancel', event => {
         event.preventDefault();

@@ -110,6 +110,8 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   }
 
   // 1. Nueva conversación con perfil, exportación y respuesta final.
+  // «Subagentes» encendido en este navegador no pasa a la ejecución en el servidor.
+  Config.updateRuntime({ subagents: true });
   const ok = await runScenario({
     promptPayload: {
       prompt: 'Hola',
@@ -132,6 +134,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.equal(ok.submitted.opts.maxSteps, 5);
   assert.deepEqual(State.get('ui').profileCheck, { status: 'error', reason: 'unreachable', message: 'fetch failed' }, 'El runner comprueba su perfil antes del turno');
   assert.equal(Config.getActive().projectMode, false, '--run-file sin projectMode no inyecta las normas del proyecto');
+  assert.equal(Config.getActive().subagents, false, 'Una ejecución en el servidor nunca delega en subagentes');
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', text: 'Listo' });
   // El consumo acumulado llega tras cada llamada al modelo, en orden y antes del resultado.

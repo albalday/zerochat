@@ -761,7 +761,7 @@ test('Browser UI - el subagente de delegate_task muestra sus herramientas en su 
       try {
         const loop = await window.ChatEngine.executeAgentTurnLoop({
           chatHistory: [{ role: 'user', content: 'Mensaje privado del agente principal' }],
-          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_doc: false, download_image: false, render_chart: true, delegate_task: true } }),
+          appConfig: window.ChatConfig.normalize({ apiUrl: 'http://127.0.0.1:9/v1', apiType: 'openai', model: 'test-model', systemPrompt: 'Main system prompt', enabledTools: { execute_javascript: true, search_web: false, fetch_web_page: false, download_doc: false, download_image: false, render_chart: true }, subagents: true }),
           assistantMsgId: 'asst_subagent',
           view: window.ChatUIConversation.createTurnView(container, { scrollToBottom() {} }),
           onReasoningChunk() {},

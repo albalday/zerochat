@@ -296,7 +296,10 @@
   return {
     definition,
     category: 'agent',
-    settings: { titleKey: 'agent_delegate_task_title', descKey: 'agent_delegate_task_desc' },
+    // Se enciende con «Subagentes» en el panel de razonamiento, no en Ajustes › Agente; una ejecución en el servidor
+    // lo apaga (js/run-mode.js): tiene launch_agent si es controladora.
+    settings: { showInSettings: false },
+    isAvailable: config => config.subagents === true,
     promptGuide: '- `delegate_task(task="...")`: Delegates a self-contained research task to a read-only subagent with a fresh context and returns only its final report. Use it for broad investigations that need many reads; it cannot see this conversation.',
     execute: runSubagent,
     result: {

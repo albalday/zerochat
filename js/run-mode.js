@@ -144,6 +144,9 @@
       } = await send('zerochat/run/prompt');
       // --run-file decide si se inyectan las normas y el estado del proyecto; --prompt y --conversation, no (null).
       if (typeof projectMode === 'boolean') getConfig().updateRuntime({ projectMode });
+      // Una ejecución en el servidor nunca delega en subagentes (delegate_task): si coordina agentes, es un
+      // controlador con launch_agent y check_agents.
+      getConfig().updateRuntime({ subagents: false });
 
       const isConversationMode = Boolean(conversationId);
       if (!isConversationMode && (typeof prompt !== 'string' || !prompt)) {

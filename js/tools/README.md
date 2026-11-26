@@ -33,7 +33,7 @@ Cada herramienta nativa vive en `js/tools/builtin/<nombre>.tool.js` y exporta la
 | **Control de turno** | `ask_user` (`ask-user.tool.js`) | Pausa el bucle agéntico (`endTurn: true`) para formular una pregunta al usuario (o detiene la ejecución en `needs_input` en modo `--conversation`). |
 | **Control de turno** | `wait` (`wait.tool.js`) | Espera optimista en navegador (`seconds` hasta 24 h o hora local `until`). Deshabilitada en el runner sin ventana (`--prompt` / servidor). |
 | **Control de turno** | `switch_model` (`switch-model.tool.js`) | Cambia de perfil y/o nivel de razonamiento a mitad de turno solo hacia perfiles nombrados explícitamente por el usuario en la conversación. |
-| **Agente** | `delegate_task` (`delegate-task.tool.js`) | Lanza un subagente secundario de solo lectura en el mismo turno y devuelve únicamente su informe final. |
+| **Agente** | `delegate_task` (`delegate-task.tool.js`) | Lanza un subagente secundario de solo lectura en el mismo turno y devuelve únicamente su informe final. Sin interruptor en Ajustes: lo enciende la preferencia global `subagents` («Subagentes» en el panel de razonamiento, apagada por defecto) y `js/run-mode.js` la apaga en toda ejecución en el servidor. |
 
 ---
 

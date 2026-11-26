@@ -63,6 +63,8 @@
     // Conexión: el servidor local por defecto o uno remoto (su URL y, tras un proxy inverso, la clave del proxy).
     localBackend: true, backendUrl: '', useProxy: false, proxyKey: '',
     projectMode: true,
+    // «Subagentes» del panel de razonamiento: delegate_task, apagado hasta que se encienda.
+    subagents: false,
     webllmConfig: Object.freeze({
       context_window_size: String(getWebllmDefaultContextWindowSize()),
       prefill_chunk_size: 'default'

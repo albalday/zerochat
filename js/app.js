@@ -129,6 +129,7 @@
     reasoningIntensity: 'reasoning-intensity',
     reasoningIntensityValue: 'reasoning-intensity-value',
     btnCloseReasoning: 'btn-close-reasoning',
+    chkSubagents: 'chk-subagents',
     projectModePanel: 'project-mode-panel',
     // Panel de Debug & Logs
     btnToggleDebug: 'btn-toggle-debug',
@@ -705,6 +706,7 @@
     // Razonamiento (Thinking)
     UIReasoning.mount(elements, {
       onSelectLevel: level => Config.updateRuntime({ reasoningEffort: level }),
+      onToggleSubagents: enabled => Config.updateRuntime({ subagents: enabled }),
       handlers: UIProject.createPanelHandlers({
         elements,
         createNewSession,

@@ -123,6 +123,26 @@ test('ChatConfig - el modo proyecto es global: se normaliza y no cambia al activ
   assert.equal(config.projectMode, false);
 });
 
+test('ChatConfig - «Subagentes» es global y está apagado salvo un true explícito, y delegate_task solo se ofrece encendido', () => {
+  const AgentCore = require('../../js/agent-core.js');
+  require('../../js/tools/builtin/delegate-task.tool.js');
+  const delegate = AgentCore.registry.getTool('delegate_task');
+  for (const [value, expected] of [[undefined, false], [false, false], ['true', false], [1, false], [true, true]]) {
+    const config = ChatConfig.normalize({ subagents: value });
+    assert.equal(config.subagents, expected, String(value));
+    assert.equal(AgentCore.registry.isToolEnabledNow(delegate, config), expected, String(value));
+  }
+  assert.equal(delegate.settings.showInSettings, false, 'No tiene interruptor en Ajustes › Agente');
+  assert.equal(AgentCore.registry.isToolEnabledNow(delegate, ChatConfig.normalize({ subagents: false, enabledTools: { delegate_task: true } })), false,
+    'Un enabledTools guardado antes no lo enciende');
+
+  initializeWithOffice();
+  ChatConfig.updateRuntime({ subagents: true });
+  assert.equal(ChatConfig.activateProfile('office').subagents, true, 'Un perfil no lo cambia');
+  assert.equal(Storage.loadRuntimeConfigV2().subagents, true, 'Se guarda como preferencia');
+  ChatConfig.updateRuntime({ subagents: false });
+});
+
 test('ChatDefaults - el contexto WebLLM predeterminado es 4K en móviles y 16K en el resto', () => {
   const Defaults = require('../../js/defaults.js');
   assert.equal(Defaults.getWebllmDefaultContextWindowSize({ userAgentData: { mobile: true }, userAgent: 'X11; Linux' }), 4096);

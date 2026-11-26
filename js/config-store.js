@@ -112,6 +112,7 @@
     next.enableContextCache = next.enableContextCache !== false;
     Object.assign(next, Utils.normalizeConnectionSettings(next));
     next.projectMode = next.projectMode !== false;
+    next.subagents = next.subagents === true;
     next.activeRagBranchIds = normalizeUniqueIdList(next.activeRagBranchIds);
     next.mcpServers = normalizeUniqueIdList(next.mcpServers);
     next.browser = Defaults.BROWSER_TOOLS.includes(next.browser) ? next.browser : DEFAULTS.browser;
@@ -146,7 +147,8 @@
     'backendUrl',
     'useProxy',
     'proxyKey',
-    'projectMode'
+    'projectMode',
+    'subagents'
   ]);
 
   function pickGlobalPreferences(source) {
