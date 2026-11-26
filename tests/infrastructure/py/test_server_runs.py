@@ -9,6 +9,7 @@ import tempfile
 import threading
 import time
 import unittest
+import urllib.parse
 from pathlib import Path
 from unittest import mock
 from backend import use_data_dir, use_project, zerochat
@@ -53,10 +54,11 @@ def start_worker(test) -> subprocess.Popen:
     return worker
 
 
-def post_rpc(method, sent_token, user_agent=None) -> int:
+def post_rpc(method, sent_token, user_agent=None, project=None) -> int:
     """Una petición HTTP entera al manejador, en memoria (sin sockets ni plazos de red); devuelve su estado."""
     body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": method, "params": {}}).encode()
     agent = f"User-Agent: {user_agent}\r\n" if user_agent else ""
+    agent += f"X-ZeroChat-Project: {urllib.parse.quote(str(project))}\r\n" if project else ""
     head = (f"POST / HTTP/1.0\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\n{agent}"
             f"X-ZeroChat-Token: {sent_token}\r\nContent-Length: {len(body)}\r\n\r\n").encode()
     connection = mock.Mock(sent=bytearray())
@@ -1274,6 +1276,16 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         stop.assert_called_once_with(server)
         self.assertEqual(waiting.timeouts, [], "Decide sin esperar en la condición")
 
+    def test_el_token_del_runner_solo_actua_en_el_proyecto_de_su_ejecucion(self):
+        own = zerochat.project_context()
+        other = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, other, True)
+        runner_token = zerochat.issue_runner_token("run-pin", "conv-pin", own.key)
+        self.addCleanup(zerochat.revoke_token, runner_token)
+        self.assertEqual(post_rpc("tools/list", runner_token), 200)
+        self.assertEqual(post_rpc("tools/list", runner_token, project=own.workspace_dir), 200)
+        self.assertEqual(post_rpc("tools/list", runner_token, project=other), 403)
+
     def test_el_user_agent_real_solo_lo_fija_un_navegador_autenticado_y_nunca_el_runner(self):
         token = "ua-test-token"
         today = zerochat.datetime.date.today().isoformat()
@@ -1283,7 +1295,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                       _STORED_USER_AGENT=None, _STORED_USER_AGENT_LOADED=False)
         patches.start()
         self.addCleanup(patches.stop)
-        runner_token = zerochat.issue_runner_token("run-ua", conversation_id="conv-ua")
+        runner_token = zerochat.issue_runner_token("run-ua", "conv-ua", zerochat.project_context().key)
         self.addCleanup(zerochat.revoke_token, runner_token)
 
         # El fetch del runner de Node manda "node" y un token sin validar no es un navegador: ninguno lo fija.

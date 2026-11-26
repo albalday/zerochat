@@ -57,7 +57,7 @@ class DailyTokenTest(unittest.TestCase):
         self.assertEqual(stat.S_IMODE(self.token_file.stat().st_mode), 0o600)
 
     def test_runner_token_acota_metodos_y_conversacion_y_se_revoca(self):
-        runner_token = zerochat.issue_runner_token("run-1", conversation_id="conv-1")
+        runner_token = zerochat.issue_runner_token("run-1", "conv-1", zerochat.project_context().key)
         grant = zerochat.resolve_token(runner_token)
         self.assertIsNotNone(grant)
         self.assertEqual(grant.kind, "runner")

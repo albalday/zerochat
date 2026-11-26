@@ -531,6 +531,8 @@ class TokenGrant:
     created_at: float
     run_id: str | None = None
     conversation_id: str | None = None
+    # Clave del proyecto de la ejecución: un runner no actúa en otro proyecto aunque lo pida su cabecera.
+    project: str | None = None
 
     def allows(self, method: str, params: dict | None = None) -> bool:
         """Indica si esta credencial autoriza el método JSON-RPC solicitado."""
@@ -637,8 +639,8 @@ def issue_login_token() -> str:
         return token
 
 
-def issue_runner_token(run_id: str, conversation_id: str | None = None) -> str:
-    """Emite una credencial acotada para el proceso runner de Node.js ligada a su ejecución."""
+def issue_runner_token(run_id: str, conversation_id: str | None, project: str) -> str:
+    """Emite una credencial acotada para el proceso runner de Node.js ligada a su ejecución y a su proyecto."""
     today = datetime.date.today().isoformat()
     with SESSION_TOKEN_LOCK:
         _refresh_daily_locked(today)
@@ -650,6 +652,7 @@ def issue_runner_token(run_id: str, conversation_id: str | None = None) -> str:
             created_at=time.monotonic(),
             run_id=run_id,
             conversation_id=conversation_id,
+            project=project,
         )
         return token
 
@@ -11966,6 +11969,24 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if grant.kind != "runner":
             capture_frontend_user_agent(self.headers.get("User-Agent", ""))
 
+    def _request_context(self, grant, method: str, req_id, log: tuple) -> SecurityContext | None:
+        """Proyecto de la petición (cabecera X-ZeroChat-Project), que para un runner es siempre el de su ejecución;
+        None si ya se respondió con el error."""
+        safe_path, log_detail, t0, quiet = log
+        try:
+            ctx = request_project_context(self.headers.get("X-ZeroChat-Project"), fallback=method == "initialize")
+        except ProjectGoneError as ex:
+            self._send_rpc_response(req_id, (None, {"code": PROJECT_GONE_CODE, "message": str(ex)}, ""), log_detail, t0, quiet)
+            return None
+        if grant.project is not None and ctx.key != grant.project:
+            self._reject(403, {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32000, "message": "Forbidden: this token only acts on its run's project"}
+            }, safe_path, t0, f"Proyecto '{ctx.key}' ajeno al token ({grant.kind})")
+            return None
+        return ctx
+
     def do_POST(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
@@ -12030,10 +12051,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(204, log_detail, (time.monotonic() - t0) * 1000)
             return
 
-        try:
-            ctx = request_project_context(self.headers.get("X-ZeroChat-Project"), fallback=method == "initialize")
-        except ProjectGoneError as ex:
-            self._send_rpc_response(req_id, (None, {"code": PROJECT_GONE_CODE, "message": str(ex)}, ""), log_detail, t0, quiet)
+        ctx = self._request_context(grant, method, req_id, (safe_path, log_detail, t0, quiet))
+        if ctx is None:
             return
         try:
             outcome = dispatch_local(method, params, ctx)
@@ -12425,7 +12444,8 @@ def start_interface(args, parser, server: ThreadingHTTPServer, ui_url: str):
         if not args.no_browser:
             launch_browser(launch_url(ui_url))
         return
-    session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id)
+    session.runner_token = issue_runner_token(session.run_id, session.conversation_id or session.new_conversation_id,
+                                              project_context().key)
     runner = launch_node_runner(launch_url(ui_url, token=session.runner_token))
     if runner is None:
         server.server_close()

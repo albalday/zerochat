@@ -45,6 +45,8 @@ class TokenGrant:
     created_at: float
     run_id: str | None = None
     conversation_id: str | None = None
+    # Clave del proyecto de la ejecución: un runner no actúa en otro proyecto aunque lo pida su cabecera.
+    project: str | None = None
 
     def allows(self, method: str, params: dict | None = None) -> bool:
         """Indica si esta credencial autoriza el método JSON-RPC solicitado."""
@@ -151,8 +153,8 @@ def issue_login_token() -> str:
         return token
 
 
-def issue_runner_token(run_id: str, conversation_id: str | None = None) -> str:
-    """Emite una credencial acotada para el proceso runner de Node.js ligada a su ejecución."""
+def issue_runner_token(run_id: str, conversation_id: str | None, project: str) -> str:
+    """Emite una credencial acotada para el proceso runner de Node.js ligada a su ejecución y a su proyecto."""
     today = datetime.date.today().isoformat()
     with SESSION_TOKEN_LOCK:
         _refresh_daily_locked(today)
@@ -164,6 +166,7 @@ def issue_runner_token(run_id: str, conversation_id: str | None = None) -> str:
             created_at=time.monotonic(),
             run_id=run_id,
             conversation_id=conversation_id,
+            project=project,
         )
         return token
 

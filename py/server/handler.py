@@ -17,7 +17,7 @@ from core.limits import MAX_HTTP_BODY_BYTES, MAX_RPC_METHOD_LENGTH, MAX_TOOL_NAM
 from core.logging import format_log_error, log_event
 from core.version import VERSION
 from run_mode.state import current_run_session, http_body_limit
-from security.context import PROJECT_GONE_CODE, ProjectGoneError, request_project_context
+from security.context import PROJECT_GONE_CODE, ProjectGoneError, SecurityContext, request_project_context
 from server.state import mark_browser_active
 from server.rpc import dispatch_local, rpc_login
 from storage.db import MAX_BLOB_HTTP_BYTES
@@ -358,6 +358,24 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
         if grant.kind != "runner":
             capture_frontend_user_agent(self.headers.get("User-Agent", ""))
 
+    def _request_context(self, grant, method: str, req_id, log: tuple) -> SecurityContext | None:
+        """Proyecto de la petición (cabecera X-ZeroChat-Project), que para un runner es siempre el de su ejecución;
+        None si ya se respondió con el error."""
+        safe_path, log_detail, t0, quiet = log
+        try:
+            ctx = request_project_context(self.headers.get("X-ZeroChat-Project"), fallback=method == "initialize")
+        except ProjectGoneError as ex:
+            self._send_rpc_response(req_id, (None, {"code": PROJECT_GONE_CODE, "message": str(ex)}, ""), log_detail, t0, quiet)
+            return None
+        if grant.project is not None and ctx.key != grant.project:
+            self._reject(403, {
+                "jsonrpc": "2.0",
+                "id": req_id,
+                "error": {"code": -32000, "message": "Forbidden: this token only acts on its run's project"}
+            }, safe_path, t0, f"Proyecto '{ctx.key}' ajeno al token ({grant.kind})")
+            return None
+        return ctx
+
     def do_POST(self):
         t0 = time.monotonic()
         safe_path = sanitize_log_path(self.path)
@@ -422,10 +440,8 @@ class ZeroChatServerHandler(BaseHTTPRequestHandler):
             self._log_res(204, log_detail, (time.monotonic() - t0) * 1000)
             return
 
-        try:
-            ctx = request_project_context(self.headers.get("X-ZeroChat-Project"), fallback=method == "initialize")
-        except ProjectGoneError as ex:
-            self._send_rpc_response(req_id, (None, {"code": PROJECT_GONE_CODE, "message": str(ex)}, ""), log_detail, t0, quiet)
+        ctx = self._request_context(grant, method, req_id, (safe_path, log_detail, t0, quiet))
+        if ctx is None:
             return
         try:
             outcome = dispatch_local(method, params, ctx)
