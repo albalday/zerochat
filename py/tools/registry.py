@@ -259,7 +259,7 @@ LAUNCH_AGENT_DEFINITION = {
         "Start an agent as a separate run that keeps going after this run ends, and return its conversation_id and "
         "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
         "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
-        "max_steps, timeout and conversation_id). It runs with the saved environment and permissions of its project and "
+        "max_steps, timeout, conversation_id and disabled_tools). It runs with the saved environment and permissions of its project and "
         "is never a controller. With run_file, prompt replaces the run-file's task; give project to launch an agent of "
         "another project. Then follow it with check_agents, which can wait for it."
     ),
@@ -275,7 +275,8 @@ LAUNCH_AGENT_DEFINITION = {
             "reasoning": {"type": "string", "enum": list(RUN_REASONING_LEVELS), "description": f"Inline: reasoning level (default {DEFAULT_RUN_REASONING})"},
             "max_steps": {"type": "integer", "description": f"Inline: at most this many model calls (1 to {RUN_FILE_LIMIT_KEYS['maxSteps']})"},
             "timeout": {"type": "integer", "description": f"Inline: seconds from the start before it stops (1 to {RUN_FILE_LIMIT_KEYS['timeout']})"},
-            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Inline: continue this conversation of the agent, or create it with this id (default: a new one)"}
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Inline: continue this conversation of the agent, or create it with this id (default: a new one)"},
+            "disabled_tools": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Inline: comma-separated tools, MCP services or browser (browser_action, playwright) of the project that this agent does not get"}
         }
     }
 }

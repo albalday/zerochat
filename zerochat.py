@@ -5335,12 +5335,17 @@ RUN_FILE_LIMIT_KEYS = {"maxSteps": 1000, "timeout": 24 * 60 * 60}
 # El run-file es Markdown: una cabecera fija entre dos líneas '---' con estas claves (`clave: valor`) y un cuerpo con las
 # secciones <!-- system --> (systemDataPrompt, el manual del agente) y <!-- prompt --> (la tarea). El texto del cuerpo
 # que no va tras ningún marcador es el system.
-RUN_FILE_HEADER_KEYS = ("agent", "conversation_id", "profile", "controller", "projectMode", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_FILE_HEADER_KEYS = ("agent", "conversation_id", "profile", "controller", "projectMode", "reasoning", "disabledTools") + tuple(RUN_FILE_LIMIT_KEYS)
 RUN_FILE_SECTIONS = {"system": "systemDataPrompt", "prompt": "prompt"}
 _RUN_FILE_BOOLEAN_KEYS = ("controller", "projectMode")
 _RUN_FILE_SECTION = re.compile(r"^<!--[ \t]*(system|prompt)[ \t]*-->[ \t]*$", re.MULTILINE)
 # Lo que una conversación de agente guarda de su lanzamiento (además del perfil) y repite al continuarla.
-RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "controller", "reasoning") + tuple(RUN_FILE_LIMIT_KEYS)
+RUN_LAUNCH_KEYS = ("systemDataPrompt", "projectMode", "controller", "reasoning", "disabledTools") + tuple(RUN_FILE_LIMIT_KEYS)
+# disabledTools: lo que se le quita a este agente del entorno guardado de su proyecto, separado por comas en la cabecera.
+# Cada nombre es una herramienta, un servicio MCP (todas sus herramientas, sin arrancarlo) o el navegador (browser_action
+# o playwright). Solo resta: lo que no está en el entorno no se añade.
+MAX_DISABLED_TOOLS = MAX_PROJECT_ENABLED_TOOLS
+_DISABLED_TOOL_NAME = re.compile(rf"[^\s,]{{1,{MAX_PROJECT_TOOL_ID_LENGTH}}}")
 # Niveles de razonamiento de --run-file (los del selector de la interfaz) y el que usa si no indica ninguno.
 RUN_REASONING_LEVELS = ("none", "low", "medium", "high", "xhigh")
 DEFAULT_RUN_REASONING = "medium"
@@ -5415,7 +5420,7 @@ def format_run_request(request: dict) -> str:
     for key in RUN_FILE_HEADER_KEYS:
         if key in request:
             value = request[key]
-            text = ("true" if value else "false") if isinstance(value, bool) else str(value)
+            text = ("true" if value else "false") if isinstance(value, bool) else ", ".join(value) if isinstance(value, list) else str(value)
             if "\n" in text or "\r" in text:
                 raise ValueError(f"{key} no puede tener saltos de línea")
             lines.append(f"{key}: {text}")
@@ -5442,7 +5447,20 @@ def _agent_options(data: dict) -> dict:
     options["reasoning"] = reasoning
     if data.get("controller") is True:
         options["controller"] = True
+    if "disabledTools" in data:
+        options["disabledTools"] = _disabled_tools(data["disabledTools"])
     return options
+
+
+def _disabled_tools(raw) -> list[str]:
+    """Los nombres de disabledTools, sin repetir; ValueError si alguno está vacío o no es un nombre."""
+    names = [name.strip() for name in raw.split(",")] if isinstance(raw, str) else None
+    if not names or not all(_DISABLED_TOOL_NAME.fullmatch(name) for name in names):
+        raise ValueError(f"disabledTools debe ser una lista de nombres separados por comas, de hasta {MAX_PROJECT_TOOL_ID_LENGTH} caracteres sin espacios")
+    names = list(dict.fromkeys(names))
+    if len(names) > MAX_DISABLED_TOOLS:
+        raise ValueError(f"disabledTools no puede tener más de {MAX_DISABLED_TOOLS} nombres")
+    return names
 
 
 def parse_run_request(raw: bytes) -> dict:
@@ -5826,7 +5844,7 @@ class RunSession:
                  tool_security: dict | None = None, profile_data: dict | None = None,
                  new_conversation_id: str | None = None, system_data_prompt: str | None = None,
                  max_steps: int | None = None, timeout_seconds: int | None = None, project_mode: bool | None = None,
-                 agent: str | None = None, launch: dict | None = None, controller: bool = False,
+                 agent: str | None = None, launch: dict | None = None, controller: bool = False, disabled_tools: tuple[str, ...] = (),
                  track_run: bool = False, reasoning: str | None = None):
         env_run_id = os.environ.get("ZEROCHAT_RUN_ID", "").strip()
         self.run_id = run_id.strip() if (run_id and isinstance(run_id, str) and run_id.strip()) else (env_run_id or secrets.token_urlsafe(24))
@@ -5847,6 +5865,8 @@ class RunSession:
         self.launch = launch
         # controller: true de --run-file: habilita y autoriza check_agents y launch_agent solo en esta ejecución.
         self.controller = controller
+        # disabledTools de --run-file: lo que run_project_environment le quita del entorno del proyecto.
+        self.disabled_tools = tuple(disabled_tools)
         # Conversaciones que este controlador lanzó con launch_agent ({id: {agent, project, updatedAt}}): check_agents las
         # ve desde el lanzamiento, antes de que el agente las guarde en conversations.
         self.launched_agents: dict[str, dict] = {}
@@ -5907,9 +5927,10 @@ class RunSession:
             if event is not None and self.finished.is_set():
                 event.set()
 
-    def add_warning(self, text: str) -> None:
-        """Anota un permiso denegado: en la fila de runs, para quien sigue la ejecución, y en stderr, para una persona."""
-        console_error(timestamp_message(f"[run] Permiso denegado: {text}"))
+    def add_warning(self, text: str, label: str = "Permiso denegado") -> None:
+        """Anota un aviso (por defecto, un permiso denegado): en la fila de runs, para quien sigue la ejecución, y en
+        stderr, para una persona."""
+        console_error(timestamp_message(f"[run] {label}: {text}"))
         with self.lock:
             if len(self.warnings) < RUN_WARNINGS_MAX:
                 self.warnings.append(_capped(text, RUN_PROGRESS_TEXT_MAX))
@@ -5962,12 +5983,20 @@ def current_run_session() -> RunSession | None:
 
 
 def run_project_environment(env: dict) -> dict:
-    """El entorno del proyecto que recibe la interfaz: en una ejecución con systemDataPrompt propio, ese en lugar del
-    guardado, sin escribirlo en SQLite."""
+    """El entorno del proyecto que recibe la interfaz, sin escribir nada en SQLite: en una ejecución, con su
+    systemDataPrompt propio en lugar del guardado y sin lo que quita su disabledTools (sus servicios MCP fuera de
+    mcpServers, para que no se arranquen; el navegador, en none; las herramientas, desactivadas en enabledTools)."""
     session = RUN_SESSION
-    if session is None or session.system_data_prompt is None:
+    if session is None:
         return env
-    return {**env, "systemDataPrompt": session.system_data_prompt}
+    if session.system_data_prompt is not None:
+        env = {**env, "systemDataPrompt": session.system_data_prompt}
+    disabled = set(session.disabled_tools)
+    if disabled:
+        env = {**env, "mcpServers": [server for server in env.get("mcpServers") or [] if server not in disabled],
+               "browser": "none" if env.get("browser") in disabled else env.get("browser"),
+               "enabledTools": {**(env.get("enabledTools") or {}), **dict.fromkeys(sorted(disabled), False)}}
+    return env
 
 
 def run_conversation_meta(session_meta):
@@ -6036,7 +6065,7 @@ def _rpc_prompt(params: dict, session: RunSession) -> RpcOutcome:
                        # El listado no lleva API keys; la del que active la pide con zerochat/run/profile.
                        "profiles": list_general_profiles(),
                        "export": export_format, "max_steps": session.max_steps, "project_mode": session.project_mode,
-                       "reasoning": session.reasoning})
+                       "reasoning": session.reasoning, "disabled_tools": list(session.disabled_tools)})
 
 
 def _rpc_profile(params: dict, session: RunSession) -> RpcOutcome:
@@ -6058,6 +6087,10 @@ def _rpc_progress(params: dict, session: RunSession) -> RpcOutcome:
     text = params.get("text", "")
     if not isinstance(kind, str) or not RUN_PROGRESS_KIND_PATTERN.fullmatch(kind) or not isinstance(text, str):
         return rpc_error(INVALID_PARAMS, "Progreso no válido.")
+    # Un aviso del runner (p. ej. un nombre de disabledTools que no es nada de la ejecución) va a los avisos, no al paso.
+    if kind == "warning":
+        session.add_warning(text, label="Aviso")
+        return rpc_result({"ok": True})
     truncated_step = _capped(text, RUN_PROGRESS_TEXT_MAX)
     log_event(f"[run] {kind}{': ' + truncated_step if truncated_step else ''}")
     with session.lock:
@@ -9078,7 +9111,8 @@ def _detail(conv: dict, run: dict, offset: int, include_turn: bool, extra: dict)
 
 # Lo que launch_agent acepta en línea, en lugar de run_file, y el campo del run-file que ocupa cada argumento.
 INLINE_LAUNCH_FIELDS = {"agent": "agent", "system_prompt": "systemDataPrompt", "profile": "profile", "reasoning": "reasoning",
-                        "max_steps": "maxSteps", "timeout": "timeout", "conversation_id": "conversation_id"}
+                        "max_steps": "maxSteps", "timeout": "timeout", "conversation_id": "conversation_id",
+                        "disabled_tools": "disabledTools"}
 
 
 def _inline_request(fields: dict, prompt: str | None) -> dict:
@@ -9087,7 +9121,7 @@ def _inline_request(fields: dict, prompt: str | None) -> dict:
     if not fields.get("agent") or prompt is None:
         raise ValueError("Without run_file, give the agent inline: agent and prompt (and usually system_prompt, its manual).")
     if not all(isinstance(value, str) for key, value in fields.items() if key not in ("max_steps", "timeout")):
-        raise ValueError("agent, system_prompt, profile, reasoning and conversation_id must be texts.")
+        raise ValueError("agent, system_prompt, profile, reasoning, conversation_id and disabled_tools must be texts.")
     fields = {INLINE_LAUNCH_FIELDS[key]: value for key, value in fields.items()}
     return parse_run_request(format_run_request({**fields, "prompt": prompt}).encode("utf-8"))
 
@@ -9095,16 +9129,17 @@ def _inline_request(fields: dict, prompt: str | None) -> dict:
 def launch_agent(run_file: str | None = None, prompt: str | None = None, project: str | None = None,
                  agent: str | None = None, system_prompt: str | None = None, profile: str | None = None,
                  reasoning: str | None = None, max_steps: int | None = None, timeout: int | None = None,
-                 conversation_id: str | None = None, ctx: SecurityContext | None = None) -> str:
+                 conversation_id: str | None = None, disabled_tools: str | None = None, ctx: SecurityContext | None = None) -> str:
     """Lanza un agente separado de este controlador y devuelve su conversation_id y run_id: el de su run-file
     `run_file` (ruta dentro del proyecto) o, sin él, el que se da en línea (agent, system_prompt y prompt, con profile,
-    reasoning, max_steps, timeout y conversation_id opcionales). Con prompt sustituye el del fichero; con project, el
+    reasoning, max_steps, timeout, conversation_id y disabled_tools opcionales). Con prompt sustituye el del fichero; con project, el
     agente se lanza en esa carpeta, con su entorno guardado y sus permisos."""
     session = current_run_session()
     if session is None or not session.controller or ctx is None:
         return _tool_error("launch_agent is only available in a --run-file run with controller: true.")
     fields = {key: value for key, value in (("agent", agent), ("system_prompt", system_prompt), ("profile", profile),
-              ("reasoning", reasoning), ("max_steps", max_steps), ("timeout", timeout), ("conversation_id", conversation_id))
+              ("reasoning", reasoning), ("max_steps", max_steps), ("timeout", timeout), ("conversation_id", conversation_id),
+              ("disabled_tools", disabled_tools))
               if value is not None}
     own_id = session.conversation_id or session.new_conversation_id or ""
     if run_file is None:
@@ -11354,7 +11389,7 @@ LAUNCH_AGENT_DEFINITION = {
         "Start an agent as a separate run that keeps going after this run ends, and return its conversation_id and "
         "run_id: either from its run-file (run_file, for example agents/report.md, which must set an agent) or given "
         "inline without a file (agent, system_prompt with its manual, prompt, and optionally profile, reasoning, "
-        "max_steps, timeout and conversation_id). It runs with the saved environment and permissions of its project and "
+        "max_steps, timeout, conversation_id and disabled_tools). It runs with the saved environment and permissions of its project and "
         "is never a controller. With run_file, prompt replaces the run-file's task; give project to launch an agent of "
         "another project. Then follow it with check_agents, which can wait for it."
     ),
@@ -11370,7 +11405,8 @@ LAUNCH_AGENT_DEFINITION = {
             "reasoning": {"type": "string", "enum": list(RUN_REASONING_LEVELS), "description": f"Inline: reasoning level (default {DEFAULT_RUN_REASONING})"},
             "max_steps": {"type": "integer", "description": f"Inline: at most this many model calls (1 to {RUN_FILE_LIMIT_KEYS['maxSteps']})"},
             "timeout": {"type": "integer", "description": f"Inline: seconds from the start before it stops (1 to {RUN_FILE_LIMIT_KEYS['timeout']})"},
-            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Inline: continue this conversation of the agent, or create it with this id (default: a new one)"}
+            "conversation_id": {"type": "string", "maxLength": MAX_CONVERSATION_ID_LENGTH, "description": "Inline: continue this conversation of the agent, or create it with this id (default: a new one)"},
+            "disabled_tools": {"type": "string", "maxLength": MAX_LAUNCH_PROMPT_LENGTH, "description": "Inline: comma-separated tools, MCP services or browser (browser_action, playwright) of the project that this agent does not get"}
         }
     }
 }
@@ -12531,7 +12567,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
-                      controller=bool(options.get("controller")), track_run=args.run_file is not None,
+                      controller=bool(options.get("controller")), disabled_tools=tuple(options.get("disabledTools") or ()), track_run=args.run_file is not None,
                       reasoning=options.get("reasoning"))
 
 

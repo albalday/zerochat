@@ -260,7 +260,7 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),
                       project_mode=options.get("projectMode"), agent=options.get("agent"), launch=launch,
-                      controller=bool(options.get("controller")), track_run=args.run_file is not None,
+                      controller=bool(options.get("controller")), disabled_tools=tuple(options.get("disabledTools") or ()), track_run=args.run_file is not None,
                       reasoning=options.get("reasoning"))
 
 

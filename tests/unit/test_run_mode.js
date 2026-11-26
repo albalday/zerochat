@@ -112,6 +112,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   // 1. Nueva conversación con perfil, exportación y respuesta final.
   // «Subagentes» encendido en este navegador no pasa a la ejecución en el servidor.
   Config.updateRuntime({ subagents: true });
+  State.set('mcp', { ...State.get('mcp'), externalServers: [{ id: 'imap', status: 'stopped' }] });
   const ok = await runScenario({
     promptPayload: {
       prompt: 'Hola',
@@ -120,6 +121,8 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
       export: 'md',
       new_conversation_id: 'session_nueva_1',
       max_steps: 5,
+      // Una herramienta y un servicio que existen, y una errata.
+      disabled_tools: ['execute_javascript', 'imap', 'imp'],
       project_mode: false
     },
     submitResult: { text: 'Listo' },
@@ -135,6 +138,8 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
   assert.deepEqual(State.get('ui').profileCheck, { status: 'error', reason: 'unreachable', message: 'fetch failed' }, 'El runner comprueba su perfil antes del turno');
   assert.equal(Config.getActive().projectMode, false, '--run-file sin projectMode no inyecta las normas del proyecto');
   assert.equal(Config.getActive().subagents, false, 'Una ejecución en el servidor nunca delega en subagentes');
+  assert.deepEqual(ok.calls.filter(c => c.method === 'zerochat/run/progress' && c.params.kind === 'warning').map(c => c.params.text),
+    ['disabledTools: imp is not a tool, MCP service or browser of this run'], 'Solo la errata queda en los avisos');
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/export')?.params, { run_id: 'run_test_id_123456', content: 'exported:md' });
   assert.deepEqual(ok.calls.find(c => c.method === 'zerochat/run/result')?.params, { run_id: 'run_test_id_123456', text: 'Listo' });
   // El consumo acumulado llega tras cada llamada al modelo, en orden y antes del resultado.

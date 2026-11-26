@@ -20,6 +20,8 @@
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getProfileCheck = () => resolveDep('ChatProfileCheck', './profile-check.js');
+  const getAgentCore = () => resolveDep('ChatAgentCore', './agent-core.js');
+  const getDefaults = () => resolveDep('ChatDefaults', './defaults.js');
 
   // El streaming informa como mucho cada este intervalo; el resto de avisos, siempre.
   const STREAM_PROGRESS_INTERVAL_MS = 2000;
@@ -140,7 +142,8 @@
         new_conversation_id: newConversationId,
         max_steps: maxSteps = null,
         project_mode: projectMode = null,
-        reasoning = null
+        reasoning = null,
+        disabled_tools: disabledTools = []
       } = await send('zerochat/run/prompt');
       // --run-file decide si se inyectan las normas y el estado del proyecto; --prompt y --conversation, no (null).
       if (typeof projectMode === 'boolean') getConfig().updateRuntime({ projectMode });
@@ -190,6 +193,12 @@
       }
 
       await getMcpManager().reconcileProjectServers();
+      // El servidor ya quitó del entorno lo de disabledTools; un nombre que no es ninguna herramienta, servicio MCP ni
+      // navegador (una errata) deja la herramienta que se quería quitar: queda en los avisos de la ejecución.
+      const known = new Set([...getAgentCore().registry.listTools().map(tool => tool.name),
+        ...getState().get('mcp').externalServers.map(server => server.id), ...getDefaults().BROWSER_TOOLS]);
+      const unknown = (Array.isArray(disabledTools) ? disabledTools : []).filter(name => !known.has(name));
+      if (unknown.length) report({ kind: 'warning', text: `disabledTools: ${unknown.join(', ')} is not a tool, MCP service or browser of this run` });
 
       let generated = null;
       if (isConversationMode && (!prompt || typeof prompt !== 'string')) {

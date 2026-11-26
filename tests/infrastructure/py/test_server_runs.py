@@ -354,7 +354,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                          {"agent": "diario", "systemDataPrompt": "Eres el agente.", "prompt": "Usa <!-- prompt --> en el texto.",
                           "projectMode": False, "reasoning": "medium"})
         full = {"agent": "informes.diario", "conversation_id": "fija", "profile": "local", "controller": True, "projectMode": True,
-                "reasoning": "high", "maxSteps": 5, "timeout": 60, "systemDataPrompt": "Manual\n\nen dos párrafos", "prompt": "Tarea"}
+                "reasoning": "high", "disabledTools": ["imap", "run_command"], "maxSteps": 5, "timeout": 60,
+                "systemDataPrompt": "Manual\n\nen dos párrafos", "prompt": "Tarea"}
         self.assertEqual(zerochat.parse_run_request(zerochat.format_run_request(full).encode()), full)
         self.assertNotIn("controller", parse({"prompt": "Hola", "controller": False}), "Solo se guarda cuando es true")
         for unsafe in ({"profile": "a\nb"}, {"prompt": "x\n<!-- system -->\ny"}):
@@ -383,6 +384,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "reasoning debe ser"):
                 parse({"prompt": "Hola", "reasoning": invalid})
         self.assertIsNone(session_from(["--prompt", "Hola"]).reasoning, "Sin --run-file queda el del perfil")
+
+        # disabledTools: nombres separados por comas, sin repetir y con tope de nombres y de longitud en el borde exacto.
+        self.assertEqual(parse({"prompt": "Hola", "disabledTools": " imap ,run_command, imap,mcp_imap_send"})["disabledTools"],
+                         ["imap", "run_command", "mcp_imap_send"])
+        many = [f"t{index}" for index in range(zerochat.MAX_DISABLED_TOOLS)]
+        self.assertEqual(parse({"prompt": "Hola", "disabledTools": ", ".join(many)})["disabledTools"], many)
+        long_name = "x" * zerochat.MAX_PROJECT_TOOL_ID_LENGTH
+        self.assertEqual(parse({"prompt": "Hola", "disabledTools": long_name})["disabledTools"], [long_name])
+        for invalid in ("", "imap,,run_command", "imap, ", "dos palabras", long_name + "x", ", ".join([*many, "otra"])):
+            with self.assertRaisesRegex(ValueError, "disabledTools"):
+                parse({"prompt": "Hola", "disabledTools": invalid})
 
         # projectMode y controller: por defecto no; solo admiten true o false.
         self.assertTrue(parse({"prompt": "Hola", "projectMode": True})["projectMode"])
@@ -447,9 +459,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         zerochat.save_general_profile({"name": "informes", "settings": {}})
         session = session_from(["--run-file", write_request({
             "conversation_id": "session_agente_1", "prompt": "Otra vez", "agent": "informes.diario", "profile": "informes",
-            "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30, "reasoning": "high"})])
-        launch = {"profile": "informes", "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30, "reasoning": "high"}
+            "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30, "reasoning": "high", "disabledTools": "imap"})])
+        launch = {"profile": "informes", "systemDataPrompt": "Manual del agente", "projectMode": True, "maxSteps": 30, "reasoning": "high",
+                  "disabledTools": ["imap"]}
         self.assertEqual(session.launch, launch)
+        self.assertEqual(session.disabled_tools, ("imap",))
         self.assertEqual(session.reasoning, "high")
         zerochat.RUN_SESSION = session
         saved_step, err, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
@@ -845,9 +859,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                             "conversation_id": result["conversation_id"]},
                                            ctx.workspace_dir))
             # En línea, sin fichero: la misma petición que daría su run-file, con sus mismas comprobaciones.
-            result = launch(agent="informes.linea", system_prompt="Eres el agente en línea.", prompt=" Resume ", max_steps=5, reasoning="low")
+            result = launch(agent="informes.linea", system_prompt="Eres el agente en línea.", prompt=" Resume ", max_steps=5, reasoning="low",
+                            disabled_tools="imap, run_command")
             self.assertEqual(launched[-1], ({"agent": "informes.linea", "systemDataPrompt": "Eres el agente en línea.", "prompt": "Resume",
-                                             "maxSteps": 5, "projectMode": False, "reasoning": "low", "conversation_id": result["conversation_id"]},
+                                             "maxSteps": 5, "projectMode": False, "reasoning": "low", "disabledTools": ["imap", "run_command"],
+                                             "conversation_id": result["conversation_id"]},
                                             ctx.workspace_dir))
             for invalid, reason in (({}, "agent and prompt"), ({"agent": "informes.linea"}, "agent and prompt"),
                                     ({"run_file": "agents/diario.md", "agent": "informes.diario"}, "not both"),
@@ -1210,6 +1226,29 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         hb_res, hb_err, _ = zerochat.dispatch_local("zerochat/heartbeat", {"focus_conversation_id": "conv_1"}, zerochat.project_context())
         self.assertIsNone(hb_err)
         self.assertEqual(hb_res["focus_run"]["conversation_id"], "conv_1")
+
+    def test_disabled_tools_solo_quita_del_entorno_del_proyecto_y_un_aviso_del_runner_va_a_los_avisos(self):
+        use_data_dir(self)
+        env = {"systemDataPrompt": "Del proyecto", "mcpServers": ["imap", "calendario"], "browser": "playwright",
+               "enabledTools": {"run_command": True, "search_web": False}, "activeRagBranchIds": []}
+        zerochat.RUN_SESSION = None
+        self.assertIs(zerochat.run_project_environment(env), env, "Fuera de una ejecución, el guardado tal cual")
+        zerochat.RUN_SESSION = zerochat.RunSession("Hola", disabled_tools=("imap", "playwright", "run_command", "gmail"))
+        self.assertEqual(zerochat.run_project_environment(env), {
+            "systemDataPrompt": "Del proyecto", "mcpServers": ["calendario"], "browser": "none", "activeRagBranchIds": [],
+            "enabledTools": {"run_command": False, "search_web": False, "imap": False, "playwright": False, "gmail": False}})
+        self.assertEqual(env["mcpServers"], ["imap", "calendario"], "No cambia el guardado")
+        # Solo resta: lo que el proyecto no tiene no aparece, y el navegador de otro tipo se queda.
+        zerochat.RUN_SESSION = zerochat.RunSession("Hola", disabled_tools=("browser_action",), system_data_prompt="Manual")
+        self.assertEqual(zerochat.run_project_environment(env)["browser"], "playwright")
+        self.assertEqual(zerochat.run_project_environment(env)["systemDataPrompt"], "Manual")
+
+        with mock.patch("sys.stderr", io.StringIO()) as stderr:
+            self.assertEqual(zerochat._rpc_progress({"kind": "warning", "text": "disabledTools: imp"}, zerochat.RUN_SESSION), ({"ok": True}, None, ""))
+        self.assertEqual(zerochat.RUN_SESSION.warnings, ["disabledTools: imp"])
+        self.assertIn("[run] Aviso: disabledTools: imp", stderr.getvalue())
+        self.assertEqual(zerochat.RUN_SESSION.step_text, "", "Un aviso no es el paso en curso")
+        zerochat.RUN_SESSION = None
 
     def test_como_mucho_max_concurrent_runs_ejecuciones_vivas_a_la_vez(self):
         """N-1 vivas dejan lanzar, N no (ni desde la interfaz ni desde un agente); las muertas y las terminadas no cuentan."""
