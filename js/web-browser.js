@@ -170,51 +170,35 @@
     return browserResponse(res, res.ok ? undefined : await readJinaError(res));
   }
 
+  // Las mismas reglas que is_dangerous_host de py/web/fetch.py, que además resuelve el nombre.
+  const METADATA_HOSTS = new Set(['169.254.169.254', 'metadata.google.internal', 'instance-data', '100.100.100.200']);
+  const LOCAL_NAME_SUFFIX = /\.(?:localhost|local|internal)$/;
+
+  /** IPv4 no pública: sin red (0/8), privadas, CGNAT (100.64/10), loopback, enlace local, multidifusión y reservadas. */
+  function isPrivateIpv4([a, b]) {
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
+      || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+  }
+
+  /** IPv6 no pública: sin especificar, loopback, ULA (fc00::/7), enlace local (fe80::/10), multidifusión y las IPv4 mapeadas privadas. */
+  function isPrivateIpv6(host) {
+    if (host === '::' || host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host) || host.startsWith('ff')) return true;
+    const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (!mapped) return false;
+    const [high, low] = mapped.slice(1).map(part => parseInt(part, 16));
+    return isPrivateIpv4([high >> 8, high & 255, low >> 8, low & 255]);
+  }
+
   /**
-   * Analiza y normaliza posibles evasiones numéricas (decimal, octal, hex) y rangos privados/locales de direcciones IP.
+   * Riesgo de SSRF en un host ya normalizado por URL (las formas decimal, hexadecimal, octal o abreviada de una IPv4
+   * llegan como a.b.c.d y las IPv6, comprimidas): metadatos cloud, nombres locales y direcciones no públicas.
    */
   function isDangerousIpAddress(hostname) {
-    if (!hostname) return false;
-    const cleanHost = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
-
-    // Cloud Metadata Endpoints (Siempre bloqueados de forma terminante)
-    if (cleanHost === '169.254.169.254' || cleanHost === 'metadata.google.internal' || cleanHost === 'instance-data' || cleanHost === '100.100.100.200') {
-      return true;
-    }
-
-    // Comprobar si es un número decimal entero representando una IP (ej: 2130706433 = 127.0.0.1 o 2852039166 = 169.254.169.254)
-    if (/^\d+$/.test(cleanHost)) {
-      const num = parseInt(cleanHost, 10);
-      if (!isNaN(num) && num >= 0 && num <= 4294967295) {
-        const b1 = (num >>> 24) & 255;
-        const b2 = (num >>> 16) & 255;
-        if (b1 === 127 || (b1 === 169 && b2 === 254) || b1 === 10 || (b1 === 172 && b2 >= 16 && b2 <= 31) || (b1 === 192 && b2 === 168) || b1 === 0) {
-          return true;
-        }
-      }
-    }
-
-    // Comprobar si es notación hexadecimal (ej: 0x7f000001)
-    if (/^0x[0-9a-fA-F]+$/.test(cleanHost)) {
-      const num = parseInt(cleanHost, 16);
-      if (!isNaN(num) && num >= 0 && num <= 4294967295) {
-        const b1 = (num >>> 24) & 255;
-        const b2 = (num >>> 16) & 255;
-        if (b1 === 127 || (b1 === 169 && b2 === 254) || b1 === 10 || (b1 === 172 && b2 >= 16 && b2 <= 31) || (b1 === 192 && b2 === 168) || b1 === 0) {
-          return true;
-        }
-      }
-    }
-
-    // Loopback y rangos privados
-    if (cleanHost === 'localhost' || cleanHost === '0.0.0.0' || cleanHost === '127.0.0.1' || cleanHost.startsWith('127.') || cleanHost === '::1' || cleanHost === '0:0:0:0:0:0:0:1') {
-      return true;
-    }
-    if (cleanHost.startsWith('192.168.') || cleanHost.startsWith('10.') || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(cleanHost) || cleanHost.startsWith('169.254.')) {
-      return true;
-    }
-
-    return false;
+    const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    if (!host || METADATA_HOSTS.has(host) || host === 'localhost' || LOCAL_NAME_SUFFIX.test(host)) return true;
+    const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4) return isPrivateIpv4(ipv4.slice(1).map(Number));
+    return host.includes(':') && isPrivateIpv6(host);
   }
 
   const URL_SCHEME = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;

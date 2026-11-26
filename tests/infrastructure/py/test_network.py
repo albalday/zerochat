@@ -133,8 +133,14 @@ class WebFetchTest(unittest.TestCase):
 
     def test_se_siguen_web_fetch_max_redirects_redirecciones_y_una_mas_es_error(self):
         class Chain(BaseHTTPRequestHandler):
-            # /r/<n> redirige a /r/<n-1>; /r/0 responde.
+            # /r/<n> redirige a /r/<n-1>; /r/0 responde; /meta redirige a los metadatos cloud.
             def do_GET(self):
+                if self.path == "/meta":
+                    self.send_response(302)
+                    self.send_header("Location", "http://169.254.169.254/latest/")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
                 remaining = int(self.path.rsplit("/", 1)[1])
                 if remaining:
                     self.send_response(302)
@@ -163,6 +169,10 @@ class WebFetchTest(unittest.TestCase):
         self.assertEqual((followed["ok"], followed["text"], followed["url"]), (True, "ok", f"{base}/0"))
         self.assertEqual((refused["ok"], refused["status"]), (False, 302))
         self.assertIn("infinite loop", refused["error"])
+        # Una redirección a un destino bloqueado se rechaza como la URL pedida (-32602 en el RPC), no como fallo de red.
+        with patch.object(zerochat, "is_dangerous_host", side_effect=lambda host: host == "169.254.169.254"), \
+                self.assertRaises(PermissionError):
+            zerochat.fetch_web_resource({"url": base.rsplit("/", 1)[0] + "/meta"})
 
     def test_solo_los_tipos_textuales_viajan_como_texto(self):
         # El resto (PDF, imágenes) viaja en base64.

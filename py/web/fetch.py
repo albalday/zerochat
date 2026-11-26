@@ -186,7 +186,7 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, t
         "Sec-Fetch-User": "?1",
         "Upgrade-Insecure-Requests": "1",
     }
-    if hostname.endswith("duckduckgo.com"):
+    if hostname == "duckduckgo.com" or hostname.endswith(".duckduckgo.com"):
         req_headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
 
     # El esquema (http/https) se valida antes, también en cada redirección.
@@ -235,6 +235,9 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, t
             "error": f"HTTP {he.code}: {he.reason}",
             "text": err_body
         }
+    except PermissionError:
+        # Una redirección hacia un destino bloqueado es el mismo rechazo anti-SSRF que la URL pedida.
+        raise
     except Exception as exc:
         return {
             "ok": False,

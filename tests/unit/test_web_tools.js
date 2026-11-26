@@ -180,14 +180,18 @@ test('ImageFetcher - detectVisionImageMimeType, validación MIME y conversión b
 });
 
 test('ChatWebBrowser.webFetch - valida URLs, bloquea protocolos/SSRF antes de pedir y normaliza esquemas', async t => {
-  for (const okUrl of ['https://es.wikipedia.org/wiki/Sol', 'http://example.com/api', 'example.com/path']) {
+  for (const okUrl of ['https://es.wikipedia.org/wiki/Sol', 'http://example.com/api', 'example.com/path', 'http://100.128.0.1/',
+    'http://[2606:4700::1111]/', 'http://[::ffff:8.8.8.8]/', 'http://localhost.example.com/']) {
     assert.equal(WebBrowser.validateUrlForFetch(okUrl).valid, true, okUrl);
   }
   for (const badUrl of [
     'file:///etc/passwd', 'data:text/html,<h1>Hacked</h1>', 'javascript:alert(1)', 'blob:http://example.com/123',
     'http://169.254.169.254/latest/meta-data/', 'http://metadata.google.internal/computeMetadata/v1/',
     'http://instance-data/latest/', 'http://100.100.100.200/latest/meta-data/',
-    'http://2852039166/', 'http://2130706433/', 'http://0x7f000001/'
+    'http://2852039166/', 'http://2130706433/', 'http://0x7f000001/', 'http://127.1/', 'http://0177.0.0.1/',
+    'http://localhost./', 'http://metadata.google.internal./', 'http://app.localhost/', 'http://printer.local/',
+    'http://db.internal/', 'http://100.64.0.1/', 'http://[::1]/', 'http://[::]/', 'http://[::ffff:7f00:1]/',
+    'http://[::ffff:192.168.1.1]/', 'http://[fe80::1]/', 'http://[fc00::1]/', 'http://[fd12::1]/', 'http://224.0.0.1/'
   ]) {
     assert.equal(WebBrowser.validateUrlForFetch(badUrl).valid, false, badUrl);
   }
