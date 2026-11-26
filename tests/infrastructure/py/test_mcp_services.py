@@ -286,6 +286,15 @@ class ServiceCatalogTest(unittest.TestCase):
     def installed(self, server_id, path):
         return (self.root / server_id / path).read_text(encoding="utf-8")
 
+    def test_la_instalacion_escribe_con_temporales_propios_y_no_los_deja_si_falla(self):
+        zerochat.install_service(self.root, "demo", {"README.md": b"uno"})
+        self.assertEqual(self.installed("demo", "README.md"), "uno")
+        # Un destino que no se puede sustituir (un directorio) falla sin dejar el temporal.
+        (self.root / "demo" / "service.json").mkdir()
+        with self.assertRaises(OSError):
+            zerochat.install_service(self.root, "demo", {"service.json": b"{}"})
+        self.assertEqual(sorted(path.name for path in (self.root / "demo").iterdir()), ["README.md", "service.json"])
+
     def test_solo_se_actualizan_los_servicios_que_cambian_de_version_y_se_conservan_sus_datos(self):
         self.publish({"demo": ("1.0.0", {"README.md": "demo 1"}), "other": ("1.0.0", {"README.md": "other 1"})})
         self.assertEqual(self.manager.refresh_catalog(self.base), ["demo", "other"])

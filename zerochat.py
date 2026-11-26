@@ -1395,9 +1395,13 @@ def install_service(services_root: Path, server_id: str, files: dict[str, bytes]
     for path in sorted(files, key=lambda name: name == SERVICE_DEFINITION):
         destination = service_dir / path
         destination.parent.mkdir(parents=True, exist_ok=True)
-        tmp = destination.with_name(destination.name + ".tmp")
-        tmp.write_bytes(files[path])
-        tmp.replace(destination)
+        # Temporal propio de este proceso: otro zerochat puede instalar el mismo servicio a la vez.
+        tmp = destination.with_name(f"{destination.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+        try:
+            tmp.write_bytes(files[path])
+            tmp.replace(destination)
+        finally:
+            tmp.unlink(missing_ok=True)
 
 # --- mcp.stdio_client ---
 """Cliente MCP por stdio: arranque del proceso, mensajes JSON-RPC acotados, plazos y cierre con sus descendientes."""
@@ -1794,10 +1798,13 @@ function readCache() {
 }
 
 function writeCache(files, version) {
+  // Temporal propio de este proceso: dos runners que terminan a la vez no escriben el mismo fichero.
+  const tmp = `${cacheFile}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   try {
-    fs.writeFileSync(cacheFile + '.tmp', JSON.stringify({ base, version, files }), { mode: 0o600 });
-    fs.renameSync(cacheFile + '.tmp', cacheFile);
+    fs.writeFileSync(tmp, JSON.stringify({ base, version, files }), { mode: 0o600 });
+    fs.renameSync(tmp, cacheFile);
   } catch (error) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
     console.error(`[RunnerLoader] Could not update the cache: ${error.message}`);
   }
 }

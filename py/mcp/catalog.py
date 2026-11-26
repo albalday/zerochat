@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
+import secrets
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -105,6 +107,10 @@ def install_service(services_root: Path, server_id: str, files: dict[str, bytes]
     for path in sorted(files, key=lambda name: name == SERVICE_DEFINITION):
         destination = service_dir / path
         destination.parent.mkdir(parents=True, exist_ok=True)
-        tmp = destination.with_name(destination.name + ".tmp")
-        tmp.write_bytes(files[path])
-        tmp.replace(destination)
+        # Temporal propio de este proceso: otro zerochat puede instalar el mismo servicio a la vez.
+        tmp = destination.with_name(f"{destination.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+        try:
+            tmp.write_bytes(files[path])
+            tmp.replace(destination)
+        finally:
+            tmp.unlink(missing_ok=True)

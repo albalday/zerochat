@@ -119,10 +119,13 @@ function readCache() {
 }
 
 function writeCache(files, version) {
+  // Temporal propio de este proceso: dos runners que terminan a la vez no escriben el mismo fichero.
+  const tmp = `${cacheFile}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   try {
-    fs.writeFileSync(cacheFile + '.tmp', JSON.stringify({ base, version, files }), { mode: 0o600 });
-    fs.renameSync(cacheFile + '.tmp', cacheFile);
+    fs.writeFileSync(tmp, JSON.stringify({ base, version, files }), { mode: 0o600 });
+    fs.renameSync(tmp, cacheFile);
   } catch (error) {
+    try { fs.rmSync(tmp, { force: true }); } catch {}
     console.error(`[RunnerLoader] Could not update the cache: ${error.message}`);
   }
 }
