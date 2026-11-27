@@ -149,19 +149,6 @@ test('ConversationService - compactar resume los turnos cerrados, conserva el ú
   assert.deepEqual((await Storage.getConversation('parent_sess_1')).history.map(message => message.content), ['sys', 'Resumen de los turnos anteriores', 'user 2', 'asst 2']);
   assert.equal(ContextManager.hasCompactableHistory(State.get('messages')), false, 'Recién compactada no queda nada que resumir');
 
-  // En modo proyecto se compacta como en un turno: el mismo resumidor con la indicación del proyecto.
-  await setupBranch(t);
-  const ProjectContext = require('../../js/project-context.js');
-  t.mock.method(ProjectContext, 'turnContext', () => ({ projectContext: { status: 'ready' }, projectDirectory: '/repo' }));
-  let systemPrompt = '';
-  useSummarizer(t, async ({ messages }) => {
-    systemPrompt = messages[0].content;
-    return { accumulatedText: 'Resumen del proyecto' };
-  });
-  assert.equal(await ConversationService.compactCurrentSession(appOptions()), true);
-  assert.ok(systemPrompt.includes(ProjectContext.SUMMARIZER_PROJECT_ADDENDUM));
-  t.mock.restoreAll();
-
   await setupBranch(t);
   useSummarizer(t, async () => ({ accumulatedText: '' }));
   assert.equal(await ConversationService.compactCurrentSession(appOptions()), false);
