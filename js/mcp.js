@@ -166,6 +166,8 @@
   }
 
   const formatJsonRpcError = error => `MCP error${error.code ? ` (${error.code})` : ''}: ${error.message || JSON.stringify(error)}`;
+  /** Motivo de un error para el usuario: el mensaje del servidor JSON-RPC sin el prefijo técnico del cliente. */
+  const errorReason = error => String(error?.rpcError?.message || error?.message || error);
 
   /**
    * Cliente de Protocolo MCP (Model Context Protocol) basado en JSON-RPC 2.0 sobre HTTP.
@@ -296,7 +298,7 @@
   async function withCommandJobStop(client, jobKey, signal, run, stopMethod = 'zerochat/jobs/stop') {
     if (!jobKey) return run();
     const stopJob = () => {
-      client.request(stopMethod, { key: jobKey }).catch(() => {});
+      client.request(stopMethod, { key: jobKey }).catch(() => { /* el trabajo ya terminó o el servidor no está: no queda nada que parar */ });
     };
     signal?.addEventListener('abort', stopJob, { once: true });
     try {
@@ -970,7 +972,8 @@
     async deleteProjectDirectory({ deleteDirectory = false, confirmPath = '' } = {}) {
       this.liveStateSeq += 1;
       const result = await this.requestExternalControl('zerochat/project/delete', { deleteDirectory, confirmPath });
-      const nextDir = result?.fallback || this.currentProject();
+      // Sin carpeta de respaldo (la carpeta sigue en disco) se recarga la misma: políticas y entorno ya borrados.
+      const nextDir = result?.fallback || directoryOfProject(currentProject());
       if (nextDir) {
         await this.setProjectDirectory(nextDir);
       }
@@ -1031,7 +1034,7 @@
     /** Cancela una ejecución de conversación en marcha en el servidor local (`zerochat/run/cancel`). */
     async cancelServerRun(conversationId) {
       const result = await this.requestExternalControl('zerochat/run/cancel', { conversation_id: conversationId });
-      await this.readLiveState().catch(() => {});
+      await this.readLiveState().catch(() => { /* la espera del estado vivo lo trae en cuanto el servidor responda */ });
       return result;
     }
 
@@ -1157,6 +1160,7 @@
     McpManager,
     probeConnection,
     publicToolName,
+    errorReason,
     playwrightInstalled,
     browserActionAvailable,
     localToolsAvailable,

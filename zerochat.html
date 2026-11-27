@@ -19,7 +19,7 @@
       location.replace(helpDir + 'install.html#browser-compatibility');
     })();
   </script>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: https://esm.run https://cdn.jsdelivr.net; worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; frame-src 'self' blob:; manifest-src 'self'; media-src 'self' data: blob:;">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: rag-image:; connect-src http: https: ws: wss: data: blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'self' blob:; manifest-src 'self'; media-src 'self' data: blob:;">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#0d1117">
   <meta name="description" content="ZeroChat - Entorno personal y privado de IA: chat multimodelo y WebLLM en navegador, RAG local, proyectos con herramientas y MCP, ejecución CLI y orquestación de agentes con supervisión humana.">
@@ -199,15 +199,6 @@
           </div>
         </div>
 
-        <button type="button" class="sidebar-settings-item" data-section="encryption">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="settings_encryption">Cifrado</span>
-          <span class="settings-item-chevron">
-            <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-chevron-right"></use></svg>
-          </span>
-        </button>
         <button type="button" class="sidebar-settings-item" data-section="rag">
           <span class="settings-item-icon">
             <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-layers"></use></svg>
@@ -277,27 +268,6 @@
             <svg class="ui-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-external-link"></use></svg>
           </span>
         </a>
-      </nav>
-
-      <nav id="sidebar-encryption-nav" class="sidebar-settings-nav" aria-label="Opciones de cifrado" data-i18n-aria="sidebar_encryption_title" hidden>
-        <button type="button" id="btn-encryption-back" class="sidebar-settings-item">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-arrow-left"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="encryption_back">Volver</span>
-        </button>
-        <button type="button" id="btn-encryption-password" class="sidebar-settings-item">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-shield"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="encryption_new_password">Nueva contraseña</span>
-        </button>
-        <button type="button" id="btn-encryption-default" class="sidebar-settings-item">
-          <span class="settings-item-icon">
-            <svg class="ui-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"><use href="#icon-settings"></use></svg>
-          </span>
-          <span class="settings-item-label" data-i18n="encryption_default">Usar predeterminada</span>
-        </button>
       </nav>
 
       <nav id="sidebar-rag-nav" class="sidebar-settings-nav" aria-label="Opciones de RAG" data-i18n-aria="sidebar_rag_title" hidden>

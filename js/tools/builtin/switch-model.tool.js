@@ -14,14 +14,8 @@
   const { t } = I18n;
   const getCards = () => resolveDep('ChatToolCards', './tool-cards.js');
 
-  // Los niveles del selector de razonamiento (ChatUIReasoning), con su etiqueta.
-  const REASONING_LEVELS = Object.freeze({
-    none: 'reasoning_intensity_none',
-    low: 'reasoning_level_low',
-    medium: 'reasoning_level_medium',
-    high: 'reasoning_level_high',
-    xhigh: 'reasoning_intensity_max'
-  });
+  // Los niveles del selector de razonamiento, con su etiqueta.
+  const REASONING_LEVELS = Utils.resolveDep('ChatDefaults', './defaults.js').REASONING_LEVEL_LABEL_KEYS;
   const MODEL_ICON_SVG = Icons.get('shuffle', { size: 14 });
   const WORD_CHAR = /[\p{L}\p{N}_]/u;
 

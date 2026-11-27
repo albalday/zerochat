@@ -26,11 +26,10 @@
     messagesList.style.setProperty('--scrollbar-width', `${messagesList.offsetWidth - messagesList.clientWidth}px`);
   }
 
-  function setupViewportListeners(elements, onViewportChange) {
+  function setupViewportListeners(elements) {
     const triggerChange = () => {
       updateViewportHeight();
       updateScrollbarWidth(elements.messagesList);
-      if (typeof onViewportChange === 'function') onViewportChange();
     };
     updateViewportHeight();
     updateScrollbarWidth(elements.messagesList);
@@ -70,9 +69,9 @@
     });
   }
 
-  function mount({ elements, onViewportChange, onDismissProfiles }) {
+  function mount({ elements, onDismissProfiles }) {
     listeners.dispose();
-    setupViewportListeners(elements, onViewportChange);
+    setupViewportListeners(elements);
     setupLightDismissDialogs(onDismissProfiles);
   }
 

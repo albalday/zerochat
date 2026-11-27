@@ -98,7 +98,7 @@
   }
 
   /** Respuesta de fetch con la forma común de webFetch. */
-  function browserResponse(res, error) {
+  function browserResponse(res, error, maxBytes = null) {
     return {
       ok: res.ok,
       status: res.status,
@@ -108,9 +108,36 @@
       truncated: false,
       text: () => res.text(),
       json: () => res.json(),
-      arrayBuffer: () => res.arrayBuffer(),
+      arrayBuffer: () => (maxBytes ? readBodyUpTo(res, maxBytes) : res.arrayBuffer()),
       error: res.ok ? undefined : error
     };
+  }
+
+  /**
+   * Cuerpo de una descarga directa leído hasta `maxBytes + 1` bytes: lo que pase del tope basta para rechazarlo
+   * sin cargar el fichero entero en memoria (el backend corta igual en `maxBytes` y lo marca `truncated`).
+   */
+  async function readBodyUpTo(res, maxBytes) {
+    const reader = res.body?.getReader?.();
+    if (!reader) return res.arrayBuffer();
+    const limit = maxBytes + 1;
+    const chunks = [];
+    let length = 0;
+    while (length < limit) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const piece = value.subarray(0, limit - length);
+      chunks.push(piece);
+      length += piece.byteLength;
+    }
+    if (length === limit) reader.cancel().catch(() => { /* ya se leyó lo necesario para rechazarlo por tamaño */ });
+    const body = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return body.buffer;
   }
 
   /** Respuesta de webFetch para una URL rechazada antes de hacer ninguna petición. */
@@ -163,7 +190,7 @@
 
     if (binary) {
       const res = await fetchWithTimeout(url, { headers: { Accept: accept } }, timeoutMs);
-      return browserResponse(res, `HTTP ${res.status}: ${res.statusText}`);
+      return browserResponse(res, `HTTP ${res.status}: ${res.statusText}`, maxBytes);
     }
 
     const res = await fetchWithTimeout(`${JINA_READER_URL}${url}`, { headers: { Accept: 'text/html', 'X-Return-Format': 'html' } }, timeoutMs);
@@ -174,19 +201,45 @@
   const METADATA_HOSTS = new Set(['169.254.169.254', 'metadata.google.internal', 'instance-data', '100.100.100.200']);
   const LOCAL_NAME_SUFFIX = /\.(?:localhost|local|internal)$/;
 
-  /** IPv4 no pública: sin red (0/8), privadas, CGNAT (100.64/10), loopback, enlace local, multidifusión y reservadas. */
-  function isPrivateIpv4([a, b]) {
+  /**
+   * IPv4 no pública: sin red (0/8), privadas, CGNAT (100.64/10), loopback, enlace local, multidifusión y reservadas,
+   * y los rangos especiales de RFC 6890 (192.0.0/24, documentación 192.0.2/24, 198.51.100/24, 203.0.113/24, pruebas 198.18/15).
+   */
+  function isPrivateIpv4([a, b, c]) {
     return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127)
-      || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+      || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+      || (a === 192 && b === 0 && (c === 0 || c === 2)) || (a === 198 && (b === 18 || b === 19))
+      || (a === 198 && b === 51 && c === 100) || (a === 203 && b === 0 && c === 113);
   }
 
-  /** IPv6 no pública: sin especificar, loopback, ULA (fc00::/7), enlace local (fe80::/10), multidifusión y las IPv4 mapeadas privadas. */
+  /** Los 8 grupos de 16 bits de una IPv6 en la forma comprimida y hexadecimal que da URL, o null. */
+  function ipv6Groups(host) {
+    const halves = host.split('::');
+    if (halves.length > 2) return null;
+    const parse = part => (part ? part.split(':').map(group => (/^[0-9a-f]{1,4}$/.test(group) ? parseInt(group, 16) : NaN)) : []);
+    const [head, tail = []] = halves.map(parse);
+    const groups = halves.length === 2 ? [...head, ...Array(8 - head.length - tail.length).fill(0), ...tail] : head;
+    return groups.length === 8 && groups.every(Number.isInteger) ? groups : null;
+  }
+
+  /**
+   * IPv6 no pública: sin especificar y loopback, ULA (fc00::/7), enlace local (fe80::/10), local de sitio (fec0::/10),
+   * multidifusión, documentación, descarte (100::/64), Teredo y ORCHID (2001::/23), 6to4 (2002::/16), NAT64 de uso local
+   * (64:ff9b:1::/48), compatible (::/96) y traducida (::ffff:0:0:0/96). La mapeada (::ffff:0:0/96) y la NAT64 (64:ff9b::/96)
+   * llegan a la IPv4 que llevan dentro, que es la que se evalúa. Una dirección que no se puede leer se trata como no pública.
+   */
   function isPrivateIpv6(host) {
-    if (host === '::' || host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host) || host.startsWith('ff')) return true;
-    const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
-    if (!mapped) return false;
-    const [high, low] = mapped.slice(1).map(part => parseInt(part, 16));
-    return isPrivateIpv4([high >> 8, high & 255, low >> 8, low & 255]);
+    const groups = ipv6Groups(host);
+    if (!groups) return true;
+    const [g0, g1, g2, g3, g4, g5, g6, g7] = groups;
+    const leadingZeros = count => groups.slice(0, count).every(group => group === 0);
+    const embeddedIpv4 = () => isPrivateIpv4([g6 >> 8, g6 & 255, g7 >> 8, g7 & 255]);
+    if (leadingZeros(5) && g5 === 0xffff) return embeddedIpv4();
+    if (g0 === 0x0064 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) return embeddedIpv4();
+    return (g0 & 0xfe00) === 0xfc00 || (g0 & 0xffc0) === 0xfe80 || (g0 & 0xffc0) === 0xfec0 || (g0 & 0xff00) === 0xff00
+      || (g0 === 0x2001 && g1 === 0x0db8) || (g0 === 0x2001 && g1 < 0x0200) || g0 === 0x2002
+      || (g0 === 0x0100 && g1 === 0 && g2 === 0 && g3 === 0) || (g0 === 0x0064 && g1 === 0xff9b && g2 === 1)
+      || leadingZeros(6) || (leadingZeros(4) && g4 === 0xffff && g5 === 0);
   }
 
   /**
@@ -194,7 +247,8 @@
    * llegan como a.b.c.d y las IPv6, comprimidas): metadatos cloud, nombres locales y direcciones no públicas.
    */
   function isDangerousIpAddress(hostname) {
-    const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+    // Todos los puntos finales: localhost.. es localhost para el resolutor.
+    const host = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.+$/, '');
     if (!host || METADATA_HOSTS.has(host) || host === 'localhost' || LOCAL_NAME_SUFFIX.test(host)) return true;
     const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
     if (ipv4) return isPrivateIpv4(ipv4.slice(1).map(Number));
@@ -233,6 +287,11 @@
       const parsed = new URL(toWebUrl(rawUrl));
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return { valid: false, error: `Protocol not allowed: ${parsed.protocol}. Only http:// and https:// are supported.` };
+      }
+
+      // usuario:clave@ viajaría a Jina Reader o en el Referer de las búsquedas: no se envía a nadie.
+      if (parsed.username || parsed.password) {
+        return { valid: false, error: 'URLs with credentials (user:password@host) are not allowed: they would be sent to third-party services.' };
       }
 
       const hostname = parsed.hostname.toLowerCase();
@@ -430,9 +489,11 @@
       };
     }
 
-    const content = result.content.length > MAX_CONTENT_LENGTH
-      ? result.content.slice(0, MAX_CONTENT_LENGTH) + TRUNCATION_NOTICE
-      : result.content;
+    // Un contenido que ya trae el aviso (respuesta truncada) se recorta sin él para no repetirlo ni partirlo.
+    const body = result.content.endsWith(TRUNCATION_NOTICE) ? result.content.slice(0, -TRUNCATION_NOTICE.length) : result.content;
+    const content = body.length > MAX_CONTENT_LENGTH || body !== result.content
+      ? body.slice(0, MAX_CONTENT_LENGTH) + TRUNCATION_NOTICE
+      : body;
     return {
       success: true,
       url,

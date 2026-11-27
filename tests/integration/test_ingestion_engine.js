@@ -110,6 +110,22 @@ trailer << /Size 7 /Root 1 0 R >>
     "(GA-Z77P-D3 User's Manual GIGABYTE)"
   ), 'latin1'));
   assert.ok(asciiText.includes('GA-Z77P-D3') && asciiText.includes("User's Manual") && asciiText.includes('GIGABYTE'));
+
+  // Un rango beginbfrange mayor que el espacio de códigos de dos bytes se ignora sin recorrerlo
+  const started = performance.now();
+  const hostileRange = await FileParser.extractTextFromPdf(Buffer.from(buildCmapPdf(
+    '<0000> <FFFF>',
+    '2 beginbfrange\n<000000> <ffffff> <0041>\n<0001> <0002> <0041>\nendbfrange',
+    '<00010002>'
+  ), 'latin1'));
+  assert.ok(hostileRange.includes('AB'));
+  assert.ok(performance.now() - started < 500, 'el rango hostil no se recorre');
+
+  // Un árbol de páginas que se cita a sí mismo (ciclo) o repite una rama se recorre una vez
+  const cyclic = buildCmapPdf('<0000> <FFFF>', '1 beginbfchar\n<0003> <0043>\nendbfchar', '<0003>')
+    .replace('/Kids [3 0 R]', '/Kids [2 0 R 3 0 R 3 0 R 2 0 R]');
+  const cyclicText = await FileParser.extractTextFromPdf(Buffer.from(cyclic, 'latin1'));
+  assert.equal(cyclicText.match(/C/g).length, 1);
 });
 
 test('IngestionEngine & FileParser - extrae imágenes XObject (con o sin texto), guarda en RagStorage y tolera CMYK sin canvas', async () => {
@@ -167,4 +183,66 @@ trailer << /Size 5 >>
   assert.strictEqual(await FileParser.convertCmykDataUrlToRgb(null), null);
   const cmykJpeg = 'data:image/jpeg;base64,/9j/wAAUCAAQABAEAREAAhEBAxEBBBEA/9k=';
   assert.strictEqual(await FileParser.convertCmykDataUrlToRgb(cmykJpeg), cmykJpeg);
+
+  // JPEG CMYK hostil: muestreo 0 (infinitos MCU) o 65535×65535 píxeles con un solo byte de datos. Se devuelve tal cual, enseguida.
+  const hostileCmyk = (sampling, size) => {
+    const huffman = [0x01, ...Array(15).fill(0), 0x00];
+    const bytes = [0xFF, 0xD8, 0xFF, 0xC4, 0x00, 0x26, 0x00, ...huffman, 0x10, ...huffman,
+      0xFF, 0xC0, 0x00, 0x14, 0x08, size >> 8, size & 255, size >> 8, size & 255, 0x04,
+      ...[1, 2, 3, 4].flatMap(id => [id, sampling, 0x00]),
+      0xFF, 0xDA, 0x00, 0x0E, 0x04, ...[1, 2, 3, 4].flatMap(id => [id, 0x00]), 0x00, 0x3F, 0x00, 0x00, 0xFF, 0xD9];
+    return `data:image/jpeg;base64,${Buffer.from(bytes).toString('base64')}`;
+  };
+  for (const hostile of [hostileCmyk(0x00, 16), hostileCmyk(0x11, 0xFFFF)]) {
+    const hostileStart = performance.now();
+    assert.strictEqual(await FileParser.convertCmykDataUrlToRgb(hostile), hostile);
+    assert.ok(performance.now() - hostileStart < 1000, 'el JPEG hostil no se decodifica sin fin');
+  }
+});
+
+test('IngestionEngine & FileParser - topes de descompresión: gzip en N/N+1, flujos PDF de más de 50 MB y 40 imágenes por PDF', async () => {
+  const FileParser = require('../../js/file-parser.js');
+  const zlib = require('node:zlib');
+  // readGzipText corta en el borde exacto (la copia de la base de conocimiento lo usa con 512 MB).
+  const gzipOf = text => toFile({ name: 'datos.txt.gz', content: zlib.gzipSync(Buffer.from(text)) });
+  assert.equal(await Ingestion.readGzipText(gzipOf('x'.repeat(64)), 64), 'x'.repeat(64));
+  await assert.rejects(Ingestion.readGzipText(gzipOf('x'.repeat(65)), 64), error => error.code === 'DECOMPRESSED_TOO_LARGE');
+
+  // Un flujo de página que descomprimido pasa de MAX_DECOMPRESSED_TEXT_BYTES se omite con aviso; el resto del PDF se lee.
+  const limit = Ingestion.MAX_DECOMPRESSED_TEXT_BYTES;
+  const content = size => {
+    const visible = 'BT /F1 12 Tf (Visible) Tj ET';
+    return zlib.deflateSync(Buffer.from(visible + ' '.repeat(size - visible.length)));
+  };
+  const flatePdf = streams => {
+    const kids = streams.map((_, i) => `${3 + i} 0 R`).join(' ');
+    const objects = streams.flatMap((stream, i) => [
+      Buffer.from(`${3 + i} 0 obj << /Type /Page /Parent 2 0 R /Contents ${10 + i} 0 R >> endobj\n${10 + i} 0 obj << /Length ${stream.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'),
+      stream,
+      Buffer.from('\nendstream\nendobj\n', 'latin1')
+    ]);
+    return Buffer.concat([Buffer.from(`%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [${kids}] /Count ${streams.length} >> endobj\n`, 'latin1'), ...objects, Buffer.from('trailer << /Root 1 0 R >>\n%%EOF', 'latin1')]);
+  };
+  const atLimit = await FileParser.parsePdfDocument(flatePdf([content(limit)]));
+  assert.match(atLimit.text, /Visible/);
+  assert.doesNotMatch(atLimit.text, /exceeds the 50 MB limit/);
+  const overLimit = await FileParser.parsePdfDocument(flatePdf([content(limit + 1), content(64)]));
+  assert.match(overLimit.text, /A compressed PDF stream exceeds the 50 MB limit once decompressed and was skipped/);
+  assert.match(overLimit.text, /Visible/, 'la otra página se lee');
+
+  // Imágenes: 40 se extraen; la 41 queda como imagen omitida, sin codificarla.
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4E, 0x47]), Buffer.alloc(60)]);
+  const imagePdf = count => Buffer.concat([
+    Buffer.from('%PDF-1.4\n', 'latin1'),
+    ...Array.from({ length: count }, (_, i) => Buffer.concat([
+      Buffer.from(`${100 + i} 0 obj << /Type /XObject /Subtype /Image /Width 100 /Height 100 /Length ${png.length} >>\nstream\n`, 'latin1'), png, Buffer.from('\nendstream\nendobj\n', 'latin1')
+    ])),
+    Buffer.from('trailer << >>\n%%EOF', 'latin1')
+  ]);
+  const forty = await FileParser.parsePdfDocument(imagePdf(40));
+  assert.equal(forty.images.length, 40);
+  assert.doesNotMatch(forty.text, /Image omitted/);
+  const fortyOne = await FileParser.parsePdfDocument(imagePdf(41));
+  assert.equal(fortyOne.images.length, 40);
+  assert.match(fortyOne.text, /\[Image omitted: 1 more image\(s\), over the limit of 40 per document\.\]/);
 });

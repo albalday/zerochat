@@ -369,7 +369,7 @@ test('ChatEngine - switch_model cambia de perfil y de razonamiento desde el sigu
   const profiles = [profile('argon', 'Argon', 'argon-1', 'medium'), profile('gemini', 'Gemini', 'gemini-x', 'low'), profile('otro', 'Otro', 'otro-1', 'low')];
   t.mock.method(Profiles, 'list', () => profiles);
   t.mock.method(Profiles, 'get', id => profiles.find(item => item.id === id) || null);
-  t.mock.method(Profiles, 'loadUnlocked', async id => profiles.find(item => item.id === id) || null);
+  t.mock.method(Profiles, 'load', async id => profiles.find(item => item.id === id) || null);
   t.mock.method(Storage, 'saveRuntimeConfigV2', () => {});
   const previousConfig = State.get('config');
   t.after(() => State.set('config', previousConfig));

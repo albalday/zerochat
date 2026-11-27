@@ -20,7 +20,7 @@
     + ' .chat-container, .messages-list { height: auto; max-height: none; overflow: visible; }';
   // Lo que no aporta sin scripts: acciones de los mensajes, del código, de las tablas y de las tarjetas.
   const HTML_EXPORT_REMOVED = 'script, #welcome-banner, .message-actions, .btn-copy-code, .btn-preview-code, .table-actions, .btn-tool-collapse';
-  const HTML_EXPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data: http: https:";
+  const HTML_EXPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data: http: https:; base-uri 'none'; form-action 'none'";
 
   /** Conversación en Markdown: los mensajes del usuario y las respuestas, sin el prompt de sistema. */
   function buildMarkdownExport(chatHistory, { title = DEFAULT_TITLE, model = '' } = {}) {

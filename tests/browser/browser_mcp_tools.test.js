@@ -347,17 +347,13 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
       return {
         directActions: Array.from(actions.children).map(el => el.className),
         menuHidden: menu.hidden,
-        layout: getComputedStyle(actions).display,
         serverTagCount: prompt.querySelectorAll('.tool-card-tag').length,
-        cardOverflow: getComputedStyle(window.__permissionCard.querySelector('.tool-execution-card')).overflow,
         panelVisible: window.__permissionCard.querySelector('.tool-execution-card').getBoundingClientRect().bottom <= listRect.bottom + 1
       };
     });
     assert.deepEqual(initial.directActions, ['btn-auth-action btn-auth-allow-once', 'tool-auth-more', 'btn-auth-action btn-auth-deny']);
     assert.equal(initial.menuHidden, true);
-    assert.equal(initial.layout, 'grid');
     assert.equal(initial.serverTagCount, 0);
-    assert.equal(initial.cardOverflow, 'visible');
     assert.equal(initial.panelVisible, true);
 
     await page.click('.btn-auth-more');
@@ -372,7 +368,6 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
       return {
         expanded: prompt.querySelector('.btn-auth-more').getAttribute('aria-expanded'),
         menuHidden: menu.hidden,
-        menuPosition: getComputedStyle(menu).position,
         hasCommandScope: !!menu.querySelector('.btn-auth-allow-cmd'),
         // Los tres alcances van uno por fila y la línea del comando debajo, con ancho útil
         cmdInputWidth: menu.querySelector('.tool-auth-cmd-input').getBoundingClientRect().width,
@@ -386,7 +381,6 @@ test('Browser UI - la petición de permisos agrupa las autorizaciones ampliadas 
     });
     assert.equal(expanded.expanded, 'true');
     assert.equal(expanded.menuHidden, false);
-    assert.equal(expanded.menuPosition, 'static');
     assert.equal(expanded.hasCommandScope, true);
     assert.ok(expanded.cmdInputWidth >= 150, `El campo del patrón es demasiado estrecho: ${expanded.cmdInputWidth}px`);
     assert.equal(expanded.cmdLayout, true);

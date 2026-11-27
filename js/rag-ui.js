@@ -305,15 +305,6 @@
     }
   }
 
-  function downloadBlob(blob, filename) {
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
-  }
-
   function getRagActivationModalHTML() {
     return `<div class="modal-header settings-section-header">
       <div class="modal-title">
@@ -626,7 +617,7 @@
         compress: true,
         onProgress: ({ current, total, percent }) => setText(t('rag_export_progress', { percent, current, total }))
       });
-      downloadBlob(blob, filename);
+      Utils.downloadFile(blob, filename);
       setText(t('rag_export_done'));
       await new Promise(resolve => setTimeout(resolve, 1500));
     });
@@ -639,7 +630,7 @@
       try {
         text = await storage().readBackupText(file);
       } catch (error) {
-        if (error.name === 'RangeError' || error.code === 'ERR_STRING_TOO_LONG') throw new Error(t('rag_import_too_large'));
+        if (error.name === 'RangeError' || error.code === 'ERR_STRING_TOO_LONG' || error.code === 'DECOMPRESSED_TOO_LARGE') throw new Error(t('rag_import_too_large'));
         throw error;
       }
       if (!text) throw new Error(t('rag_import_empty'));

@@ -26,7 +26,7 @@ test('Service Worker - PRECACHE_ASSETS existe en disco e incluye todos los scrip
   }
 });
 
-test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHub Pages y excluye endpoints de API', () => {
+test('Service Worker - el handler de fetch intercepta las peticiones GET del mismo origen, en GitHub Pages y en el servidor local', () => {
   const vm = require('node:vm');
   const swPath = path.resolve(__dirname, '../../sw.js');
   const swCode = fs.readFileSync(swPath, 'utf8');
@@ -43,7 +43,8 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
       URL,
       caches: {
         open: () => Promise.resolve({
-          match: () => Promise.resolve(null)
+          match: () => Promise.resolve(null),
+          put: () => Promise.resolve()
         })
       },
       fetch: () => Promise.resolve({ status: 200, type: 'basic', clone: () => ({}) })
@@ -57,9 +58,10 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
     let responded = false;
     const event = {
       request: { url, method },
-      respondWith: (promise) => {
+      respondWith: () => {
         responded = true;
-      }
+      },
+      waitUntil: () => {}
     };
     listeners.fetch(event);
     return responded;
@@ -83,11 +85,6 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
     'Debe interceptar CSS en subdirectorio de producción'
   );
   assert.equal(
-    simulateFetch(ghWorker, 'https://albalday.github.io/zerochat/external/servers'),
-    false,
-    'Debe excluir llamadas a servidores externos'
-  );
-  assert.equal(
     simulateFetch(ghWorker, 'https://api.openai.com/v1/chat/completions'),
     false,
     'Debe omitir llamadas cross-origin'
@@ -104,16 +101,6 @@ test('Service Worker - el handler de fetch intercepta la ruta publicada de GitHu
     simulateFetch(localWorker, 'http://127.0.0.1:8000/js/app.js'),
     true,
     'Debe interceptar js/app.js en el servidor local'
-  );
-  assert.equal(
-    simulateFetch(localWorker, 'http://127.0.0.1:8000/mcp/external'),
-    false,
-    'Debe excluir /mcp local'
-  );
-  assert.equal(
-    simulateFetch(localWorker, 'http://127.0.0.1:8000/api/tools'),
-    false,
-    'Debe excluir /api local'
   );
   assert.equal(
     simulateFetch(localWorker, 'http://127.0.0.1:8000/zerochat.html', 'POST'),
@@ -133,21 +120,22 @@ test('Service Worker - una librería bajo demanda se guarda al primer uso y se s
     URL,
     caches: {
       open: async () => ({
-        match: async req => stored.get(req.url) || undefined,
-        put: async (req, res) => { stored.set(req.url, res); }
+        match: async key => stored.get(key) || undefined,
+        put: async (key, res) => { stored.set(key, res); }
       })
     },
     fetch: async req => {
       if (!online) throw new TypeError('Failed to fetch');
       return { status: 200, type: 'basic', body: `bundle:${req.url}`, clone() { return this; } };
-    }
+    },
+    Response: { error: () => ({ type: 'error' }) }
   };
   vm.createContext(context);
   vm.runInContext(swCode, context);
 
   const request = (url) => {
     let responsePromise = null;
-    listeners.fetch({ request: { url, method: 'GET' }, respondWith: promise => { responsePromise = promise; } });
+    listeners.fetch({ request: { url, method: 'GET' }, respondWith: promise => { responsePromise = promise; }, waitUntil: () => {} });
     return responsePromise;
   };
   const url = 'https://example.test/zerochat/js/vendor/mammoth.browser.js';
@@ -156,6 +144,17 @@ test('Service Worker - una librería bajo demanda se guarda al primer uso y se s
   assert.ok(stored.has(url), 'La primera descarga debe quedar en caché');
   online = false;
   assert.equal((await request(url)).body, `bundle:${url}`, 'Sin red debe servirse desde la caché');
+
+  // Una página con consulta (proyecto, carpeta) es la misma entrada: se guarda sin consulta y abre sin red.
+  online = true;
+  const page = 'https://example.test/zerochat/files.html';
+  await request(`${page}?project=%2Fhome%2Fu%2Frepo&path=src`);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual([...stored.keys()].filter(key => key.includes('files.html')), [page]);
+  online = false;
+  assert.equal((await request(`${page}?project=%2Fotro`)).body, `bundle:${page}?project=%2Fhome%2Fu%2Frepo&path=src`);
+  // Sin red ni copia guardada se responde con un error de red, no con undefined.
+  assert.equal((await request('https://example.test/zerochat/help/nada.html')).type, 'error');
 });
 
 

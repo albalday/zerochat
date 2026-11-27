@@ -53,12 +53,22 @@ test('Api - createReasoningTagSplitter separa los bloques de razonamiento aunque
     [['pre<THOUGHT>uno', ' dos', '</thought>fin'], [[text('pre'), thought(''), thought('uno')], [thought(' dos')], [text('fin')]]],
     // Solo cierra la etiqueta que abrió: </think> dentro de <reasoning> es razonamiento
     [['<reasoning>x</think>y</reasoning>'], [[thought(''), thought('x</think>y')]]],
-    [['<think>', '</think>', 'z'], [[thought('')], [], [text('z')]]]
+    [['<think>', '</think>', 'z'], [[thought('')], [], [text('z')]]],
+    // Etiquetas partidas entre trozos: se retienen hasta completarse y no tragan la respuesta
+    [['<think>a</', 'think>b'], [[thought(''), thought('a')], [text('b')]]],
+    [['x<th', 'ink>y</think>z'], [[text('x')], [thought(''), thought('y'), text('z')]]],
+    // Un comienzo de etiqueta que no lo era se entrega en el trozo siguiente
+    [['a <', 'b'], [[text('a ')], [text('<b')]]]
   ];
   for (const [chunks, expected] of rows) {
     const split = Api.createReasoningTagSplitter();
     assert.deepEqual(chunks.map(split), expected, JSON.stringify(chunks));
   }
+  // Lo retenido al cerrar el stream se entrega con flush
+  const split = Api.createReasoningTagSplitter();
+  assert.deepEqual(split('fin <'), [text('fin ')]);
+  assert.deepEqual(split.flush(), [text('<')]);
+  assert.deepEqual(split.flush(), []);
 });
 
 test('Api - corta en límite de salida, ignora chunks ilegibles, reintenta parámetros rechazados y entrega errores del stream', async (t) => {
@@ -73,6 +83,11 @@ test('Api - corta en límite de salida, ignora chunks ilegibles, reintenta pará
     assert.equal(cut.truncated, true);
     assert.equal(cut.accumulatedText, 'Texto');
     assert.ok(logs.some(entry => entry.type === 'warning' && /output token limit/.test(entry.text)));
+
+    // La última línea sin salto final y «data:» sin espacio también cuentan
+    global.fetch = async () => new Response('data:{"choices":[{"delta":{"content":"Uno "}}]}\n\ndata: {"choices":[{"delta":{"content":"dos"}}]}');
+    const tail = await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [] });
+    assert.equal(tail.accumulatedText, 'Uno dos');
 
     global.fetch = async () => new Response('data: {"choices":[{"delta":{"content":"Texto"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n');
     assert.equal((await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [] })).truncated, false);
@@ -96,6 +111,15 @@ test('Api - corta en límite de salida, ignora chunks ilegibles, reintenta pará
     assert.equal(retried.recoveredReason, 'reasoning_rejected');
     assert.equal(bodies[0].reasoning_effort, 'xhigh');
     assert.equal('reasoning_effort' in bodies[1], false);
+
+    // Si el reintento también falla, el error que llega es el de la segunda respuesta
+    let retryError = null;
+    let attempt = 0;
+    global.fetch = async () => (++attempt === 1
+      ? new Response(JSON.stringify({ error: { message: 'Invalid value for reasoning_effort: xhigh' } }), { status: 400 })
+      : new Response(JSON.stringify({ error: { message: 'Model not loaded' } }), { status: 400 }));
+    await Api.streamChatCompletion({ apiUrl: 'http://localhost:1234/v1', apiType: 'openai', model: 'test', messages: [], reasoningEffort: 'xhigh', onError: err => { retryError = err; } });
+    assert.equal(retryError.message, 'Model not loaded');
 
     // 4. Error dentro del stream va a onError
     logs.length = 0;

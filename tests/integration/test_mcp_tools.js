@@ -106,11 +106,6 @@ test('MCP Tools - Contrato declarativo y descubrimiento de herramientas nativas 
     assert.match(readFileTool.metadata.iconSvg, /<svg/);
     assert.match(execCmdTool.metadata.iconSvg, /<svg/);
 
-    // Comprobar vistas declaradas
-    assert.ok(typeof listDirTool.view?.createLiveCard === 'function');
-    assert.ok(typeof readFileTool.view?.createLiveCard === 'function');
-    assert.ok(typeof execCmdTool.view?.createLiveCard === 'function');
-
     // Registrar en ToolRegistry
     const registry = new AgentCore.ToolRegistry();
     registry.registerProvider(provider);

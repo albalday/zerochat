@@ -16,7 +16,6 @@
   const { t } = I18n;
 
   const getProfiles = () => resolveDep('ChatProfileRepository', './profile-repository.js');
-  const getProfileSecrets = () => resolveDep('ChatProfileSecrets', './profile-secrets.js');
   const getConfig = () => resolveDep('ChatConfig', './config-store.js');
   const getProfileCheck = () => resolveDep('ChatProfileCheck', './profile-check.js');
   const getProviders = () => resolveDep('ChatProviders', './providers.js');
@@ -28,7 +27,7 @@
   // Texto de la comprobación del perfil activo (ChatProfileCheck) por estado o, si lo hay, por motivo.
   const PROFILE_CHECK_KEYS = {
     checking: 'profile_check_checking', ready: 'profile_check_ready', unreachable: 'profile_check_unreachable', auth: 'profile_check_auth',
-    server: 'profile_check_server', model_not_found: 'profile_check_model_not_found', locked: 'profile_check_locked'
+    server: 'profile_check_server', model_not_found: 'profile_check_model_not_found'
   };
 
   const FREE_TIER_HELP = { openrouter: 'help/openrouter-free.html', gemini: 'help/gemini-free.html' };
@@ -247,7 +246,7 @@
     fillProfileForm(profileData);
     syncProfileSaveState();
     try {
-      const profile = await getProfiles().loadUnlocked(profileId);
+      const profile = await getProfiles().load(profileId);
       if (selectedProfileId() !== profileId) return;
       const apiKey = profile?.settings?.apiKey || '';
       els.settingApiKey.value = apiKey;
@@ -261,7 +260,7 @@
 
   /** Activa un perfil de conexión en ChatConfig y actualiza modelo y telemetría. */
   function activateConnectionProfile(profileId, activationOptions) {
-    getWebLLM().adapter.disposeActiveEngine().catch(() => {});
+    getWebLLM().adapter.disposeActiveEngine().catch(error => console.warn('[UIProfiles] Could not release the WebLLM engine:', error));
     getConfig().activateProfile(profileId, activationOptions);
     options.loadCachedModels();
     options.resetTelemetryDisplay();
@@ -349,7 +348,7 @@
             <div class="form-field"><label for="setting-context-window"><strong data-i18n="field_context_window">Ventana de contexto (Opcional)</strong><span class="label-hint" data-i18n="field_context_window_hint">Tokens máximos del modelo si el servidor no los publica o quieres fijarlos manualmente.</span></label><input type="number" id="setting-context-window" min="1024" step="1" data-i18n-placeholder="field_context_window_placeholder" placeholder="Automático (según servidor o 128000)"></div>
         `)}
         ${profileChapter('webllm-params-panel', 'profile-summary-webllm', 'webllm_params_title', `
-            <div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper"><option value="4096">4096 (4K)</option><option value="8192">8192 (8K)</option><option value="16384">16384 (16K)</option><option value="32768">32768 (32K)</option><option value="65536">65536 (64K)</option><option value="131072">131072 (128K)</option></select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div>
+            <div class="webllm-params-grid"><div class="webllm-param-item"><label for="setting-webllm-context-window"><span data-i18n="field_webllm_context_window">Ventana de contexto (context_window_size)</span><select id="setting-webllm-context-window" class="combobox-select-helper">${Defaults.WEBLLM_CONTEXT_WINDOW_SIZES.map(size => `<option value="${size}">${size} (${size / 1024}K)</option>`).join('')}</select></label></div><div class="webllm-param-item"><label for="setting-webllm-prefill-chunk"><span data-i18n="field_webllm_prefill_chunk">Bloque de prefill (prefill_chunk_size)</span><select id="setting-webllm-prefill-chunk" class="combobox-select-helper"><option value="default" selected data-i18n="webllm_opt_default">Por defecto del modelo</option><option value="512">512</option><option value="1024">1024</option><option value="2048">2048</option><option value="4096">4096</option></select></label></div></div>
         `)}
         ${profileChapter('profile-chapter-behavior', 'profile-summary-behavior', 'profile_chapter_behavior', `
             <div class="form-field">
@@ -444,14 +443,10 @@
     els.activeProfileTrigger.setAttribute('aria-expanded', String(open));
     els.activeProfilePopover.hidden = !open;
     if (open) {
-      if (typeof els.activeProfilePopover.showModal === 'function' && !els.activeProfilePopover.open) {
-        els.activeProfilePopover.showModal();
-      }
+      if (!els.activeProfilePopover.open) els.activeProfilePopover.showModal();
       syncPopoverPosition();
     } else {
-      if (typeof els.activeProfilePopover.close === 'function' && els.activeProfilePopover.open) {
-        els.activeProfilePopover.close();
-      }
+      if (els.activeProfilePopover.open) els.activeProfilePopover.close();
       els.activeProfilePopover.style.left = '';
       els.activeProfilePopover.style.transform = '';
     }
@@ -574,84 +569,12 @@
 
   async function handleInspectProfile(profileId) {
     try {
-      const profile = await getProfiles().loadUnlocked(profileId);
+      const profile = await getProfiles().load(profileId);
       if (!profile) return;
       closeProfileMenu();
       await options.inspectProfile(profile);
     } catch (error) {
-      if (!error?.cancelled) showProfileFeedback(t('err_profile_api_key', { err: error?.message || t('notice_error') }), 'error');
-    }
-  }
-
-  function requestEncryptionPassword(message) {
-    return getDialogs().prompt(message, '', {
-      inputType: 'password',
-      title: t('crypto_password_title'),
-      acceptText: t('notice_accept'),
-      cancelText: t('notice_cancel')
-    });
-  }
-
-  function requestCurrentPassword() {
-    return requestEncryptionPassword(t('crypto_current_password_prompt'));
-  }
-
-  /** Clave actual de las API keys: la guardada en la sesión o la de la contraseña; undefined si se cancela. */
-  async function resolveCurrentKeyForRecipher() {
-    const Profiles = getProfiles();
-    const Secrets = getProfileSecrets();
-    const cached = Secrets.getCachedKeyMaterial();
-    try {
-      await Profiles.verifyApiKeyMaterial(cached);
-      return cached;
-    } catch (error) {
-      if (error?.code !== 'PASSWORD_REQUIRED') throw error;
-    }
-    const password = await requestCurrentPassword();
-    if (password === null) return undefined;
-    const keyMaterial = await Secrets.keyMaterialFromPassword(password);
-    await Profiles.verifyApiKeyMaterial(keyMaterial);
-    return keyMaterial;
-  }
-
-  async function handleEncryptionPassword() {
-    const Dialogs = getDialogs();
-    const Secrets = getProfileSecrets();
-    const nextPassword = await requestEncryptionPassword(t('crypto_new_password_prompt'));
-    if (nextPassword === null) return;
-    if (!nextPassword) {
-      await Dialogs.alert(t('crypto_password_empty'), { type: 'error' });
-      return;
-    }
-    const confirmation = await requestEncryptionPassword(t('crypto_confirm_password_prompt'));
-    if (confirmation === null) return;
-    if (nextPassword !== confirmation) {
-      await Dialogs.alert(t('crypto_password_mismatch'), { type: 'error' });
-      return;
-    }
-    try {
-      const current = await resolveCurrentKeyForRecipher();
-      if (current === undefined) return;
-      const next = await Secrets.keyMaterialFromPassword(nextPassword);
-      await getProfiles().recipherApiKeys(current, next);
-      Secrets.cacheKeyMaterial(next);
-      await Dialogs.alert(t('crypto_password_saved'), { type: 'success' });
-    } catch (error) {
-      await Dialogs.alert(t('crypto_password_error', { err: error?.message || t('notice_error') }), { type: 'error' });
-    }
-  }
-
-  async function handleUseDefaultEncryptionKey() {
-    const Dialogs = getDialogs();
-    if (!await Dialogs.confirm(t('crypto_default_confirm'), { type: 'warning' })) return;
-    try {
-      const current = await resolveCurrentKeyForRecipher();
-      if (current === undefined) return;
-      const reciphered = await getProfiles().recipherApiKeys(current, null);
-      getProfileSecrets().clearCachedKeyMaterial();
-      await Dialogs.alert(t(reciphered ? 'crypto_default_saved' : 'crypto_default_no_api_keys'), { type: 'success' });
-    } catch (error) {
-      await Dialogs.alert(t('crypto_password_error', { err: error?.message || t('notice_error') }), { type: 'error' });
+      showProfileFeedback(t('err_profile_api_key', { err: error?.message || t('notice_error') }), 'error');
     }
   }
 
@@ -905,7 +828,6 @@
     els = elements;
     options = callbacks;
     editor = initialEditorState();
-    getProfiles().setPasswordPrompt(requestCurrentPassword);
     bindEditor();
     bindMenu();
     syncActiveProfileTrigger();
@@ -919,8 +841,6 @@
     setProfileQueryState,
     closeProfilesModal,
     activateConnectionProfile,
-    handleEncryptionPassword,
-    handleUseDefaultEncryptionKey,
     initialEditorState,
     getSaveHint,
     getSaveDecision,

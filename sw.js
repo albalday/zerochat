@@ -152,30 +152,23 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Ignorar endpoints de API, túneles o llamadas dinámicas del backend local
-  if (url.pathname.startsWith('/api') ||
-      url.pathname.startsWith('/mcp') ||
-      url.pathname.startsWith('/zerochat/external') ||
-      url.pathname.startsWith('/v1') ||
-      url.pathname.startsWith('/ws')) {
-    return;
-  }
-
-  // Estrategia Stale-While-Revalidate
-  event.respondWith(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.match(req).then(cachedResponse => {
-        const fetchPromise = fetch(req).then(networkResponse => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            cache.put(req, networkResponse.clone());
-          }
-          return networkResponse;
-        }).catch(() => {
-          return cachedResponse;
-        });
-
-        return cachedResponse || fetchPromise;
-      });
-    })
-  );
+  // Stale-While-Revalidate. La clave no lleva la consulta: zerochat.html?project=… y files.html?path=… son la
+  // misma página (sin copias repetidas ni rutas locales guardadas en Cache Storage, y abren sin conexión).
+  const key = url.origin + url.pathname;
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    const cachedResponse = await cache.match(key);
+    const fetchPromise = fetch(req).then(networkResponse => {
+      if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+        event.waitUntil(cache.put(key, networkResponse.clone()));
+      }
+      return networkResponse;
+    });
+    if (cachedResponse) {
+      // La revalidación sigue viva aunque se responda antes desde la caché.
+      event.waitUntil(fetchPromise.catch(() => undefined));
+      return cachedResponse;
+    }
+    return fetchPromise.catch(() => Response.error());
+  })());
 });

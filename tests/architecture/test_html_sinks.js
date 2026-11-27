@@ -11,14 +11,16 @@ const { listSourceFiles } = require('../helpers/source-files');
 // Las superficies que pintan datos del modelo o de la red tienen además su prueba de inyección.
 
 const ROOT = path.resolve(__dirname, '../..');
-const HTML_SINK = /\.(?:innerHTML|outerHTML)\s*=(?!=)(?!\s*''\s*;)|insertAdjacentHTML\s*\(/g;
+// Asignar o añadir HTML (=, +=), insertarlo, pasarlo por setTrustedHtml, escribir el documento o un srcdoc.
+const HTML_SINK = /\.(?:innerHTML|outerHTML)\s*\+?=(?!=)(?!\s*''\s*;)|insertAdjacentHTML\s*\(|(?<!function )\bsetTrustedHtml\s*\(|document\.write(?:ln)?\s*\(|createContextualFragment\s*\(|\.srcdoc\s*=(?!=)/g;
 const REVIEWED_USES = {
   'js/command-card.js': 2,
   'js/debug.js': 5,
   'js/files-page.js': 1,
   'js/generation-controller.js': 1,
   'js/rag-ui.js': 9,
-  'js/tool-cards.js': 15,
+  'js/sandbox.js': 1,
+  'js/tool-cards.js': 18,
   'js/tools/builtin/ask-user.tool.js': 2,
   'js/tools/builtin/delegate-task.tool.js': 3,
   'js/tools/builtin/download-image.tool.js': 1,
@@ -30,6 +32,7 @@ const REVIEWED_USES = {
   'js/tools/builtin/wait.tool.js': 2,
   'js/ui-browser.js': 1,
   'js/ui-command-jobs.js': 1,
+  'js/ui-composer.js': 2,
   'js/ui-conversation.js': 11,
   'js/ui-dialogs.js': 1,
   'js/ui-folder-picker.js': 2,

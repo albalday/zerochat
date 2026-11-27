@@ -25,7 +25,7 @@
   let browsed = '';
   let settle = null;
 
-  const reason = error => String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '');
+  const reason = error => getMCP().errorReason(error);
 
   function showError(error) {
     els.error.textContent = error ? reason(error) : '';

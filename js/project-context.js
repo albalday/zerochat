@@ -375,7 +375,7 @@ ${stateBody}
         return { ok: true, cwd: String(result?.cwd || '') };
       } catch (error) {
         // El aviso muestra el motivo del servidor sin el prefijo técnico del cliente JSON-RPC.
-        return { ok: false, reason: 'error', error: String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '') };
+        return { ok: false, reason: 'error', error: resolveDep('ChatMCP', './mcp.js').errorReason(error) };
       }
     }
 
@@ -394,8 +394,7 @@ ${stateBody}
       const cwd = project.cwd;
       if (project.status !== 'ready' || !cwd || !canCompact()) return { ok: false, reason: 'unavailable' };
 
-      const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
-      const name = parts[parts.length - 1] || String(cwd || '');
+      const name = projectName(cwd);
       if (!await askConfirmation({ cwd, name })) return { ok: false, reason: 'cancelled' };
 
       const current = State.get('project');
@@ -440,8 +439,7 @@ ${stateBody}
       const cwd = getCwd();
       if (!cwd || !canDeleteProject() || isBusy?.()) return { ok: false, reason: 'unavailable' };
 
-      const parts = String(cwd || '').split(/[\\/]+/).filter(Boolean);
-      const name = parts[parts.length - 1] || String(cwd || '');
+      const name = projectName(cwd);
       const choice = await askDeleteOptions({ cwd, name });
       if (!choice?.accepted) return { ok: false, reason: 'cancelled' };
 
@@ -461,7 +459,7 @@ ${stateBody}
         if (typeof afterDelete === 'function') await afterDelete(result);
         return { ok: true, ...result };
       } catch (error) {
-        return { ok: false, reason: 'error', error: String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '') };
+        return { ok: false, reason: 'error', error: resolveDep('ChatMCP', './mcp.js').errorReason(error) };
       }
     }
 

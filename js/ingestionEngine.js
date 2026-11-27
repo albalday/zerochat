@@ -70,14 +70,14 @@
       total += value.byteLength;
       if (total > maxBytes) {
         await reader.cancel();
-        throw new Error(`The decompressed content exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`);
+        throw Object.assign(new Error(`The decompressed content exceeds the ${Math.round(maxBytes / 1024 / 1024)} MB limit.`), { code: 'DECOMPRESSED_TOO_LARGE' });
       }
       text += decoder.decode(value, { stream: true });
     }
     return text + decoder.decode();
   }
 
-  const readGzipText = file => readTextStream(file.stream().pipeThrough(new DecompressionStream('gzip')));
+  const readGzipText = (file, maxBytes) => readTextStream(file.stream().pipeThrough(new DecompressionStream('gzip')), maxBytes);
 
   function unsupportedArchiveMessage(format) {
     if (format === 'tar') return 'The file is a compressed TAR archive. Extract the logs or use individual .gz files.';
@@ -337,5 +337,5 @@
     return result;
   }
 
-  return { normalizeExtractedText, extractTextFromPlainText, detectSectionHeading, partitionTextIntoChunks, detectFileType, isLikelyText, getArchiveFormat, readGzipText, processDocumentQueue, MAX_DOCUMENT_SIZE };
+  return { normalizeExtractedText, extractTextFromPlainText, detectSectionHeading, partitionTextIntoChunks, detectFileType, isLikelyText, getArchiveFormat, readGzipText, processDocumentQueue, MAX_DOCUMENT_SIZE, MAX_DECOMPRESSED_TEXT_BYTES };
 });

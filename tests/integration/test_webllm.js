@@ -326,3 +326,11 @@ test('WebLLM - ChatAPI usa el transporte local sin fetch y conserva el streaming
     global.fetch = originalFetch;
   }
 });
+
+test('WebLLM - solo se ejecuta la librería descargada si su huella SHA-384 coincide', async () => {
+  const bytes = new TextEncoder().encode('export const ok = true;');
+  const digest = Buffer.from(await crypto.subtle.digest('SHA-384', bytes)).toString('base64');
+  await WebLLM.verifyModuleIntegrity(bytes, digest);
+  const tampered = new TextEncoder().encode('export const ok = false;');
+  await assert.rejects(WebLLM.verifyModuleIntegrity(tampered, digest), /failed the integrity check/);
+});

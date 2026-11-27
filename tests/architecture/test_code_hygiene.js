@@ -11,7 +11,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const JS_DIR = path.join(ROOT, 'js');
 
 const SOURCES = new Map(listSourceFiles(JS_DIR).map(file => [file, fs.readFileSync(file, 'utf8')]));
-const OTHER_CONSUMERS = [path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'sw.js')].map(file => fs.readFileSync(file, 'utf8'));
+const OTHER_CONSUMERS = [path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'files.html'), path.join(ROOT, 'sw.js')].map(file => fs.readFileSync(file, 'utf8'));
 const relative = file => path.relative(ROOT, file);
 const lineOf = (source, index) => source.slice(0, index).split('\n').length;
 const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -125,4 +125,12 @@ test('Higiene - cada llamada a ChatDialogs se espera', () => {
     }
   }
   assert.deepEqual(offenders, [], `Espera (await) o devuelve la promesa del diálogo:\n${offenders.join('\n')}`);
+});
+
+test('Higiene - la aplicación no usa los diálogos nativos del navegador (alert, confirm, prompt), sino ChatDialogs', () => {
+  for (const [file, rawSource] of SOURCES) {
+    const source = rawSource.replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(source, /(?:window|globalThis|self)\s*\.\s*(?:alert|confirm|prompt)\s*\(/, relative(file));
+    assert.doesNotMatch(source.replace(/function alert\(/g, 'function internalNotice('), /(?<![\w.])(?:alert|confirm|prompt)\s*\(/g, relative(file));
+  }
 });

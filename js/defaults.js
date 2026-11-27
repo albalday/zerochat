@@ -71,8 +71,19 @@
     })
   });
 
+  // Niveles de razonamiento, de menos a más, con la clave i18n de su etiqueta: única fuente del selector,
+  // de los adaptadores y de switch_model (py/run_mode/state.py RUN_REASONING_LEVELS, misma lista por paridad).
+  const REASONING_LEVEL_LABEL_KEYS = Object.freeze({
+    none: 'reasoning_intensity_none',
+    low: 'reasoning_level_low',
+    medium: 'reasoning_level_medium',
+    high: 'reasoning_level_high',
+    xhigh: 'reasoning_intensity_max'
+  });
+
   return Object.freeze({
     APP_VERSION,
+    REASONING_LEVEL_LABEL_KEYS,
     BROWSER_TOOLS,
     USER_BROWSERS,
     OWN_SYSTEM_ENGINES,

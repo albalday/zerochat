@@ -118,7 +118,7 @@
         }
       });
       State.saveSessionMetadata(sessionMeta);
-      pendingSave = pendingSave.catch(() => {}).then(() => store.saveConversation(sessionMeta, history));
+      pendingSave = pendingSave.catch(() => { /* el guardado anterior ya informó de su error a quien lo esperaba */ }).then(() => store.saveConversation(sessionMeta, history));
       return pendingSave;
     }
 

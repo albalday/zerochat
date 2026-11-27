@@ -41,14 +41,13 @@ test('Backend Higiene - ningún archivo en py/ usa capturas genéricas silencios
     const lines = fs.readFileSync(file, 'utf8').split('\n');
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (/^\s*except\s*:\s*$/.test(line)) {
+      if (/^\s*except\s*:/.test(line)) {
         offenders.push(`${rel}:${i + 1} except:`);
       }
-      if (/^\s*except\s+Exception\s*:\s*$/.test(line)) {
-        const nextLine = (lines[i + 1] || '').trim();
-        if (nextLine === 'pass') {
-          offenders.push(`${rel}:${i + 1} except Exception: pass`);
-        }
+      // except Exception (con o sin «as e») seguido de pass, en la misma línea o en la siguiente.
+      const generic = line.match(/^\s*except\s+(?:Exception|BaseException)(?:\s+as\s+\w+)?\s*:\s*(.*)$/);
+      if (generic && (generic[1].trim() || (lines[i + 1] || '').trim()) === 'pass') {
+        offenders.push(`${rel}:${i + 1} except Exception: pass`);
       }
     }
   }
@@ -83,10 +82,23 @@ test('Backend Higiene - el proceso no cambia de directorio ni lee el suyo fuera 
   for (const file of listPyFiles(PY_DIR)) {
     const rel = path.relative(ROOT, file).replace(/\\/g, '/');
     fs.readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
-      if (/os\.chdir\(|Path\.cwd\(\)|os\.getcwd\(\)/.test(line) && !allowed.has(`${rel}:${line.trim()}`)) {
+      if (/os\.chdir\(|Path\.cwd\(\)|os\.getcwd\(\)|from\s+os\s+import\s+[^#\n]*\b(?:chdir|getcwd)\b/.test(line) && !allowed.has(`${rel}:${line.trim()}`)) {
         offenders.push(`${rel}:${i + 1} ${line.trim()}`);
       }
     });
   }
   assert.deepEqual(offenders, [], `Usa el SecurityContext del proyecto en lugar del directorio del proceso:\n${offenders.join('\n')}`);
+});
+
+test('Backend Higiene - paridad JS-Python de los niveles de razonamiento y del tope de ficheros del contexto de proyecto', () => {
+  const Defaults = require('../../js/defaults.js');
+  const ProjectContext = require('../../js/project-context.js');
+  const runState = fs.readFileSync(path.join(PY_DIR, 'run_mode', 'state.py'), 'utf8');
+  const levels = runState.match(/^RUN_REASONING_LEVELS\s*=\s*\(([^)]*)\)/m);
+  assert.ok(levels, 'RUN_REASONING_LEVELS debe existir en run_mode/state.py');
+  assert.deepEqual(levels[1].split(',').map(level => level.trim().replace(/^"|"$/g, '')).filter(Boolean), Object.keys(Defaults.REASONING_LEVEL_LABEL_KEYS));
+  const filesystem = fs.readFileSync(path.join(PY_DIR, 'tools', 'filesystem.py'), 'utf8');
+  const cap = filesystem.match(/^PROJECT_CONTEXT_MAX_BYTES\s*=\s*(\d+)\s*$/m);
+  assert.ok(cap, 'PROJECT_CONTEXT_MAX_BYTES debe existir en tools/filesystem.py');
+  assert.equal(Number(cap[1]), ProjectContext.MAX_FILE_BYTES);
 });

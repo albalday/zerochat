@@ -16,5 +16,5 @@
 
   window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
-  return { handleBeforeInstallPrompt };
+  return {};
 });

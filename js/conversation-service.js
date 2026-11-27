@@ -264,7 +264,7 @@
 
   async function summarizeHistory(params) {
     const config = getConfig().getActive();
-    const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').loadUnlocked(config.activeProfile?.id);
+    const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').load(config.activeProfile?.id);
     const summarize = getEngine().createHistorySummarizer({
       apiUrl: config.apiUrl,
       apiType: config.apiType,
@@ -442,7 +442,7 @@
     let activeDeleted = false;
     for (const id of ids) {
       if (id === activeId) activeDeleted = true;
-      await getStorage().deleteConversation(id).catch(() => {});
+      await getStorage().deleteConversation(id).catch(error => console.warn(`[ConversationService] Could not delete conversation ${id}:`, error));
       getState().removeSession(id);
     }
     const remaining = getSavedSessions();

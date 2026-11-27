@@ -14,7 +14,7 @@ const SANDBOX = 'js/sandbox.js';
 const PERSISTENCE_API = /(?<![\w$])(localStorage|sessionStorage|indexedDB)(?![\w$])|document\.cookie/g;
 
 test('Persistencia - fuera de los módulos de almacenamiento nadie accede a localStorage, IndexedDB ni cookies', () => {
-  const files = [...listSourceFiles(path.join(ROOT, 'js')), path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'sw.js')];
+  const files = [...listSourceFiles(path.join(ROOT, 'js')), path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'files.html'), path.join(ROOT, 'sw.js')];
   const offenders = [];
   for (const file of files) {
     const relative = path.relative(ROOT, file).split(path.sep).join('/');

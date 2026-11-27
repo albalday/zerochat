@@ -5,8 +5,8 @@ const path = require('node:path');
 const { listSourceFiles } = require('../helpers/source-files');
 
 const JS_DIR = path.resolve(__dirname, '../../js');
-// Asignación directa de un literal (comillas o plantilla) a una propiedad de texto visible.
-const TEXT_ASSIGNMENT = /\.(textContent|innerText|placeholder|title)\s*=\s*(['`])((?:(?!\2).)*)\2/g;
+// Literal (comillas simples, dobles o plantilla) asignado a una propiedad de texto visible o pasado a setText.
+const TEXT_ASSIGNMENT = /(?:\.(?:textContent|innerText|placeholder|title)\s*=|\bsetText\([^,()]+,)\s*(['"`])((?:(?!\1).)*)\1/g;
 // Términos técnicos que no se traducen: unidades y métodos HTTP.
 const UNTRANSLATED_TERMS = /\b(tok|POST|GET)\b/g;
 
@@ -18,7 +18,7 @@ test('ChatI18n - el texto visible asignado desde JavaScript no usa literales sin
   for (const file of listAppSources(JS_DIR)) {
     const source = fs.readFileSync(file, 'utf8');
     for (const match of source.matchAll(TEXT_ASSIGNMENT)) {
-      const text = match[3].replace(/\$\{[^}]*\}/g, '').replace(UNTRANSLATED_TERMS, '');
+      const text = match[2].replace(/\$\{[^}]*\}/g, '').replace(UNTRANSLATED_TERMS, '');
       if (/\p{L}{2,}/u.test(text)) {
         const line = source.slice(0, match.index).split('\n').length;
         offenders.push(`${path.relative(JS_DIR, file)}:${line} ${match[0]}`);
@@ -52,6 +52,7 @@ test('ChatI18n - toda clave de los diccionarios se usa', () => {
   const corpus = [
     ...listAppSources(JS_DIR).map(file => fs.readFileSync(file, 'utf8')),
     fs.readFileSync(path.resolve(JS_DIR, '../zerochat.html'), 'utf8'),
+    fs.readFileSync(path.resolve(JS_DIR, '../files.html'), 'utf8'),
     i18nSource.slice(i18nSource.indexOf('function t('))
   ].join('\n');
 

@@ -7,10 +7,6 @@ const Storage = require('../../js/storage.js');
 // Cada caso parte de un almacenamiento vacío: el repositorio real lee y escribe en él.
 test.beforeEach(() => localStorage.clear());
 
-function passwordRequiredError() {
-  return Object.assign(new Error('password required'), { code: 'PASSWORD_REQUIRED' });
-}
-
 // --- Repositorio y persistencia de perfiles ---
 
 test('ProfileRepository - inicializa Espejo, no mezcla perfiles del backend y los bloqueados solo pueden borrarse', async () => {
@@ -57,52 +53,30 @@ test('ProfileRepository - no guarda API keys en texto plano, no reinicializa doc
 
 // --- Cifrado local de API keys ---
 
-test('ProfileSecrets - cifra API keys, detecta manipulación y deriva la contraseña con la sal del navegador', async () => {
+test('ProfileSecrets - ofusca API keys y una clave que no se puede abrir no rompe el perfil y vuelve del servidor', async () => {
   const secret = await Secrets.encryptApiKey('sk-secret');
   assert.doesNotMatch(JSON.stringify(secret), /sk-secret/);
   assert.equal(await Secrets.decryptApiKey(secret), 'sk-secret');
   assert.throws(() => Secrets.validateApiKeySecret('sk-secret'), /encrypted API key/);
   assert.throws(() => Secrets.validateApiKeySecret({ ...secret, version: secret.version - 1 }), /encrypted API key/);
-  await assert.rejects(Secrets.decryptApiKey({ ...secret, ciphertext: 'AAAAAAAAAAAAAAAAAAAAAA==' }));
+  const damaged = { ...secret, ciphertext: 'AAAAAAAAAAAAAAAAAAAAAA==' };
+  await assert.rejects(Secrets.decryptApiKey(damaged), error => error.code === 'API_KEY_UNREADABLE');
 
-  const keyMaterial = await Secrets.keyMaterialFromPassword('correct horse battery staple');
-  assert.equal(await Secrets.keyMaterialFromPassword('correct horse battery staple'), keyMaterial, 'la sal se guarda y se reutiliza');
-  const customSecret = await Secrets.encryptApiKey('sk-custom', keyMaterial);
-  await assert.rejects(Secrets.decryptApiKey(customSecret, null), error => error.code === 'PASSWORD_REQUIRED');
-  Secrets.cacheKeyMaterial(keyMaterial);
-  assert.equal(await Secrets.decryptApiKey(customSecret), 'sk-custom');
-  Secrets.clearCachedKeyMaterial();
-  assert.equal(Secrets.getCachedKeyMaterial(), null);
-
-  localStorage.clear();
-  assert.notEqual(await Secrets.keyMaterialFromPassword('correct horse battery staple'), keyMaterial, 'otro navegador tiene otra sal');
-});
-
-test('ProfileSecrets.withPassword - usa la clave por defecto, reintenta con contraseña y distingue cancelación de fallo real', async () => {
-  let prompts = 0;
-  const direct = await Secrets.withPassword(keyMaterial => ({ keyMaterial }), () => { prompts++; return 'x'; });
-  assert.deepEqual(direct, { keyMaterial: undefined });
-  assert.equal(prompts, 0);
-
-  const expected = await Secrets.keyMaterialFromPassword('secret');
-  const calls = [];
-  const retried = await Secrets.withPassword(async keyMaterial => {
-    calls.push(keyMaterial);
-    if (!keyMaterial) throw passwordRequiredError();
-    return 'ok';
-  }, async () => 'secret');
-  assert.equal(retried, 'ok');
-  assert.deepEqual(calls, [undefined, expected]);
-
-  await assert.rejects(
-    Secrets.withPassword(async () => { throw passwordRequiredError(); }, async () => null),
-    error => error.code === 'PASSWORD_REQUIRED' && error.cancelled === true
-  );
-  await assert.rejects(
-    Secrets.withPassword(async () => { throw new Error('disk failure'); }, () => { prompts++; return 'x'; }),
-    /disk failure/
-  );
-  assert.equal(prompts, 0);
+  // Una clave guardada que no se puede abrir (dañada o cifrada antes con contraseña) se lee vacía y la sincronización
+  // la vuelve a pedir al servidor en lugar de conservarla.
+  Storage.setStorageItem(Profiles.STORAGE_KEY, JSON.stringify({ schemaVersion: 1, serverId: 'srv', profiles: [
+    { id: 'p1', name: 'P1', hasApiKey: true, synced: true, updatedAt: 100, settings: { apiKey: damaged } }
+  ] }));
+  assert.equal((await Profiles.load('p1')).settings.apiKey, '');
+  const revealed = [];
+  await Profiles.syncWithBackend({
+    serverId: 'srv',
+    listRemote: async () => [{ id: 'p1', name: 'P1', hasApiKey: true, updatedAt: 100, settings: {} }],
+    saveRemote: async () => assert.fail('No hay nada que subir'),
+    revealRemote: async id => { revealed.push(id); return { id, settings: { apiKey: 'sk-del-servidor' } }; }
+  });
+  assert.deepEqual(revealed, ['p1']);
+  assert.equal((await Profiles.load('p1')).settings.apiKey, 'sk-del-servidor');
 });
 
 // --- Perfiles de sesión e importación a local ---
@@ -119,7 +93,7 @@ test('ProfileRepository - los perfiles volátiles de sesión funcionan con clave
   assert.equal(registered.general, true);
   assert.equal(repository.list().length, initialCount);
   assert.equal(repository.findByName('local').id, 'profile:server-run-test');
-  assert.equal((await repository.loadUnlocked('profile:server-run-test')).settings.apiKey, 'sk-direct-server-secret');
+  assert.equal((await repository.load('profile:server-run-test')).settings.apiKey, 'sk-direct-server-secret');
 
   repository.clearSessionProfile();
   assert.equal(repository.get('profile:server-run-test'), null);
@@ -133,13 +107,13 @@ test('ProfileRepository - los perfiles volátiles de sesión funcionan con clave
   });
   repository.registerSessionProfile({ id: 'profile:otro', name: 'Otro', settings: { apiType: 'openai', model: 'm' } }, { keyless: true });
   assert.ok(!repository.get('profile:otro').settings.apiKey);
-  assert.equal((await repository.loadUnlocked('profile:otro')).settings.apiKey, 'sk-otro');
-  assert.equal((await repository.loadUnlocked('profile:otro')).settings.apiKey, 'sk-otro');
+  assert.equal((await repository.load('profile:otro')).settings.apiKey, 'sk-otro');
+  assert.equal((await repository.load('profile:otro')).settings.apiKey, 'sk-otro');
   assert.deepEqual(requested, ['profile:otro']);
 
   repository.registerSessionProfile({ id: 'profile:raro', name: 'Raro', settings: {} }, { keyless: true });
   repository.setSessionKeyLoader(async () => ({ id: 'profile:otro', name: 'Otro', settings: { apiKey: 'sk-otro' } }));
-  await assert.rejects(repository.loadUnlocked('profile:raro'), /did not return the profile Raro/);
+  await assert.rejects(repository.load('profile:raro'), /did not return the profile Raro/);
   repository.setSessionKeyLoader(null);
   repository.clearSessionProfile();
 });
@@ -213,7 +187,7 @@ test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva upda
   assert.equal(remoteOnly.hasApiKey, true);
   assert.ok(remoteOnly.settings.apiKey, 'la clave cifrada debe replicarse en localStorage durante syncWithBackend');
   assert.deepEqual(revealCalls, ['profile:remoto-nuevo']);
-  assert.equal((await repository.loadUnlocked('profile:remoto-nuevo')).settings.apiKey, 'sk-remota');
+  assert.equal((await repository.load('profile:remoto-nuevo')).settings.apiKey, 'sk-remota');
 
   // Resincronizar sin cambios no vuelve a pedir revealRemote.
   await repository.syncWithBackend(syncParams);
@@ -228,7 +202,7 @@ test('ProfileRepository - syncWithBackend consolida por updatedAt, conserva upda
   await repository.syncWithBackend(syncParams);
   assert.deepEqual(revealCalls, ['profile:remoto-nuevo', 'profile:remoto-nuevo']);
   assert.equal(repository.get('profile:remoto-nuevo').updatedAt, 2500);
-  assert.equal((await repository.loadUnlocked('profile:remoto-nuevo')).settings.apiKey, 'sk-remota-v2');
+  assert.equal((await repository.load('profile:remoto-nuevo')).settings.apiKey, 'sk-remota-v2');
 });
 
 test('ProfileRepository - borrados con synced y protección al cancelar cambio de serverId', async () => {

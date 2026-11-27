@@ -67,16 +67,17 @@ test('ProfileCheck - la respuesta de una comprobación relevada por otra posteri
   assert.equal(limit(), 8192);
 });
 
-test('ProfileCheck - WebLLM usa su ventana de contexto, Espejo y una clave bloqueada quedan sin comprobar y sin consulta', async t => {
+test('ProfileCheck - WebLLM usa su ventana de contexto, Espejo quedan sin comprobar y un perfil que no se carga no se consulta', async t => {
   const webllm = await checkWith(t, { apiType: 'webllm', apiUrl: 'webllm://local', model: 'Qwen-MLC', webllmConfig: { context_window_size: '8192', prefill_chunk_size: 'default' } }, null);
   assert.deepEqual([checkState().status, limit(), webllm.length], ['unchecked', 8192, 0]);
 
   const mirror = await checkWith(t, { apiType: 'mirror', apiUrl: 'mirror://local', model: 'mirror' }, null);
   assert.deepEqual([checkState().status, limit(), mirror.length], ['unchecked', null, 0]);
 
-  t.mock.method(Profiles, 'loadUnlocked', async () => { throw Object.assign(new Error('cancelled'), { code: 'PASSWORD_REQUIRED' }); });
-  const locked = await checkWith(t, OPENAI, null);
-  assert.deepEqual([checkState(), locked.length], [{ status: 'unchecked', reason: 'locked', message: '' }, 0]);
+  // Si el perfil no se puede cargar (perfil de sesión cuyo servidor no responde) no se consulta y se informa del fallo.
+  t.mock.method(Profiles, 'load', async () => { throw new Error('the local server did not answer'); });
+  const unloadable = await checkWith(t, OPENAI, null);
+  assert.deepEqual([checkState(), unloadable.length], [{ status: 'error', reason: 'unreachable', message: 'the local server did not answer' }, 0]);
 });
 
 test('ProfileCheck - recheck vuelve a consultar el perfil activo sin que cambie y publica el nuevo resultado', async t => {

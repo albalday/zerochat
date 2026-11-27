@@ -47,6 +47,17 @@ test('fetchPage - límite de longitud de contenido y error de Jina Reader', asyn
   assert.ok(res.content.length <= 60100, 'El contenido debe truncarse cerca de MAX_CONTENT_LENGTH');
   assert.ok(res.content.includes('[... Content truncated at the size limit ...]'));
 
+  // Una respuesta ya truncada por el servidor que roza el tope lleva el aviso una sola vez y entero
+  const proxy = t.mock.method(ChatMCP.manager, 'isProxyConnected', () => true);
+  const notice = '\n\n[... Content truncated at the size limit ...]';
+  for (const size of [59990, 60000, 60001]) {
+    const backend = t.mock.method(ChatMCP.manager, 'fetchWebResource', async () => ({ ok: true, status: 200, content_type: 'text/plain', text: 'B'.repeat(size), truncated: true }));
+    const near = await WebBrowser.fetchPage('https://example.com/near-limit');
+    assert.equal(near.content, 'B'.repeat(Math.min(size, 60000)) + notice, `tamaño ${size}`);
+    backend.mock.restore();
+  }
+  proxy.mock.restore();
+
   // Un bloqueo de Jina Reader llega al modelo con su explicación
   fetchMock.mock.mockImplementation(async () => Response.json({ message: 'Anonymous access to domain github.com blocked' }, { status: 403 }));
   const blocked = await WebBrowser.fetchPage('https://github.com/albalday/zerochat');
@@ -122,6 +133,12 @@ test('fetchBinaryResource - límites en el borde (N y N+1), Content-Length, vac�
     ['backend vacío', () => viaBackend({ base64: '' }), /The image is empty \(0 bytes\)/],
     ['directo N', () => direct(ok(N)), { success: true, byteSize: N }],
     ['directo N+1', () => direct(ok(N + 1)), /Image exceeds the size limit of 128 B\./],
+    // Sin Content-Length, un cuerpo enorme se deja de leer al pasar del tope.
+    ['directo N+1 sin leerlo entero', () => direct(async () => {
+      let pulled = 0;
+      const stream = new ReadableStream({ pull(controller) { pulled++; assert.ok(pulled < 5, 'Sigue leyendo tras pasar del tope'); controller.enqueue(bytes(N / 2)); } });
+      return new Response(stream, { status: 200, headers: { 'content-type': 'image/png' } });
+    }), /Image exceeds the size limit of 128 B\./],
     ['directo Content-Length', () => direct(async () => ({ ok: true, status: 200, headers: new Headers({ 'content-length': String(N + 1) }), arrayBuffer: async () => assert.fail('No debe leer el cuerpo') })), /reported/],
     ['directo vacío', () => direct(ok(0)), /The image is empty \(0 bytes\)/],
     ['directo HTTP 404', () => direct(async () => new Response('', { status: 404, statusText: 'Not Found' })), /HTTP 404/],
@@ -181,7 +198,7 @@ test('ImageFetcher - detectVisionImageMimeType, validación MIME y conversión b
 
 test('ChatWebBrowser.webFetch - valida URLs, bloquea protocolos/SSRF antes de pedir y normaliza esquemas', async t => {
   for (const okUrl of ['https://es.wikipedia.org/wiki/Sol', 'http://example.com/api', 'example.com/path', 'http://100.128.0.1/',
-    'http://[2606:4700::1111]/', 'http://[::ffff:8.8.8.8]/', 'http://localhost.example.com/']) {
+    'http://[2606:4700::1111]/', 'http://[::ffff:8.8.8.8]/', 'http://localhost.example.com/', 'http://[2a00:1450::200e]/', 'http://198.20.0.1/']) {
     assert.equal(WebBrowser.validateUrlForFetch(okUrl).valid, true, okUrl);
   }
   for (const badUrl of [
@@ -191,7 +208,12 @@ test('ChatWebBrowser.webFetch - valida URLs, bloquea protocolos/SSRF antes de pe
     'http://2852039166/', 'http://2130706433/', 'http://0x7f000001/', 'http://127.1/', 'http://0177.0.0.1/',
     'http://localhost./', 'http://metadata.google.internal./', 'http://app.localhost/', 'http://printer.local/',
     'http://db.internal/', 'http://100.64.0.1/', 'http://[::1]/', 'http://[::]/', 'http://[::ffff:7f00:1]/',
-    'http://[::ffff:192.168.1.1]/', 'http://[fe80::1]/', 'http://[fc00::1]/', 'http://[fd12::1]/', 'http://224.0.0.1/'
+    'http://[::ffff:192.168.1.1]/', 'http://[fe80::1]/', 'http://[fc00::1]/', 'http://[fd12::1]/', 'http://224.0.0.1/',
+    // Varios puntos finales, credenciales que irían a terceros y rangos especiales IPv4/IPv6
+    'http://localhost../', 'http://169.254.169.254../', 'https://user:pass@example.com/', 'https://token@example.com/',
+    'http://192.0.0.1/', 'http://198.18.0.1/', 'http://203.0.113.5/', 'http://[64:ff9b::a9fe:a9fe]/', 'http://[64:ff9b:1::1]/',
+    'http://[::7f00:1]/', 'http://[::ffff:0:7f00:1]/', 'http://[fec0::1]/', 'http://[2002:7f00:1::]/', 'http://[2001::1]/',
+    'http://[2001:db8::1]/', 'http://[100::1]/'
   ]) {
     assert.equal(WebBrowser.validateUrlForFetch(badUrl).valid, false, badUrl);
   }

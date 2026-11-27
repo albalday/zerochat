@@ -46,9 +46,13 @@
    * historial), o null. ask_user cede el turno, así que la generación ya terminó con ella.
    */
   function pendingAskUserQuestion(messages) {
+    // Solo cuenta un ask_user que llegó a mostrarse: uno fallido no cede el turno ni tapa una autorización pendiente.
+    const shown = message => {
+      try { return JSON.parse(message.content)?.status === 'shown_to_user'; } catch (_) { return false; }
+    };
     const asked = [];
     for (let i = messages.length - 1; i >= 0 && messages[i].role === 'tool'; i--) {
-      if (messages[i].name === 'ask_user') asked.push(messages[i]);
+      if (messages[i].name === 'ask_user' && shown(messages[i])) asked.push(messages[i]);
     }
     if (asked.length === 0) return null;
     const assistant = messages.findLast(message => message.role === 'assistant' && Array.isArray(message.tool_calls));

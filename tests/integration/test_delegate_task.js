@@ -130,7 +130,7 @@ test('delegate_task - el subagente trabaja con contexto propio y devuelve solo s
   assert.match(firstSubRequest.messages[0].content, /Task:\nFind the value of answer in https:\/\/a\.test\.$/);
 
   const deniedWrite = subagentRequests[1].messages.find(message => message.role === 'tool' && message.name === 'write_file');
-  assert.match(deniedWrite.content, /not available to the subagent/);
+  assert.match(deniedWrite.content, /not available in this conversation/);
 
   const delegated = result.history.find(message => message.role === 'tool' && message.name === 'delegate_task');
   assert.equal(delegated.content, 'answer vale 42 (https://a.test).', 'Al agente principal solo llega el informe');
@@ -178,7 +178,7 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
   };
   services.profiles = {
     list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }, { id: profile.id, name: profile.name, settings: {} }],
-    loadUnlocked: async id => { loaded.push(id); return structuredClone(profile); }
+    load: async id => { loaded.push(id); return structuredClone(profile); }
   };
   services.engine = { createHistorySummarizer: options => { summarizers.push(options); return async () => 'summary'; } };
   const requests = [];
@@ -207,17 +207,17 @@ test('delegate_task - usa el perfil Subagente si existe, si no el principal, y f
   assert.equal(prepareCalls[0].totalContextLimit, 65536, 'El subagente resuelve y propaga su límite de contexto real');
 
   // Sin perfil Subagente recurre al principal
-  services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }], loadUnlocked: async () => assert.fail('No debe cargar') };
+  services.profiles = { list: () => [{ id: 'profile:Main', name: 'Main', settings: {} }], load: async () => assert.fail('No debe cargar') };
   assert.equal((await delegateTask.execute({ task: 'Investigate' }, mainContext)).success, true);
   assert.equal(requests[1].model, 'main-model');
   assert.equal(requests[1].apiKey, 'main-key');
 
   // Perfiles ilegibles o incompletos fallan sin silenciar
   const subagentList = () => [{ id: 'profile:Subagent', name: 'Subagent', settings: {} }];
-  services.profiles = { list: subagentList, loadUnlocked: async () => { throw new Error('Password required'); } };
-  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" profile could not be loaded: Password required/);
+  services.profiles = { list: subagentList, load: async () => { throw new Error('the local server did not answer'); } };
+  assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" profile could not be loaded: the local server did not answer/);
 
-  services.profiles = { list: subagentList, loadUnlocked: async () => ({ settings: { apiUrl: 'http://sub/v1', apiType: 'openai', model: '' } }) };
+  services.profiles = { list: subagentList, load: async () => ({ settings: { apiUrl: 'http://sub/v1', apiType: 'openai', model: '' } }) };
   assert.match((await delegateTask.execute({ task: 'Investigate' }, mainContext)).error, /"Subagent" profile is incomplete: missing model\./);
 
   services.profiles = { list: () => { throw new Error('corrupt storage'); } };

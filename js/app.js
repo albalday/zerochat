@@ -54,12 +54,8 @@
     btnCloseSidebarSettings: 'btn-close-sidebar-settings',
     sidebarSettingsNav: 'sidebar-settings-nav',
     sidebarSettingsProjectLabel: 'sidebar-settings-project-label',
-    sidebarEncryptionNav: 'sidebar-encryption-nav',
     sidebarRagNav: 'sidebar-rag-nav',
     sidebarSettingsFooter: 'sidebar-settings-footer',
-    btnEncryptionBack: 'btn-encryption-back',
-    btnEncryptionPassword: 'btn-encryption-password',
-    btnEncryptionDefault: 'btn-encryption-default',
     btnRagBack: 'btn-rag-back',
     btnRagBranches: 'btn-rag-branches',
     btnRagActivate: 'btn-rag-activate',
@@ -600,7 +596,6 @@
 
   function showSidebarNav(nav) {
     elements.sidebarSettingsNav.hidden = nav !== 'settings';
-    elements.sidebarEncryptionNav.hidden = nav !== 'encryption';
     elements.sidebarRagNav.hidden = nav !== 'rag';
     elements.sidebarSettingsFooter.hidden = nav !== 'settings';
     if (nav === 'settings') UISettings.syncProjectScopeLabels(elements);
@@ -608,7 +603,7 @@
   }
 
   function openSettingsSection(sectionId = 'model') {
-    if (sectionId === 'encryption' || sectionId === 'rag') return showSidebarNav(sectionId);
+    if (sectionId === 'rag') return showSidebarNav(sectionId);
     if (sectionId === 'rag-manage') return RagUI.openManageModal();
     UISettings.openSettingsSection(elements, getRuntimeConfig(), sectionId);
     if (sectionId === 'mcp') {
@@ -687,12 +682,9 @@
       onBackToChats: () => showSidebarNav('settings'),
       onSelectSettingsSection: sectionId => {
         openSettingsSection(sectionId);
-        if (sectionId !== 'encryption' && sectionId !== 'rag' && UISidebar.isMobile()) UISidebar.closeSidebar(elements);
+        if (sectionId !== 'rag' && UISidebar.isMobile()) UISidebar.closeSidebar(elements);
       }
     });
-    elements.btnEncryptionBack.addEventListener('click', () => showSidebarNav('settings'));
-    elements.btnEncryptionPassword.addEventListener('click', () => UIProfiles.handleEncryptionPassword());
-    elements.btnEncryptionDefault.addEventListener('click', () => UIProfiles.handleUseDefaultEncryptionKey());
     elements.btnRagBack.addEventListener('click', () => showSidebarNav('settings'));
     elements.btnRagBranches.addEventListener('click', () => openSettingsSection('rag-manage'));
     elements.btnRagActivate.addEventListener('click', () => RagUI.openActivationModal());
@@ -834,7 +826,7 @@
     State.subscribe(state => state.sessions.activeId, () => {
       syncComposerBusyControls();
       syncLiveServerRun();
-      ServerRun.refreshLiveState().catch(() => {});
+      ServerRun.refreshLiveState().catch(() => { /* sin servidor no hay ejecuciones; la espera del estado vivo lo reintenta */ });
     });
     syncComposerBusyControls();
 
@@ -1037,7 +1029,7 @@
         });
       });
       if (registration.waiting) return await promptServiceWorkerUpdate();
-      await registration.update().catch(() => {});
+      await registration.update().catch(() => { /* sin red se sigue con la versión instalada */ });
       const worker = registration.installing;
       if (worker && !isSettled(worker)) {
         await new Promise(resolve => worker.addEventListener('statechange', () => { if (isSettled(worker)) resolve(); }));

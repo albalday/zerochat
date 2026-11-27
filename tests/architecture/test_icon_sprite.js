@@ -14,7 +14,7 @@ function listJsFiles(dirPath) {
 }
 
 function collectSpriteUses() {
-  const sources = [path.join(ROOT, 'zerochat.html'), ...listJsFiles(path.join(ROOT, 'js'))];
+  const sources = [path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'files.html'), ...listJsFiles(path.join(ROOT, 'js'))];
   const uses = new Map();
   for (const filePath of sources) {
     const content = fs.readFileSync(filePath, 'utf8');
@@ -41,7 +41,7 @@ test('Sprite de iconos - el sprite no declara símbolos sin uso', () => {
 
 const Icons = require(path.join(ROOT, 'js/icons.js'));
 const normalizeSvg = markup => markup.replace(/\s+/g, ' ').replace(/> </g, '><').trim();
-const consumerSources = [path.join(ROOT, 'zerochat.html'), ...listJsFiles(path.join(ROOT, 'js'))]
+const consumerSources = [path.join(ROOT, 'zerochat.html'), path.join(ROOT, 'files.html'), ...listJsFiles(path.join(ROOT, 'js'))]
   .filter(filePath => filePath !== path.join(ROOT, 'js/icons.js'))
   .map(filePath => ({ file: path.relative(ROOT, filePath), content: fs.readFileSync(filePath, 'utf8') }));
 
@@ -65,6 +65,7 @@ test('Iconos - el marcado, el catálogo de iconos y los textos de los controles 
   const emoji = /\p{Extended_Pictographic}/u;
   const html = fs.readFileSync(path.join(ROOT, 'zerochat.html'), 'utf8');
   assert.equal(emoji.test(html), false, 'zerochat.html no debe contener emojis');
+  assert.equal(emoji.test(fs.readFileSync(path.join(ROOT, 'files.html'), 'utf8')), false, 'files.html no debe contener emojis');
   assert.equal(emoji.test(fs.readFileSync(path.join(ROOT, 'js/icons.js'), 'utf8')), false, 'js/icons.js no debe contener emojis');
 
   // Textos de controles: claves btn_* y las que zerochat.html aplica dentro de botones, opciones,

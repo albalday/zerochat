@@ -92,7 +92,8 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
         const manager = window.ChatMCP.manager;
         manager.setProjectDirectory = async path => {
           window.__directoryCalls.push(path);
-          if (window.__directoryError) throw new Error(window.__directoryError);
+          // Como McpClient: el mensaje lleva el prefijo técnico y rpcError el motivo del servidor.
+          if (window.__directoryError) throw Object.assign(new Error(`MCP error (-32602): ${window.__directoryError}`), { rpcError: { code: -32602, message: window.__directoryError } });
           manager.applyLiveState({ cwd: path });
           return { cwd: path };
         };
@@ -164,7 +165,10 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
         window.ChatState.set('sessions', { ...window.ChatState.get('sessions'), list: [{ id: 'l1', title: 'L', project: '/home/u/lib' }, { id: 'g1', title: 'G' }] });
         window.ChatMCP.manager.requestExternalControl = async (method, params) => {
           if (method === 'zerochat/project/browse') {
-            if (!(params.path in dirs)) throw new Error(`Error MCP (-32602): '${params.path}' no existe o no es un directorio.`);
+            if (!(params.path in dirs)) {
+              const message = `'${params.path}' no existe o no es un directorio.`;
+              throw Object.assign(new Error(`MCP error (-32602): ${message}`), { rpcError: { code: -32602, message } });
+            }
             return { path: params.path, parent: params.path.slice(0, params.path.lastIndexOf('/')) || '/', directories: dirs[params.path], total: dirs[params.path].length, truncated: false };
           }
           if (method === 'zerochat/project/create_directory') {
@@ -194,7 +198,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       await page.fill('#folder-picker-path', '/nope');
       await page.press('#folder-picker-path', 'Enter');
       await page.waitForFunction(() => /'\/nope' no existe/.test(document.getElementById('folder-picker-error').textContent));
-      assert.doesNotMatch(await page.textContent('#folder-picker-error'), /Error MCP/);
+      assert.doesNotMatch(await page.textContent('#folder-picker-error'), /MCP error/);
       assert.equal(await current(), '/home/u/other');
 
       // Una carpeta nueva se crea en la que se ve y se entra en ella; «Usar» la elige.
@@ -212,13 +216,13 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       assert.equal(await page.locator('#folder-picker-dialog').isVisible(), false);
 
       // Un reciente se elige con un toque; si el servidor la rechaza, se avisa sin el prefijo técnico.
-      await page.evaluate(() => { window.__directoryError = "Error MCP (-32602): '/home/u/zerochat/general' no existe o no es un directorio."; });
+      await page.evaluate(() => { window.__directoryError = "'/home/u/zerochat/general' no existe o no es un directorio."; });
       await page.click('#btn-reasoning');
       await page.click('[data-project-action="changeDirectory"]');
       await page.click('#folder-picker-recent .folder-picker-item[data-path="/home/u/zerochat/general"]');
       await page.waitForFunction(() => /no existe/.test(document.getElementById('notice-message').textContent));
       assert.deepEqual(await page.evaluate(() => window.__directoryCalls), ['/home/u/other/nuevo', '/home/u/zerochat/general']);
-      assert.doesNotMatch(await page.locator('#notice-message').textContent(), /Error MCP/);
+      assert.doesNotMatch(await page.locator('#notice-message').textContent(), /MCP error/);
       await page.locator('#notice-accept').click();
 
       // Cancelar no cambia nada.

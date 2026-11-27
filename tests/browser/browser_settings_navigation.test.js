@@ -100,7 +100,6 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
         ['model', 'tools', 'mcp', 'browser', 'permissions'],
         'El bloque de proyecto agrupa exactamente las cinco secciones de proyecto'
       );
-      assert.equal(await page.locator('.sidebar-settings-project-group [data-section="encryption"]').count(), 0);
       assert.equal(await page.locator('.sidebar-settings-project-group [data-section="rag"]').count(), 0);
 
       // En una sección global como Conexión, el distintivo de proyecto en cabecera se oculta.

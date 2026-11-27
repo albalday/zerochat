@@ -37,6 +37,10 @@ test('Sincronización de blobs desacoplados entre frontend y backend local', asy
     if (method === 'zerochat/conversations/get') {
       return { conversation: backendConversations.get(params?.id) || null };
     }
+    if (method === 'zerochat/conversations/delete') {
+      backendConversations.delete(params?.id);
+      return { deleted: true };
+    }
     throw new Error(`Método no soportado en mock: ${method}`);
   });
 
@@ -118,6 +122,18 @@ test('Sincronización de blobs desacoplados entre frontend y backend local', asy
     assert.equal(secondHasCalls.length, 0, 'No se debe consultar blobs/has para blobs ya sincronizados');
     const secondPutCalls = rpcCalls.filter(call => call.method === 'zerochat/blobs/put');
     assert.equal(secondPutCalls.length, 0, 'No se deben resubir blobs ya existentes en el servidor');
+
+    // Borrar conversaciones puede llevarse blobs del servidor: el siguiente guardado vuelve a comprobarlos.
+    await Storage.deleteConversation('otra_conversacion');
+    rpcCalls.length = 0;
+    await Storage.saveConversation(sessionMeta, messages);
+    assert.equal(rpcCalls.filter(call => call.method === 'zerochat/blobs/has').length, 1);
+
+    // Más de 1000 imágenes distintas se consultan en lotes del tope del servidor (1000 y 1).
+    const manyImages = Array.from({ length: 1001 }, (_, i) => ({ dataUrl: `data:image/png;base64,${Buffer.from(`img-${i}`).toString('base64')}`, mimeType: 'image/png' }));
+    rpcCalls.length = 0;
+    await Storage.saveConversation({ ...sessionMeta, id: 'sync_conv_many' }, [{ id: 'many_1', role: 'user', content: 'muchas', images: manyImages }]);
+    assert.deepEqual(rpcCalls.filter(call => call.method === 'zerochat/blobs/has').map(call => call.params.ids.length), [1000, 1]);
 
     // Al cambiar el cliente de mcp_proxy (reconexión a otro servidor), la caché en memoria se invalida.
     MCP.manager.clients.set(MCP.PROXY_ID, {});

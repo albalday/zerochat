@@ -221,7 +221,7 @@
    */
   function reconcileProjectServers(manager, appConfig = getConfig().getActive(), servers = getState().get('mcp').externalServers) {
     const prev = reconcileQueues.get(manager) || Promise.resolve();
-    const run = prev.catch(() => {}).then(async () => {
+    const run = prev.catch(() => { /* la conciliación anterior ya registró su error */ }).then(async () => {
       const State = getState();
       const started = [];
       const stopped = [];

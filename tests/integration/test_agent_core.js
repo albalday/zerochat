@@ -121,6 +121,7 @@ test('AgentCore - dispatchToolCall y executeToolBatch respetan contratos toModel
     toolContext: {},
     signal: new AbortController().signal,
     dispatchToolCall: (toolCall, context) => runtime.executor.dispatchToolCall(toolCall, context),
+    offeredTools: new Set(registry.listTools().map(tool => tool.name)),
     createMessageId: () => 'msg',
     callbacks: {}
   });

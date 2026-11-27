@@ -4,17 +4,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 // js/README.md §2: los módulos de interfaz enlazan sus eventos una sola vez en mount(), con listeners
-// delegados; repintar una lista no vuelve a enlazar eventos. En js/ui-*.js, addEventListener solo
-// aparece en código que se ejecuta una vez: mount*/initMcpUI, las funciones que solo se llaman desde
+// delegados; repintar una lista no vuelve a enlazar eventos. En js/ui-*.js y los demás módulos de interfaz,
+// addEventListener o listen() solo aparecen en código que se ejecuta una vez: mount*/init*UI, las funciones que solo se llaman desde
 // ellas o al cargar el módulo, y elementos que la propia función crea (mueren con el repintado).
 
 const ROOT = path.resolve(__dirname, '../..');
-const MOUNT = /^(?:mount\w*|initMcpUI)$/;
+const MOUNT = /^(?:mount\w*|initMcpUI|initRagUI)$/;
+// Módulos de interfaz que no siguen el prefijo ui-.
+const UI_MODULES = ['rag-ui.js', 'files-page.js', 'tool-cards.js'];
 // Excepciones revisadas: enlazan una sola vez por otra vía.
 const EXCEPTIONS = {
   'ui-conversation.js': {
     getScrollState: 'enlaza una vez por contenedor y lo recuerda en scrollStates',
     insertMessage: 'el mensaje es un nodo nuevo y el listener es { once: true }'
+  },
+  'tool-cards.js': {
+    promptToolAuthorization: 'cada reto pinta su propio panel: sus botones y la señal mueren con él'
   }
 };
 
@@ -35,7 +40,7 @@ function topLevelFunctions(lines) {
 
 test('Interfaz - addEventListener solo en código que se ejecuta una vez por montaje', () => {
   const offenders = [];
-  for (const file of fs.readdirSync(path.join(ROOT, 'js')).filter(name => /^ui-.*\.js$/.test(name))) {
+  for (const file of fs.readdirSync(path.join(ROOT, 'js')).filter(name => /^ui-.*\.js$/.test(name) || UI_MODULES.includes(name))) {
     const lines = fs.readFileSync(path.join(ROOT, 'js', file), 'utf8').split('\n');
     const ranges = topLevelFunctions(lines);
     const enclosing = index => ranges.find(range => index > range.start && index < range.end);
@@ -59,7 +64,7 @@ test('Interfaz - addEventListener solo en código que se ejecuta una vez por mon
     }
 
     lines.forEach((line, index) => {
-      const match = line.match(/([\w.]+)\.addEventListener\(/);
+      const match = line.match(/([\w.]+)\.addEventListener\(/) || line.match(/(?<![\w.])listen\(\s*([\w.]+)\s*,/);
       if (!match) return;
       const range = enclosing(index);
       if (!range || once.has(range.name) || EXCEPTIONS[file]?.[range.name]) return;

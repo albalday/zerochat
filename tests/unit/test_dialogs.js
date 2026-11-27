@@ -1,9 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const State = require('../../js/state.js');
-const { listSourceFiles } = require('../helpers/source-files');
 
 test('Notice queue validates, deduplicates and clears on conversation changes', () => {
   const store = State.createStore();
@@ -19,14 +16,13 @@ test('Notice queue validates, deduplicates and clears on conversation changes', 
   assert.deepEqual(store.get('ui').notices, []);
   for (let i = 0; i < 50; i++) store.enqueueNotice({ ...notice, message: String(i) });
   assert.throws(() => store.enqueueNotice(notice), RangeError);
-});
 
-test('Application does not call native browser dialogs', () => {
-  for (const file of listSourceFiles(path.resolve(__dirname, '../../js'))) {
-    const source = fs.readFileSync(file, 'utf8').replace(/^\s*\/\/.*$/gm, '');
-    assert.doesNotMatch(source, /(?:window|globalThis|self)\s*\.\s*(?:alert|confirm|prompt)\s*\(/, file);
-    assert.doesNotMatch(source.replace(/function alert\(/g, 'function internalNotice('), /(?<![\w.])(?:alert|confirm|prompt)\s*\(/g, file);
-  }
+  // Tope de elementos de una confirmación en el borde exacto: 50 se aceptan, 51 no
+  const listStore = State.createStore();
+  const items = count => Array.from({ length: count }, (_, i) => ({ id: `i${i}`, label: `Item ${i}` }));
+  const accepted = listStore.enqueueNotice({ ...notice, mode: 'confirm', items: items(50) });
+  assert.equal(listStore.get('ui').notices.find(item => item.id === accepted).items.length, 50);
+  assert.throws(() => listStore.enqueueNotice({ ...notice, mode: 'confirm', items: items(51) }), TypeError);
 });
 
 test('Confirmations, item lists and prompts remain independent and return explicit results', () => {

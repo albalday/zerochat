@@ -199,14 +199,26 @@
     return list().find(profile => profile.id === cleanId) || null;
   }
 
-  async function load(id, keyMaterial = null) {
+  /** Clave guardada en claro, o '' si no se puede abrir: el perfil sigue y la clave vuelve del servidor o se reescribe. */
+  async function readableApiKey(secret) {
+    try {
+      return await Secrets.decryptApiKey(secret);
+    } catch (error) {
+      if (error?.code === 'API_KEY_UNREADABLE') return '';
+      throw error;
+    }
+  }
+
+  /** Perfil con su API key descifrada (la de un perfil de sesión sin clave se pide al servidor). Los fallos se propagan. */
+  async function load(id) {
+    if (!id) return null;
     const profile = get(id);
     if (!profile) return null;
     if (keylessSessionProfiles.has(profile.id) && sessionKeyLoader) {
       const full = await sessionKeyLoader(profile.id);
       if (full?.id !== profile.id) throw new Error(`The local server did not return the profile ${profile.name}.`);
       registerSessionProfile(full);
-      return load(profile.id, keyMaterial);
+      return load(profile.id);
     }
     const cloned = clone(profile);
     if (cloned.general) {
@@ -217,23 +229,8 @@
       return cloned;
     }
     const secret = cloned.settings.apiKey;
-    cloned.settings.apiKey = secret ? await Secrets.decryptApiKey(secret, keyMaterial || undefined) : '';
+    cloned.settings.apiKey = secret ? await readableApiKey(secret) : '';
     return cloned;
-  }
-
-  // La interfaz de perfiles fija al montarse cómo pedir la contraseña de cifrado actual; sin ella,
-  // cargar un perfil con la API key cifrada por contraseña falla con PASSWORD_REQUIRED.
-  let requestPassword = null;
-
-  /** `request()` pide la contraseña de cifrado actual y resuelve null si el usuario cancela. */
-  function setPasswordPrompt(request) {
-    requestPassword = request;
-  }
-
-  /** Perfil con su API key descifrada; pide la contraseña si está cifrada con ella. Los fallos se propagan. */
-  async function loadUnlocked(id) {
-    if (!id) return null;
-    return Secrets.withPassword(keyMaterial => load(id, keyMaterial), requestPassword);
   }
 
   function findByName(name) {
@@ -274,34 +271,6 @@
     return save({ ...record, hasApiKey: Boolean(rawKey), settings: { ...record.settings, apiKey } }, options);
   }
 
-  async function recipherApiKeys(currentKeyMaterial, nextKeyMaterial) {
-    const current = initialize();
-    const rewritten = [];
-    let reciphered = 0;
-    for (const profile of current.profiles) {
-      if (profile.id === READONLY_PROFILE_ID || !profile.settings.apiKey) {
-        rewritten.push(profile);
-        continue;
-      }
-      const apiKey = await Secrets.decryptApiKey(profile.settings.apiKey, currentKeyMaterial);
-      const encrypted = await Secrets.encryptApiKey(apiKey, nextKeyMaterial);
-      rewritten.push({ ...profile, version: profile.version + 1, settings: { ...profile.settings, apiKey: encrypted } });
-      reciphered += 1;
-    }
-    writeDocument({ ...current, profiles: rewritten });
-    return reciphered;
-  }
-
-  async function verifyApiKeyMaterial(keyMaterial) {
-    const current = initialize();
-    for (const profile of current.profiles) {
-      if (profile.id !== READONLY_PROFILE_ID && profile.settings.apiKey) {
-        await Secrets.decryptApiKey(profile.settings.apiKey, keyMaterial);
-      }
-    }
-    return true;
-  }
-
   function remove(id) {
     const cleanId = String(id || '');
     if (cleanId === READONLY_PROFILE_ID) return false;
@@ -316,7 +285,8 @@
   async function resolveRemoteApiKey(remote, existing, revealRemote) {
     if (!remote.hasApiKey) return null;
     const isNewer = !existing || (validTimestamp(remote.updatedAt, 0) > validTimestamp(existing.updatedAt, 0));
-    if (!isNewer && existing.settings?.apiKey) {
+    // Se conserva la local si se puede abrir; si no, se vuelve a pedir al servidor.
+    if (!isNewer && existing.settings?.apiKey && await readableApiKey(existing.settings.apiKey)) {
       return existing.settings.apiKey;
     }
     if (typeof revealRemote !== 'function') return null;
@@ -345,14 +315,13 @@
     }, false);
   }
 
-  async function buildRemoteUploadPayload(local, passwordPrompt) {
+  async function buildRemoteUploadPayload(local) {
     const settings = { ...local.settings };
-    if (local.settings.apiKey) {
-      settings.apiKey = await Secrets.withPassword(
-        keyMaterial => Secrets.decryptApiKey(local.settings.apiKey, keyMaterial),
-        passwordPrompt
-      );
+    const apiKey = local.settings.apiKey ? await readableApiKey(local.settings.apiKey) : '';
+    if (apiKey) {
+      settings.apiKey = apiKey;
     } else if (local.hasApiKey) {
+      // Sin clave legible aquí, el servidor conserva la suya.
       delete settings.apiKey;
     } else {
       settings.apiKey = '';
@@ -370,7 +339,7 @@
    * Sincroniza la lista única del navegador con un servidor identificado por `serverId`.
    * Conserva el `updatedAt` de origen y, si el servidor cambia respecto al guardado, consulta `onServerChange`.
    */
-  async function syncWithBackend({ serverId, listRemote, saveRemote, revealRemote = null, onServerChange = null, onPasswordRequired = requestPassword }) {
+  async function syncWithBackend({ serverId, listRemote, saveRemote, revealRemote = null, onServerChange = null }) {
     const cleanServerId = typeof serverId === 'string' ? serverId.trim() : '';
     if (!cleanServerId) throw new Error('The backend server identifier is required.');
 
@@ -398,27 +367,16 @@
     let uploaded = 0;
     let downloaded = 0;
     let deletedLocal = 0;
-    let pendingPassword = 0;
 
     const pushLocal = async local => {
-      try {
-        const payload = await buildRemoteUploadPayload(local, onPasswordRequired);
-        const saved = await saveRemote(payload);
-        nextProfiles.push(normalizeRecord({
-          ...local,
-          version: Math.max(local.version, Number(saved?.version) || 1),
-          updatedAt: validTimestamp(saved?.updatedAt, local.updatedAt),
-          synced: true
-        }, false));
-        uploaded += 1;
-      } catch (error) {
-        if (error?.code === 'PASSWORD_REQUIRED' && error.cancelled) {
-          nextProfiles.push(normalizeRecord({ ...local, synced: false }, false));
-          pendingPassword += 1;
-          return;
-        }
-        throw error;
-      }
+      const saved = await saveRemote(await buildRemoteUploadPayload(local));
+      nextProfiles.push(normalizeRecord({
+        ...local,
+        version: Math.max(local.version, Number(saved?.version) || 1),
+        updatedAt: validTimestamp(saved?.updatedAt, local.updatedAt),
+        synced: true
+      }, false));
+      uploaded += 1;
     };
 
     for (const local of editableLocal) {
@@ -461,14 +419,13 @@
       serverId: cleanServerId,
       uploaded,
       downloaded,
-      deletedLocal,
-      pendingPassword
+      deletedLocal
     };
   }
 
   return {
     STORAGE_KEY, PROFILE_FIELDS, READONLY_PROFILE_ID, NEW_PROFILE_SETTINGS: clone(NEW_PROFILE_SETTINGS),
-    createId, initialize, list, get, load, setPasswordPrompt, loadUnlocked, findByName, save, saveEditable, verifyApiKeyMaterial, recipherApiKeys, remove, syncWithBackend,
+    createId, initialize, list, get, load, findByName, save, saveEditable, remove, syncWithBackend,
     registerSessionProfile, setSessionKeyLoader, listSessionProfiles, clearSessionProfile
   };
 }));

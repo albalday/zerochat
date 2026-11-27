@@ -226,6 +226,39 @@ test('xlsx nativo: tipos de celda, espacios de nombres, fonética/gráficos, fec
   const base = { extra: { 'xl/styles.xml': styles } };
   assert.match(await parseXlsx({ ...base, sheets: [{ name: 'D', xml: sheetXml(cells) }] }), /\| 2023-03-15 \| 2023-03-15T12:00:00Z \| 45000 \| 45000 \|/);
   assert.match(await parseXlsx({ ...base, workbookPr: '<workbookPr date1904="1"/>', sheets: [{ name: 'D', xml: sheetXml(cells) }] }), /\| 2027-03-16 \| 2027-03-16T12:00:00Z \| 45000 \| 45000 \|/);
+  // Un número de serie fuera de las fechas representables se muestra tal cual, sin romper el libro.
+  assert.match(await parseXlsx({ ...base, sheets: [{ name: 'D', xml: sheetXml('<row r="1"><c r="A1" s="1"><v>1e20</v></c></row>') }] }), /\| 1e20 \|/);
+});
+
+test('xlsx hostil: una hoja citada muchas veces se lee una vez y las comillas sin cerrar no hacen cuadrático el análisis', async () => {
+  const sheets = [{ name: 'Datos', xml: sheetXml('<row r="1"><c r="A1" t="inlineStr"><is><t>única</t></is></c></row>') }];
+  const repeated = Array.from({ length: 50 }, (_, i) => `<sheet name="Copia${i}" sheetId="${i + 2}" r:id="rId1"/>`).join('');
+  const fflate = require('fflate');
+  const files = fflate.unzipSync(new Uint8Array(buildXlsx({ sheets })));
+  files['xl/workbook.xml'] = Buffer.from(fflate.strFromU8(files['xl/workbook.xml']).replace('</sheets>', `${repeated}</sheets>`));
+  const { text } = await OfficeParser.parseOfficeDocument(fflate.zipSync(files).buffer, 'repetido.xlsx');
+  assert.equal(text.match(/única/g).length, 1);
+
+  const started = performance.now();
+  await OfficeParser.parseOfficeDocument(buildXlsx({ sheets: [{ name: 'Hostil', xml: sheetXml('<c a="sin cerrar '.repeat(20000)) }] }), 'hostil.xlsx');
+  const elapsed = performance.now() - started;
+  assert.ok(elapsed < 1000, `el análisis tardó ${elapsed.toFixed(0)} ms`);
+});
+
+test('unzipPackage cuenta el tamaño guardado de una entrada sin comprimir aunque declare 0 (N pasa, N+1 se omite)', () => {
+  const fflate = require('fflate');
+  const max = 10 * 1024 * 1024;
+  for (const [size, kept] of [[max, true], [max + 1, false]]) {
+    const zip = fflate.zipSync({ 'xl/media/a.png': [new Uint8Array(size), { level: 0 }] });
+    const view = new DataView(zip.buffer);
+    // Tamaño declarado (descomprimido) a 0 en la cabecera local y en el directorio central.
+    for (let i = 0; i < zip.length - 4; i++) {
+      const signature = view.getUint32(i, true);
+      if (signature === 0x04034b50) view.setUint32(i + 22, 0, true);
+      if (signature === 0x02014b50) view.setUint32(i + 24, 0, true);
+    }
+    assert.equal(Object.hasOwn(OfficeParser.unzipPackage(fflate, zip.buffer), 'xl/media/a.png'), kept, String(size));
+  }
 });
 
 test('xlsx en el borde exacto del tope de filas (500/501) y columnas (50/51)', async () => {

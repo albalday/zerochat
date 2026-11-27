@@ -421,8 +421,7 @@
 
   /** Resumen del razonamiento del modelo: niveles que admite el proveedor y el configurado. */
   function describeReasoning(adapter, model, effort) {
-    const isReasoningModel = /(?:-r1|r1|qwq|o1|o3|reasoning|thinking|gemma-4|deepseek)/i.test(model);
-    if (adapter.id === 'webllm' || (adapter.getCapabilities(model).reasoning === false && !isReasoningModel)) {
+    if (adapter.id === 'webllm' || adapter.getCapabilities(model).reasoning === false) {
       return t('inspector_reasoning_none');
     }
     return t('inspector_reasoning_supported', { levels: adapter.reasoningLevels.join(', '), effort: getUIReasoning().getReasoningLevelLabel(effort) });

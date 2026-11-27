@@ -30,6 +30,8 @@
   let lastClearAllStorageError = '';
   const memoryStorageFallback = new Map();
   const syncedBlobIds = new Set();
+  // IDs por consulta de zerochat/blobs/has: el tope de has_blobs en py/storage/db.py.
+  const MAX_BLOB_IDS_PER_CHECK = 1000;
   let syncedBlobClient;
 
   function ensureBlobSyncCache() {
@@ -556,10 +558,11 @@
    * Los borrados sin conexión no se recuerdan: una conversación borrada sin conexión vuelve a bajar del servidor.
    */
   async function getConversationsList() {
-    const localRecords = await readLocalConversationRecords();
-    if (!isBackendConnected()) return localRecords.map(toConversationHeader);
+    if (!isBackendConnected()) return (await readLocalConversationRecords()).map(toConversationHeader);
 
+    // La copia local se lee tras la respuesta del servidor: una edición hecha mientras llegaba no se pisa.
     const { conversations: remoteList = [] } = await requestBackend('zerochat/conversations/list');
+    const localRecords = await readLocalConversationRecords();
     const localMap = new Map(localRecords.map(item => [item.id, item]));
     const remoteMap = new Map(remoteList.map(item => [item.id, item]));
     const stale = remoteList.filter(remote => {
@@ -697,7 +700,11 @@
     ensureBlobSyncCache();
     const uniqueIds = Array.from(new Set(blobIds)).filter(id => !syncedBlobIds.has(id));
     if (uniqueIds.length === 0) return;
-    const { missing = [] } = await requestBackend('zerochat/blobs/has', { ids: uniqueIds });
+    const missing = [];
+    for (let start = 0; start < uniqueIds.length; start += MAX_BLOB_IDS_PER_CHECK) {
+      const batch = await requestBackend('zerochat/blobs/has', { ids: uniqueIds.slice(start, start + MAX_BLOB_IDS_PER_CHECK) });
+      missing.push(...(batch.missing || []));
+    }
     const missingSet = new Set(missing);
     for (const id of uniqueIds) {
       if (!missingSet.has(id)) syncedBlobIds.add(id);
@@ -753,7 +760,11 @@
    * si lo rechaza, la copia local se conserva.
    */
   async function removeConversations(action, ids, params) {
-    if (isBackendConnected()) await requestBackend('zerochat/conversations/delete', params);
+    if (isBackendConnected()) {
+      await requestBackend('zerochat/conversations/delete', params);
+      // El servidor borra los blobs que solo usaban estas conversaciones: hay que volver a comprobarlos.
+      syncedBlobIds.clear();
+    }
     await deleteLocalConversations(action, ids);
   }
 

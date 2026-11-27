@@ -132,7 +132,7 @@
 
     let settings;
     try {
-      const profile = await context.services.profiles.loadUnlocked(match.id);
+      const profile = await context.services.profiles.load(match.id);
       if (!profile) throw new Error('the profile no longer exists.');
       settings = profile.settings || {};
     } catch (error) {
@@ -182,13 +182,7 @@
     const { agent } = context;
 
     const activeDefinitions = await agent.resolveToolDefinitions();
-    const allowed = new Set();
-    const tools = activeDefinitions.filter(toolDefinition => {
-      const tool = registry.getTool(toolDefinition.function.name);
-      if (!isReadOnlyTool(tool)) return false;
-      allowed.add(tool.name);
-      return true;
-    });
+    const tools = activeDefinitions.filter(toolDefinition => isReadOnlyTool(registry.getTool(toolDefinition.function.name)));
     if (tools.length === 0) return { success: false, error: 'No read-only tools are enabled, so a subagent cannot investigate anything.' };
 
     const connection = await resolveConnection(context);
@@ -196,15 +190,8 @@
 
     const progress = createProgressView(context.toolCard);
     progress?.setProfile(connection.profileName, connection.model);
-    // El modelo puede pedir una herramienta que no se le ofreció: se rechaza sin ejecutarla.
-    const dispatch = async (toolCall, toolContext) => {
-      const name = toolCall?.function?.name || '';
-      const tool = registry.getTool(name);
-      if (!tool || !allowed.has(tool.name)) {
-        return { success: false, toolName: name, error: `Tool '${name}' is not available to the subagent: it can only use the read-only tools it was given.` };
-      }
-      return agent.dispatchToolCall(toolCall, { ...toolContext, cards: progress?.cards || null });
-    };
+    // AgentRuntime rechaza sin ejecutarla una herramienta que no está en `tools` (las de solo lectura).
+    const dispatch = (toolCall, toolContext) => agent.dispatchToolCall(toolCall, { ...toolContext, cards: progress?.cards || null });
 
     const result = await AgentCore.runtime.execute({
       apiUrl: connection.apiUrl,

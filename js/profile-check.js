@@ -42,7 +42,7 @@
 
   /**
    * Resultado de comprobar una conexión: { status, reason, message, contextLimit }. `unchecked` cuando no se puede
-   * comprobar por red (WebLLM, que da su ventana de contexto; un proveedor sin listado, o la clave sin desbloquear).
+   * comprobar por red (WebLLM, que da su ventana de contexto, o un proveedor sin listado).
    */
   async function evaluate(config) {
     const manualNum = Number(config.contextWindow);
@@ -53,14 +53,10 @@
     }
     const unchecked = reason => ({ status: 'unchecked', reason, message: '', contextLimit: manualLimit });
     if (getProviders().registry.resolve(config.apiUrl, config.apiType).getCapabilities().modelListing === false) return unchecked('');
-    let apiKey = '';
-    try {
-      apiKey = (await getProfiles().loadUnlocked(config.activeProfile?.id))?.settings?.apiKey || '';
-    } catch (_) {
-      return unchecked('locked'); // Sin la contraseña de las claves no se consulta: se comprobará al volver a activarlo.
-    }
     let listing;
     try {
+      // Un perfil de sesión sin clave la pide al servidor: si no responde, se informa como un fallo de conexión.
+      const apiKey = (await getProfiles().load(config.activeProfile?.id))?.settings?.apiKey || '';
       listing = await getApi().fetchServerModels(config.apiUrl, apiKey, config.apiType);
     } catch (error) {
       listing = { success: false, error: error?.message || String(error) };

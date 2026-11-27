@@ -145,18 +145,37 @@
    * Separa el texto en streaming de los bloques <think>, <thought> o <reasoning> que algunos modelos
    * escriben en la respuesta; un bloque puede abrirse en un trozo y cerrarse en otro. Cada trozo da
    * partes { reasoning, text }, y abrir un bloque da una parte de razonamiento aunque llegue vacía
-   * para que la interfaz pase a "pensando".
+   * para que la interfaz pase a "pensando". Una etiqueta partida entre dos trozos (`</` + `think>`) se
+   * retiene hasta el siguiente; `flush()` entrega lo retenido al terminar el stream.
    */
   function createReasoningTagSplitter() {
+    const OPEN_TAGS = ['<think>', '<thought>', '<reasoning>'];
     let openTag = null;
-    return function split(chunk) {
+    let pending = '';
+    // Caracteres del final de `text` que pueden ser el comienzo de una de las etiquetas `tags`.
+    const partialTagLength = (text, tags) => {
+      const longest = Math.max(...tags.map(tag => tag.length)) - 1;
+      for (let length = Math.min(text.length, longest); length > 0; length--) {
+        const tail = text.slice(-length).toLowerCase();
+        if (tags.some(tag => tag.startsWith(tail))) return length;
+      }
+      return 0;
+    };
+    // Parte sin etiqueta completa: retiene el posible comienzo de etiqueta y entrega el resto si queda algo.
+    const pushHolding = (parts, reasoning, text, tags) => {
+      const held = partialTagLength(text, tags);
+      pending = text.slice(text.length - held);
+      if (text.length > held) parts.push({ reasoning, text: text.slice(0, text.length - held) });
+    };
+    function split(chunk) {
       const parts = [];
-      let rest = chunk;
+      let rest = pending + chunk;
+      pending = '';
       while (rest) {
         if (!openTag) {
           const open = rest.match(/<(think|thought|reasoning)>/i);
           if (!open) {
-            parts.push({ reasoning: false, text: rest });
+            pushHolding(parts, false, rest, OPEN_TAGS);
             break;
           }
           if (open.index > 0) parts.push({ reasoning: false, text: rest.slice(0, open.index) });
@@ -166,7 +185,7 @@
         } else {
           const close = rest.match(new RegExp(`</${openTag}>`, 'i'));
           if (!close) {
-            parts.push({ reasoning: true, text: rest });
+            pushHolding(parts, true, rest, [`</${openTag}>`]);
             break;
           }
           if (close.index > 0) parts.push({ reasoning: true, text: rest.slice(0, close.index) });
@@ -175,7 +194,13 @@
         }
       }
       return parts;
+    }
+    split.flush = () => {
+      const held = pending;
+      pending = '';
+      return held ? [{ reasoning: Boolean(openTag), text: held }] : [];
     };
+    return split;
   }
 
   async function readServerError(response) {
@@ -218,7 +243,9 @@
       }
 
       if (!response.ok) {
-        let errorMessage = serverErrorMsg || `HTTP error ${response.status}: ${response.statusText}`;
+        // Tras el reintento manda el error de la segunda respuesta, no el de la primera.
+        const finalErrorMsg = recovery?.retry ? await readServerError(response) : serverErrorMsg;
+        let errorMessage = finalErrorMsg || `HTTP error ${response.status}: ${response.statusText}`;
         if (response.status === 401) {
           errorMessage = 'Invalid or unauthorized API key (401). Check the API key in Settings.';
         } else if (response.status === 404) {
@@ -226,7 +253,7 @@
         }
         if (onLog) {
           onLog({ type: 'error', text: errorMessage });
-          onLog({ type: 'raw', subtype: 'incoming', text: `<<< INCOMING HTTP ${response.status} ${response.statusText}\n${serverErrorMsg || errorMessage}` });
+          onLog({ type: 'raw', subtype: 'incoming', text: `<<< INCOMING HTTP ${response.status} ${response.statusText}\n${finalErrorMsg || errorMessage}` });
         }
         throw new Error(errorMessage);
       }
@@ -238,18 +265,14 @@
     return { response, recoveredReason };
   }
 
-  /** Líneas no vacías del cuerpo SSE, sin comentarios ":"; cada línea recibida se registra en bruto. */
+  /**
+   * Líneas no vacías del cuerpo SSE, sin comentarios ":"; cada línea recibida se registra en bruto. La
+   * última línea cuenta aunque el servidor cierre sin su salto de línea.
+   */
   async function* readSseLines(reader, onLog) {
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
+    function* completeLines(lines) {
       for (const rawLine of lines) {
         const line = rawLine.trim();
         if (!line) continue;
@@ -257,12 +280,16 @@
         if (!line.startsWith(':')) yield line;
       }
     }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    // Vaciar buffer residual de TextDecoder si quedaron bytes en streaming
-    try {
-      const flushText = decoder.decode();
-      if (flushText) onLog?.({ type: 'raw', subtype: 'incoming', text: flushText });
-    } catch (e) { /* bytes residuales no decodificables: no afectan a la respuesta */ }
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      yield* completeLines(lines);
+    }
+    yield* completeLines((buffer + decoder.decode()).split('\n'));
   }
 
   const callSignature = call => call.thought_signature || call.extra_content?.google?.thought_signature || '';
@@ -431,6 +458,18 @@
       }
     }
 
+    /** Entrega las partes del separador de etiquetas: el razonamiento a su canal y el texto visible a la respuesta. */
+    function emitSplitParts(parts) {
+      for (const part of parts) {
+        if (part.reasoning) {
+          emitReasoning(part.text);
+        } else {
+          publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
+          emitText(part.text);
+        }
+      }
+    }
+
     function getReasoningReplay() {
       if (!replayReasoningField || !replayReasoning) return null;
       const replay = { field: replayReasoningField, text: replayReasoning };
@@ -465,6 +504,7 @@
     }
 
     function buildResult() {
+      emitSplitParts(splitReasoningTags.flush());
       const toolCalls = getFinalToolCalls();
       return streamResult({
         accumulatedText,
@@ -500,14 +540,7 @@
 
       if (chunkData.textChunk) {
         if (!firstTokenTime) firstTokenTime = performance.now();
-        for (const part of splitReasoningTags(chunkData.textChunk)) {
-          if (part.reasoning) {
-            emitReasoning(part.text);
-          } else {
-            publishGenerationStatus({ phase: 'generating', percent: null, detail: '' });
-            emitText(part.text);
-          }
-        }
+        emitSplitParts(splitReasoningTags(chunkData.textChunk));
       }
 
       if (chunkData.toolCallDeltas && chunkData.toolCallDeltas.length > 0) {
@@ -667,8 +700,9 @@
 
       const reader = response.body.getReader();
       for await (const line of readSseLines(reader, onLog)) {
-        if (!line.startsWith('data: ')) continue;
-        const dataStr = line.substring(6).trim();
+        // El espacio tras «data:» es opcional en SSE.
+        if (!line.startsWith('data:')) continue;
+        const dataStr = line.slice(5).trim();
 
         if (dataStr === '[DONE]') {
           const result = accumulator.buildResult();
@@ -691,7 +725,7 @@
           if (onLog) onLog({ type: 'warning', text: `Ignored unreadable stream chunk: ${jsonErr?.message || String(jsonErr)}` });
         }
         if (streamFailure) {
-          reader.cancel().catch(() => {});
+          reader.cancel().catch(() => { /* el stream ya falló: se informa del error del servidor, no del cierre */ });
           throw new StreamServerError(streamFailure);
         }
       }

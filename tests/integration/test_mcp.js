@@ -921,7 +921,7 @@ test('MCP - buildCommandNotes redacta en inglés los comandos en segundo plano t
     tool('check_command', { success: true, status: 'exited', job_id: 5, exit_code: 0, new_output: '' }),
     tool('run_command', { success: true, status: 'running', job_id: 6, output: '' }),
     tool('read_file', { success: true, status: 'running', job_id: 7 }),
-    { role: 'tool', name: 'run_command', content: 'Error MCP (-32602): Argumento no permitido: cwd' }
+    { role: 'tool', name: 'run_command', content: 'MCP error (-32602): Argumento no permitido: cwd' }
   ];
   const note = await manager.buildCommandNotes(messages);
   assert.deepEqual(requests, [{ method: 'zerochat/jobs/report', params: { ids: [4, 6] } }]);
@@ -1040,6 +1040,17 @@ test('MCP - startServerRun, cancelServerRun y readLiveState con focus_conversati
     ChatState.set('mcp', previousMcp);
     ChatState.set('sessions', previousSessions);
   }
+});
+
+test('MCP - deleteProjectDirectory sin carpeta de respaldo recarga la carpeta actual', async t => {
+  const previousMcp = ChatState.get('mcp');
+  t.after(() => ChatState.set('mcp', previousMcp));
+  ChatState.set('mcp', { ...previousMcp, status: 'connected', serverInfo: { ...previousMcp.serverInfo, cwd: '/proj/a' } });
+  const manager = MCP.manager;
+  t.mock.method(manager, 'requestExternalControl', async () => ({ deleted: true, fallback: null }));
+  const reloaded = t.mock.method(manager, 'setProjectDirectory', async () => ({}));
+  await manager.deleteProjectDirectory({ deleteDirectory: false });
+  assert.deepEqual(reloaded.mock.calls.map(call => call.arguments[0]), ['/proj/a']);
 });
 
 test('MCP - setProjectDirectory aplica projectEnvironment guardado y concilia arranque/parada de MCPs y Navegador', async t => {

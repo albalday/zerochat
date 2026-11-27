@@ -328,6 +328,9 @@ test('Reasoning intensity - ninguno envía el apagado explícito de cada protoco
   const claudePayload = claude.buildPayload({ model: 'claude-test', messages, temperature: 0.3, reasoningEffort: 'none' });
   assert.deepEqual(claudePayload.thinking, { type: 'disabled' });
   assert.equal(claudePayload.temperature, 0.3, 'Sin razonamiento se respeta la temperatura del perfil');
+  assert.equal(claude.buildPayload({ model: 'claude-test', messages, temperature: 0, reasoningEffort: 'none' }).temperature, 0, 'Temperatura 0 no pasa a 0,7');
+  assert.equal(new BaseProviderAdapter().buildPayload({ model: 'test', messages, temperature: 0 }).temperature, 0);
+  assert.equal(new BaseProviderAdapter().buildPayload({ model: 'test', messages, temperature: '' }).temperature, 0.7);
 
   const geminiPayload = new GeminiProviderAdapter().buildPayload({ model: 'gemini-pro', messages, reasoningEffort: 'none' });
   const recovery = new GeminiProviderAdapter().handleHttpError(400, 'Thinking cannot be disabled for this model.', geminiPayload);

@@ -70,6 +70,8 @@
   const MODEL_SWITCH_NOTE = '[The user\'s instruction switched the model at this point. Continue the task where it left off.]';
 
   const createCancelledError = () => new Error('Agent execution cancelled by the user.');
+  /** Resultado que cede el turno al usuario: ask_user (endTurn en su resultado) o una pausa por autorización. */
+  const endsTurn = result => result.endTurn === true || (result.success && result.result?.endTurn === true);
 
   /** Interruptor de una herramienta en la configuración, o su valor por defecto. */
   function isToolEnabled(enabledTools = {}, name, defaultEnabled = true) {
@@ -361,7 +363,7 @@
       if (context.signal?.aborted) return { error: 'Tool execution cancelled.' };
       const security = getToolSecurity().manager;
       if (decisionType === 'deny') {
-        if (security.mcpClient) await security.authorizeChallenge(challengeId, 'deny').catch(() => {});
+        if (security.mcpClient) await security.authorizeChallenge(challengeId, 'deny').catch(() => { /* el reto caduca en el servidor sin ejecutarse */ });
         return { error: 'Execution denied by the user.' };
       }
       if (!security.mcpClient) return { result: challenge };
@@ -591,7 +593,7 @@
      * Ejecuta en orden las llamadas de un paso hasta que se cancele el turno. Devuelve los
      * resultados y los mensajes tool para el historial.
      */
-    async executeToolBatch(toolCalls, { stepIndex, toolContext, signal, dispatchToolCall, createMessageId, callbacks }) {
+    async executeToolBatch(toolCalls, { stepIndex, toolContext, signal, dispatchToolCall, offeredTools, createMessageId, callbacks }) {
       const results = [];
       const toolMessages = [];
 
@@ -599,7 +601,12 @@
         if (signal.aborted) break;
         callbacks.onToolStart?.(call);
 
-        const execResult = await dispatchToolCall(call, toolContext);
+        // Solo se ejecuta lo que se ofreció al modelo en este paso: una herramienta registrada pero desactivada
+        // (Ajustes, disabledTools, subagents false o sustituida por una MCP) pedida por su nombre se rechaza.
+        const name = call.function?.name || '';
+        const execResult = this.registry.getTool(name) && !offeredTools.has(name)
+          ? { success: false, toolName: name, error: `Tool '${name}' is not available in this conversation: it is disabled or not active. It was not executed.`, result: null, executionTimeMs: 0 }
+          : await dispatchToolCall(call, toolContext);
         results.push(execResult);
 
         const { content, images } = toToolMessageContent(execResult);
@@ -614,6 +621,8 @@
         };
         if (images) toolMessage.images = images;
         toolMessages.push(toolMessage);
+        // Lo que cede el turno (ask_user, pausa por autorización) para el lote: el resto espera a la respuesta.
+        if (endsTurn(execResult)) break;
       }
 
       return { results, toolMessages };
@@ -860,18 +869,20 @@
             break;
           }
 
+          const offeredTools = new Set(stepToolDefinitions.map(definition => definition?.function?.name));
           const batch = await this.executeToolBatch(toolCalls, {
-            stepIndex, toolContext, signal: abortSignal, dispatchToolCall, createMessageId, callbacks
+            stepIndex, toolContext, signal: abortSignal, dispatchToolCall, offeredTools, createMessageId, callbacks
           });
           toolCallCount += batch.results.length;
           trackToolBatch.observe(toolCalls, batch.results);
 
-          // Cada assistant con tool_calls va seguido de los mensajes tool de sus resultados.
+          // Cada assistant con tool_calls va seguido de los mensajes tool de sus resultados: solo se guardan las
+          // llamadas ejecutadas (el lote se corta al ceder el turno o al cancelar).
           const assistantMsg = {
             id: createMessageId('assistant', { stepIndex }),
             role: 'assistant',
             content: text || null,
-            tool_calls: toolCalls
+            tool_calls: toolCalls.slice(0, batch.results.length)
           };
           // Solo vive durante el turno: buildEffectiveMessages lo reenvía y el historial devuelto lo omite.
           if (step.reasoningReplay) assistantMsg.reasoningReplay = step.reasoningReplay;
@@ -883,7 +894,7 @@
 
           // Una herramienta puede ceder el turno al usuario (ask_user) o requerir aprobación interactiva:
           // el bucle termina y la respuesta del usuario llega como el siguiente mensaje.
-          if (batch.results.some(r => r.endTurn === true || (r.success && r.result?.endTurn === true))) break;
+          if (batch.results.some(endsTurn)) break;
         }
       } catch (err) {
         status = abortSignal.aborted ? 'cancelled' : 'error';

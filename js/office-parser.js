@@ -85,12 +85,12 @@
 
   const MAX_SHEET_ROWS = 500;
   const MAX_SHEET_COLUMNS = 50;
+  // Imágenes por documento, también para los PDF (js/file-parser.js).
   const MAX_IMAGES = 40;
   const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
   const MAX_XML_BYTES = 50 * 1024 * 1024;
-  // Tope de lo descomprimido por documento (ZIP-bomb): suma de los tamaños declarados de las entradas
-  // que se leen. Es un tope real porque fflate descomprime cada entrada en un búfer de su tamaño
-  // declarado y no lo agranda.
+  // Tope de lo descomprimido por documento (ZIP-bomb): suma, por entrada leída, del mayor de sus tamaños
+  // declarado y guardado (unzipPackage).
   const MAX_PACKAGE_BYTES = 200 * 1024 * 1024;
 
   const omittedImage = label => `[Image omitted: ${label}]`;
@@ -192,16 +192,21 @@
   }
 
   function parseAttributes(source) {
-    const attributes = {};
+    // Sin prototipo: un atributo llamado __proto__ o toString es un atributo más.
+    const attributes = Object.create(null);
     for (const [, name, , doubleQuoted, singleQuoted] of source.matchAll(/([^\s=]+)\s*=\s*("([^"]*)"|'([^']*)')/g)) {
       attributes[name] = decodeXml(doubleQuoted ?? singleQuoted);
     }
     return attributes;
   }
 
-  /** Recorre un XML como flujo de etiquetas (SAX mínimo); suficiente para el marcado de Office y ODF. */
+  /**
+   * Recorre un XML como flujo de etiquetas (SAX mínimo); suficiente para el marcado de Office y ODF. Un valor de
+   * atributo no puede llevar «<» (XML), así que una comilla sin cerrar solo se busca hasta la etiqueta siguiente:
+   * el recorrido sigue siendo lineal con marcado hostil.
+   */
   function walkXml(xml, { open = () => {}, close = () => {}, text = () => {} }) {
-    const tokens = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<[?!][^>]*>|<(\/?)([^\s>/]+)((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>|([^<]+)/g;
+    const tokens = /<!\[CDATA\[([\s\S]*?)\]\]>|<!--[\s\S]*?-->|<[?!][^>]*>|<(\/?)([^\s>/<]+)((?:[^>"'<]|"[^"<]*"|'[^'<]*')*?)(\/?)>|([^<]+)/g;
     for (const [, cdata, closing, name, attributes, selfClosing, content] of xml.matchAll(tokens)) {
       if (cdata !== undefined) text(cdata);
       else if (content !== undefined) text(decodeXml(content));
@@ -216,13 +221,17 @@
 
   // --- Paquetes ZIP ---------------------------------------------------------
 
-  /** Entradas del paquete descomprimidas con los topes por entrada y por documento. */
+  /**
+   * Entradas del paquete descomprimidas con los topes por entrada y por documento. Cuenta el mayor de los tamaños
+   * declarado y guardado: una entrada sin comprimir se copia con su tamaño guardado aunque declare 0.
+   */
   function unzipPackage(fflate, arrayBuffer) {
     let total = 0;
     return fflate.unzipSync(new Uint8Array(arrayBuffer), {
       filter: file => {
-        if (file.originalSize > (/\.(?:xml|rels)$/i.test(file.name) ? MAX_XML_BYTES : MAX_IMAGE_BYTES)) return false;
-        total += file.originalSize;
+        const size = Math.max(file.originalSize, file.size);
+        if (size > (/\.(?:xml|rels)$/i.test(file.name) ? MAX_XML_BYTES : MAX_IMAGE_BYTES)) return false;
+        total += size;
         if (total > MAX_PACKAGE_BYTES) {
           throw Object.assign(new Error(`The document unpacks to more than ${MAX_PACKAGE_BYTES / 1024 / 1024} MB and cannot be read.`), { code: 'PACKAGE_TOO_LARGE' });
         }
@@ -234,9 +243,10 @@
   async function openPackage(arrayBuffer) {
     const fflate = await VendorLoader.load('fflate');
     const files = unzipPackage(fflate, arrayBuffer);
+    const entry = path => (Object.hasOwn(files, path) ? files[path] : null);
     return {
-      text: path => (files[path] ? fflate.strFromU8(files[path]) : ''),
-      bytes: path => files[path] || null
+      text: path => (entry(path) ? fflate.strFromU8(entry(path)) : ''),
+      bytes: path => entry(path)
     };
   }
 
@@ -256,7 +266,7 @@
   /** Relaciones OOXML (`_rels/*.rels`): rId -> { path, type, external }. */
   function readRelationships(pkg, partPath) {
     const relsPath = `${directoryOf(partPath)}_rels/${partPath.slice(partPath.lastIndexOf('/') + 1)}.rels`;
-    const relationships = {};
+    const relationships = Object.create(null);
     walkXml(pkg.text(relsPath), {
       open(name, attrs) {
         if (name !== 'Relationship' || !attrs.Id) return;
@@ -292,8 +302,10 @@
   // --- docx -----------------------------------------------------------------
 
   function wrapInline(text, marker) {
-    const match = text.match(/^(\s*)([\s\S]*?)(\s*)$/);
-    return match[2] ? `${match[1]}${marker}${match[2]}${marker}${match[3]}` : text;
+    // Sin expresión regular: con mucho espacio en blanco, ^(\s*)(…*?)(\s*)$ es cuadrática.
+    const start = text.length - text.trimStart().length;
+    const end = text.trimEnd().length;
+    return end > start ? `${text.slice(0, start)}${marker}${text.slice(start, end)}${marker}${text.slice(end)}` : text;
   }
 
   function inlineMarkdown(node) {
@@ -410,8 +422,11 @@
   const EXCEL_EPOCH_DAYS = 25569;
   const EXCEL_EPOCH_DAYS_1904 = 24107;
 
+  /** Fecha ISO de un número de serie de Excel, o null si queda fuera de las fechas representables. */
   function excelSerialToDate(serial, date1904) {
-    const iso = new Date(Math.round((serial - (date1904 ? EXCEL_EPOCH_DAYS_1904 : EXCEL_EPOCH_DAYS)) * 86400 * 1000)).toISOString();
+    const date = new Date(Math.round((serial - (date1904 ? EXCEL_EPOCH_DAYS_1904 : EXCEL_EPOCH_DAYS)) * 86400 * 1000));
+    if (Number.isNaN(date.getTime())) return null;
+    const iso = date.toISOString();
     return iso.endsWith('T00:00:00.000Z') ? iso.slice(0, 10) : iso.replace('.000Z', 'Z');
   }
 
@@ -478,7 +493,8 @@
           date1904 = /^(?:1|true)$/i.test(attrs.date1904 || '');
         } else if (name === 'sheet' && attrs.name) {
           const relation = relationships[attrs['r:id']];
-          if (relation?.type === 'worksheet' && !relation.external) {
+          // Una misma hoja citada varias veces se lee una vez (si no, amplifica el documento).
+          if (relation?.type === 'worksheet' && !relation.external && !sheets.some(sheet => sheet.path === relation.path)) {
             sheets.push({ name: attrs.name, hidden: Boolean(attrs.state) && attrs.state !== 'visible', path: relation.path });
           }
         }
@@ -496,7 +512,7 @@
       case 'str': case 'e': return value;
       default: {
         const serial = Number(value);
-        return value && dateStyles[style] && Number.isFinite(serial) ? excelSerialToDate(serial, date1904) : value;
+        return (value && dateStyles[style] && Number.isFinite(serial) && excelSerialToDate(serial, date1904)) || value;
       }
     }
   }
@@ -588,7 +604,8 @@
     const slides = [];
     walkXml(pkg.text('ppt/presentation.xml'), {
       open(name, attrs) {
-        if (name === 'p:sldId' && relationships[attrs['r:id']]) slides.push(relationships[attrs['r:id']].path);
+        const path = name === 'p:sldId' ? relationships[attrs['r:id']]?.path : null;
+        if (path && !slides.includes(path)) slides.push(path);
       }
     });
     return slides;
@@ -827,12 +844,14 @@
           }
           case 'text:h': case 'text:p': {
             const paragraph = paragraphs.pop();
+            if (!paragraph) break;
             const text = paragraph.text.replace(/\s+/g, ' ').trim();
             emitBlock(text && paragraph.heading ? `${'#'.repeat(paragraph.heading)} ${text}` : text);
             break;
           }
           case 'text:list': {
             const list = lists.pop();
+            if (!list) break;
             if (!lists.length) emitBlock(list.lines.join('\n'));
             break;
           }
@@ -933,5 +952,5 @@
     return parseOfficeDocument(await file.arrayBuffer(), file?.name || '', file?.type || '');
   }
 
-  return { getOfficeFormat, isOfficeFormat, getOfficeDocumentKind, replaceImageReferences, parseOfficeDocument, parseOfficeFile };
+  return { getOfficeFormat, isOfficeFormat, getOfficeDocumentKind, replaceImageReferences, parseOfficeDocument, parseOfficeFile, unzipPackage, MAX_IMAGES };
 });

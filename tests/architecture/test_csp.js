@@ -3,26 +3,32 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-test('Security - Presencia de Content Security Policy (CSP) en zerochat.html', () => {
-  const indexPath = path.join(__dirname, '../..', 'zerochat.html');
-  const html = fs.readFileSync(indexPath, 'utf8');
+/** Directivas de la meta CSP de una página, como nombre -> lista de fuentes; null si no la tiene. */
+function pageCsp(file) {
+  const html = fs.readFileSync(path.join(__dirname, '../..', file), 'utf8');
+  const content = html.match(/<meta\s+http-equiv="Content-Security-Policy"\s+content="([^"]+)"/)?.[1];
+  if (!content) return null;
+  return new Map(content.split(';').map(part => part.trim().split(/\s+/)).filter(([name]) => name).map(([name, ...sources]) => [name, sources]));
+}
 
-  assert.ok(html.includes('http-equiv="Content-Security-Policy"'), 'Debe contener la etiqueta meta CSP');
-  assert.ok(html.includes('https://esm.run'), 'La CSP debe permitir el módulo WebLLM fijado');
-  assert.ok(html.includes("worker-src 'self' blob: https://esm.run https://cdn.jsdelivr.net"), 'La CSP debe permitir el worker aislado y su módulo WebLLM');
-  assert.ok(html.includes("object-src 'none'"), 'CSP debe bloquear objetos embebidos');
-  assert.ok(html.includes("base-uri 'self'"), 'CSP debe restringir base-uri');
-  assert.ok(html.includes("frame-src 'self' blob:"), 'CSP debe restringir frame-src a self y blob');
-  assert.ok(html.includes("manifest-src 'self'"), 'CSP debe restringir manifest-src');
-  assert.ok(html.includes("media-src 'self' data: blob:"), 'CSP debe restringir media-src');
+test('Security - la CSP de zerochat.html restringe objetos, base, formularios, marcos, manifiesto y medios', () => {
+  const csp = pageCsp('zerochat.html');
+  assert.ok(csp, 'zerochat.html debe contener la etiqueta meta CSP');
+  // WebLLM se ejecuta desde una copia verificada en blob: (js/providers-webllm.js): ningún script de un CDN.
+  assert.ok(csp.get('script-src').every(source => !/^https?:/.test(source)), 'La CSP no admite scripts de otros orígenes');
+  assert.deepEqual(csp.get('worker-src'), ["'self'", 'blob:'], 'Los workers solo desde la propia página o blob:');
+  assert.deepEqual(csp.get('object-src'), ["'none'"]);
+  assert.deepEqual(csp.get('base-uri'), ["'self'"]);
+  assert.deepEqual(csp.get('form-action'), ["'none'"], 'Los formularios se envían por JavaScript, nunca navegando');
+  assert.deepEqual(csp.get('frame-src'), ["'self'", 'blob:']);
+  assert.deepEqual(csp.get('manifest-src'), ["'self'"]);
+  assert.deepEqual(csp.get('media-src'), ["'self'", 'data:', 'blob:']);
 });
 
 test('Security - files.html mantiene su CSP estricta sin scripts ni marcos externos', () => {
-  const html = fs.readFileSync(path.join(__dirname, '../..', 'files.html'), 'utf8');
-  const csp = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1];
-
+  const csp = pageCsp('files.html');
   assert.ok(csp, 'files.html debe contener la etiqueta meta CSP');
-  for (const directive of ["default-src 'self'", "script-src 'self'", "object-src 'none'", "base-uri 'self'", "frame-src 'none'"]) {
-    assert.ok(csp.split(';').map(part => part.trim()).includes(directive), `La CSP de files.html debe incluir ${directive}`);
+  for (const [name, sources] of [['default-src', ["'self'"]], ['script-src', ["'self'"]], ['object-src', ["'none'"]], ['base-uri', ["'self'"]], ['form-action', ["'none'"]], ['frame-src', ["'none'"]]]) {
+    assert.deepEqual(csp.get(name), sources, `La CSP de files.html debe incluir ${name} ${sources.join(' ')}`);
   }
 });

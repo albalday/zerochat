@@ -322,7 +322,7 @@
         let apiKey = turn.connection.apiKey;
         if (profileId) {
           if (typeof activateProfile !== 'function') throw new Error('Switching the profile is not available here.');
-          const profile = await getProfiles().loadUnlocked(profileId);
+          const profile = await getProfiles().load(profileId);
           if (!profile) throw new Error('The profile no longer exists.');
           await activateProfile(profileId, profile);
           // Esperar a que ProfileCheck publique el modelContextLimit real del nuevo perfil antes del siguiente paso.

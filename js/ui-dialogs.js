@@ -142,7 +142,7 @@
             const checkboxChecked = Boolean(result?.id === id && result.checkboxChecked === true);
             if (options.items !== undefined) {
               resolve(accepted ? (result.items || []) : null);
-            } else if (options.checkbox !== undefined || options.returnDetails) {
+            } else if (options.checkbox !== undefined) {
               resolve({ accepted, applyToAll: checkboxChecked, checkboxChecked, value: result?.value ?? null });
             } else {
               resolve(mode === 'prompt' ? (accepted ? result.value : null) : mode === 'confirm' ? accepted : undefined);
@@ -164,5 +164,5 @@
       }, 'confirm')
     };
   }
-  return document ? create(state, i18n, document, icons) : { create };
+  return document ? create(state, i18n, document, icons) : {};
 });

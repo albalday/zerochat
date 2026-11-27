@@ -217,6 +217,7 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
         utils.openImageInNewTab('blob:https://example.com/uuid');
         utils.openImageInNewTab('data:image/png;base64,iVBORw0KGgo=');
         const images = opened.splice(0);
+        const imageViewer = new DOMParser().parseFromString(await blobs.get(images[0].url).text(), 'text/html');
 
         const emptyDocument = utils.openDocumentInNewTab('');
         const documentOpened = utils.openDocumentInNewTab('<h1>Folleto</h1>');
@@ -229,7 +230,8 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
           emptyDocument,
           documentOpened,
           document: [doc.url.startsWith('blob:'), doc.target, doc.features, blob.type],
-          viewer: viewer.getAttribute('srcdoc')
+          viewer: viewer.getAttribute('srcdoc'),
+          imageCsp: imageViewer.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || ''
         };
       });
       assert.equal(result.rejected, 0, 'Las URL no seguras no abren nada');
@@ -238,6 +240,7 @@ describe('Browser UI - tarjetas y contenido interactivo', { concurrency: 2 }, ()
       assert.equal(result.documentOpened, true);
       assert.deepEqual(result.document, [true, '_blank', 'noopener,noreferrer', 'text/html;charset=utf-8']);
       assert.equal(result.viewer, '<h1>Folleto</h1>', 'El visor lleva el documento íntegro en su iframe');
+      assert.match(result.imageCsp, /default-src 'none'.*img-src data: blob: http: https:/, 'El visor de imágenes no ejecuta scripts');
     });
   });
 

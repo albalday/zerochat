@@ -20,6 +20,8 @@
 
   // Imágenes de un documento ofimático que se envían al modelo junto al texto (si admite visión).
   const MAX_OFFICE_ATTACHMENT_IMAGES = 4;
+  // Códigos de un rango beginbfrange: el espacio de códigos de dos bytes de una CMap.
+  const MAX_CMAP_RANGE_CODES = 0xFFFF;
 
   const getOfficeParser = () => resolveDep('ChatOfficeParser', './office-parser.js');
 
@@ -82,6 +84,7 @@
         const start = parseInt(cm[1], 16);
         const end = parseInt(cm[2], 16);
         const len = cm[1].length;
+        if (end - start > MAX_CMAP_RANGE_CODES) continue;
         const destMatches = cm[3].match(/<([0-9a-fA-F]+)>/g) || [];
         for (let s = start, idx = 0; s <= end && idx < destMatches.length; s++, idx++) {
           const srcHex = s.toString(16).padStart(len, '0').toLowerCase();
@@ -106,6 +109,8 @@
         const end = parseInt(cm[2], 16);
         const destStart = parseInt(cm[3], 16);
         const len = cm[1].length;
+        // Un rango válido no pasa del espacio de códigos de dos bytes: uno mayor es hostil y se ignora.
+        if (end - start > MAX_CMAP_RANGE_CODES) continue;
         for (let s = start; s <= end; s++) {
           const srcHex = s.toString(16).padStart(len, '0').toLowerCase();
           const dstCode = destStart + (s - start);
@@ -606,19 +611,52 @@
     return (anyDecoded || anySpacingNormalized) ? decodedLines.join('\n') : text;
   }
 
+  /** Un flujo de PDF que descomprimido pasa del tope: se omite sin seguir descomprimiéndolo. */
+  const streamTooLarge = () => Object.assign(new Error('PDF stream exceeds the decompression limit'), { code: 'PDF_STREAM_TOO_LARGE' });
+  const maxStreamBytes = () => resolveDep('ChatIngestionEngine', './ingestionEngine.js').MAX_DECOMPRESSED_TEXT_BYTES;
+  const STREAM_OMITTED_NOTICE = '[... A compressed PDF stream exceeds the 50 MB limit once decompressed and was skipped ...]';
+
+  /** Lee lo descomprimido hasta `maxBytes`; si pasa, cancela y lanza PDF_STREAM_TOO_LARGE. */
+  async function readDecompressed(readable, maxBytes) {
+    const reader = readable.getReader();
+    const chunks = [];
+    let total = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        reader.cancel().catch(() => { /* ya se sabe que pasa del tope */ });
+        throw streamTooLarge();
+      }
+      chunks.push(value);
+    }
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      out.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return out;
+  }
+
+  /** Flujo FlateDecode descomprimido, null si no lo es, o PDF_STREAM_TOO_LARGE si pasa de MAX_DECOMPRESSED_TEXT_BYTES. */
   async function decompressDeflateData(uint8Array) {
     if (!uint8Array || uint8Array.length === 0) return null;
+    const maxBytes = maxStreamBytes();
 
     if (typeof DecompressionStream !== 'undefined') {
       try {
         const ds = new DecompressionStream('deflate');
         const writer = ds.writable.getWriter();
-        const writePromise = writer.write(uint8Array).then(() => writer.close()).catch(() => {});
-        const res = new Response(ds.readable);
-        const buf = await res.arrayBuffer();
+        const writePromise = writer.write(uint8Array).then(() => writer.close()).catch(() => { /* el error del flujo llega al lector, que lo trata */ });
+        const buf = await readDecompressed(ds.readable, maxBytes);
         await writePromise;
-        return new Uint8Array(buf);
-      } catch (e) { /* se prueba la siguiente estrategia de descompresión */ }
+        return buf;
+      } catch (e) {
+        if (e.code === 'PDF_STREAM_TOO_LARGE') throw e;
+        /* se prueba la siguiente estrategia de descompresión */
+      }
 
       try {
         let rawSlice = uint8Array;
@@ -628,23 +666,29 @@
         }
         const dsRaw = new DecompressionStream('deflate-raw');
         const writer = dsRaw.writable.getWriter();
-        const writePromise = writer.write(rawSlice).then(() => writer.close()).catch(() => {});
-        const res = new Response(dsRaw.readable);
-        const buf = await res.arrayBuffer();
+        const writePromise = writer.write(rawSlice).then(() => writer.close()).catch(() => { /* el error del flujo llega al lector, que lo trata */ });
+        const buf = await readDecompressed(dsRaw.readable, maxBytes);
         await writePromise;
-        return new Uint8Array(buf);
-      } catch (e) { /* se prueba la siguiente estrategia de descompresión */ }
+        return buf;
+      } catch (e) {
+        if (e.code === 'PDF_STREAM_TOO_LARGE') throw e;
+        /* se prueba la siguiente estrategia de descompresión */
+      }
     }
 
     if (typeof require !== 'undefined') {
       try {
         const zlib = require('zlib');
-        return zlib.inflateSync(uint8Array);
+        return zlib.inflateSync(uint8Array, { maxOutputLength: maxBytes });
       } catch (e) {
+        if (e.code === 'ERR_BUFFER_TOO_LARGE') throw streamTooLarge();
         try {
           const zlib = require('zlib');
-          return zlib.inflateRawSync(uint8Array);
-        } catch (e2) { /* zlib no disponible o datos no comprimidos */ }
+          return zlib.inflateRawSync(uint8Array, { maxOutputLength: maxBytes });
+        } catch (e2) {
+          if (e2.code === 'ERR_BUFFER_TOO_LARGE') throw streamTooLarge();
+          /* zlib no disponible o datos no comprimidos */
+        }
       }
     }
 
@@ -816,9 +860,12 @@
     return rc4Bytes(objectKey, input);
   }
 
+  /** Imágenes del PDF por número de objeto, hasta el tope de imágenes de Office; `omitted` cuenta las que pasan de él. */
   function extractImagesFromPdfObjects(allObjects, objOffsets, bytes, security = null) {
     const imagesByObjNum = new Map();
+    const maxImages = getOfficeParser().MAX_IMAGES;
     let imgCounter = 1;
+    let omitted = 0;
 
     for (const [num, body] of allObjects.entries()) {
       if (!/\/Subtype\s*\/Image\b/i.test(body)) continue;
@@ -850,37 +897,35 @@
       const isDct = /\/Filter\s*(?:\/DCTDecode|\[\s*\/DCTDecode\s*\])/i.test(body);
       const isJpx = /\/Filter\s*(?:\/JPXDecode|\[\s*\/JPXDecode\s*\])/i.test(body);
 
-      let mimeType = '';
-      let dataUrl = '';
-
       const isCmyk = body.includes('DeviceCMYK') || body.includes('/ColorSpace/DeviceCMYK') || body.includes('/ColorSpace /DeviceCMYK');
 
+      let mimeType = '';
       if ((isDct || (imageBytes[0] === 0xFF && imageBytes[1] === 0xD8)) && imageBytes[0] === 0xFF && imageBytes[1] === 0xD8) {
         mimeType = 'image/jpeg';
-        dataUrl = `data:image/jpeg;base64,${bytesToBase64(imageBytes)}`;
       } else if (isJpx && imageBytes.length >= 12 && imageBytes[4] === 0x6A && imageBytes[5] === 0x50) {
         mimeType = 'image/jp2';
-        dataUrl = `data:image/jp2;base64,${bytesToBase64(imageBytes)}`;
       } else if (imageBytes[0] === 0x89 && imageBytes[1] === 0x50 && imageBytes[2] === 0x4E && imageBytes[3] === 0x47) {
         mimeType = 'image/png';
-        dataUrl = `data:image/png;base64,${bytesToBase64(imageBytes)}`;
       }
-
-      if (dataUrl) {
-        imagesByObjNum.set(String(num), {
-          id: `img_${imgCounter++}`,
-          objNum: String(num),
-          width,
-          height,
-          sizeBytes: imageBytes.length,
-          mimeType: mimeType || 'image/jpeg',
-          isCmyk: Boolean(isCmyk),
-          dataUrl
-        });
+      if (!mimeType) continue;
+      // Pasado el tope se cuentan sin codificarlas: un PDF que cita mil veces la misma imagen no multiplica la memoria.
+      if (imagesByObjNum.size >= maxImages) {
+        omitted++;
+        continue;
       }
+      imagesByObjNum.set(String(num), {
+        id: `img_${imgCounter++}`,
+        objNum: String(num),
+        width,
+        height,
+        sizeBytes: imageBytes.length,
+        mimeType,
+        isCmyk: Boolean(isCmyk),
+        dataUrl: `data:${mimeType};base64,${bytesToBase64(imageBytes)}`
+      });
     }
 
-    return imagesByObjNum;
+    return { imagesByObjNum, omitted };
   }
 
   /** Extrae texto y objetos de imagen de un PDF de forma interna. */
@@ -942,7 +987,7 @@
     const cmap = await parseCMaps(allObjects, fullText, bytes, objOffsets, security);
 
     // 3b. Extracción de imágenes XObject (/Subtype /Image)
-    const imagesByObjNum = extractImagesFromPdfObjects(allObjects, objOffsets, bytes, security);
+    const { imagesByObjNum, omitted: omittedImages } = extractImagesFromPdfObjects(allObjects, objOffsets, bytes, security);
     const assignedImages = new Set();
     const allExtractedImages = [];
 
@@ -958,8 +1003,12 @@
     const catalogBody = catalogObjNum ? (allObjects.get(catalogObjNum) || '') : '';
     const pagesMatch = catalogBody.match(/\/Pages\s+(\d+)\s+\d+\s+R/);
 
+    // Cada nodo del árbol de páginas se visita una vez: un /Kids en ciclo o que repite ramas (DAG) no se recorre de nuevo.
     const pagesList = [];
+    const visitedNodes = new Set();
     function traverse(nodeObjNum) {
+      if (visitedNodes.has(String(nodeObjNum))) return;
+      visitedNodes.add(String(nodeObjNum));
       const body = allObjects.get(String(nodeObjNum));
       if (!body) return;
       if (/\/Type\s*\/Page\b/i.test(body) && !/\/Type\s*\/Pages\b/i.test(body)) {
@@ -1031,7 +1080,10 @@
                   pageItems.push(parsed);
                 }
               }
-            } catch (e) { /* flujo de página dañado: se omite y se sigue con el resto */ }
+            } catch (e) {
+              // Flujo de página dañado: se omite y se sigue con el resto; uno que pasa del tope deja el aviso.
+              if (e.code === 'PDF_STREAM_TOO_LARGE') pageItems.push(STREAM_OMITTED_NOTICE);
+            }
           }
         }
 
@@ -1136,9 +1188,12 @@
                 ? decryptPdfObjectBytes(rawStreamBytes, security, objNum, generation)
                 : rawStreamBytes;
               if (isFlate) {
-                const decompressed = await decompressDeflateData(streamBytes);
-                if (decompressed) {
-                  streamString = decoder.decode(decompressed);
+                try {
+                  const decompressed = await decompressDeflateData(streamBytes);
+                  if (decompressed) streamString = decoder.decode(decompressed);
+                } catch (e) {
+                  if (e.code !== 'PDF_STREAM_TOO_LARGE') throw e;
+                  currentPageItems.push(STREAM_OMITTED_NOTICE);
                 }
               } else if (!isDCT) {
                 streamString = decoder.decode(streamBytes);
@@ -1201,6 +1256,10 @@
       } else {
         finalCleanText = extractionWarning;
       }
+    }
+
+    if (omittedImages > 0) {
+      finalCleanText += `\n\n[Image omitted: ${omittedImages} more image(s), over the limit of ${getOfficeParser().MAX_IMAGES} per document.]`;
     }
 
     return {
@@ -1379,6 +1438,8 @@
         if (!component) return null;
         scan.push({ ...component, dc: dcTables[bytes[q + 1] >> 4], ac: acTables[bytes[q + 1] & 0x0F] });
       }
+      // JPEG admite factores de muestreo de 1 a 4: otro valor (0 daría infinitos MCU) no es una imagen válida.
+      if (frame.components.some(c => c.h < 1 || c.h > 4 || c.v < 1 || c.v > 4)) return null;
       const hMax = Math.max(...frame.components.map(c => c.h));
       const vMax = Math.max(...frame.components.map(c => c.v));
       const totalMcus = scan.length === 1
@@ -1399,7 +1460,11 @@
         }
         const buf = Uint8Array.from(data);
         let bit = 0;
-        const readBit = () => (buf[bit >> 3] >> (7 - (bit++ & 7))) & 1;
+        // Los datos se acaban antes que los MCU declarados en una imagen dañada u hostil: se deja de decodificar.
+        const readBit = () => {
+          if (bit >= buf.length * 8) throw new Error('Truncated JPEG data');
+          return (buf[bit >> 3] >> (7 - (bit++ & 7))) & 1;
+        };
         const flipBits = n => { for (let i = 0; i < n; i++, bit++) buf[bit >> 3] ^= 1 << (7 - (bit & 7)); };
         const decode = map => {
           let code = 0;

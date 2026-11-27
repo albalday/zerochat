@@ -2,22 +2,23 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { listSourceFiles } = require('../helpers/source-files');
 
 const JS_DIR = path.resolve(__dirname, '../../js');
 // Únicos módulos autorizados a escribir el slice `ui` directamente; el resto usa los mutadores de ChatState.
 const UI_SLICE_WRITERS = new Set(['state.js', 'ui-inspector.js']);
 
 test('ChatState - solo state.js y ui-inspector.js escriben el slice ui con State.set', () => {
-  const offenders = fs.readdirSync(JS_DIR)
-    .filter(name => name.endsWith('.js') && !UI_SLICE_WRITERS.has(name))
-    .filter(name => /\.set\(\s*['"]ui['"]/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
+  const offenders = listSourceFiles(JS_DIR).map(file => path.relative(JS_DIR, file))
+    .filter(name => !UI_SLICE_WRITERS.has(name))
+    .filter(name => /\.set\(\s*['"]ui['"]|setState\(\s*\{\s*ui\b/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
 
   assert.deepEqual(offenders, [], `Usa los mutadores de ChatState en lugar de State.set('ui', …): ${offenders.join(', ')}`);
 });
 
 test('ChatState - el slice project solo se escribe mediante setProjectContext', () => {
-  const offenders = fs.readdirSync(JS_DIR)
-    .filter(name => name.endsWith('.js') && name !== 'state.js')
+  const offenders = listSourceFiles(JS_DIR).map(file => path.relative(JS_DIR, file))
+    .filter(name => name !== 'state.js')
     .filter(name => /\.set\(\s*['"]project['"]|setState\(\s*\{\s*project\b/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
 
   assert.deepEqual(offenders, [], `Usa ChatState.setProjectContext: ${offenders.join(', ')}`);

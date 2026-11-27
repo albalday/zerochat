@@ -13,7 +13,13 @@
 
   const { resolveDep } = Utils;
 
-  const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm';
+  // El ESM publicado del paquete (inmutable en jsDelivr, sin importaciones) y su huella: solo se ejecuta la copia que
+  // coincide, desde un blob: local, así que la CSP no admite scripts del CDN. Al subir de versión se actualizan los dos.
+  const WEBLLM_URL = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/lib/index.js';
+  const WEBLLM_SHA384 = 'rfElDdXnNkSgbLTTGiKHTrsetCVAYzzLZBD96/rZdD9XYvryEyShqz3ph8j+x7HH';
+  let verifiedModuleUrl = null;
+  // La misma URL blob: ya resuelta, para el código del worker (que se arma de forma síncrona).
+  let verifiedModuleBlobUrl = '';
   const COMPLETED_MODELS_STORAGE_KEY = 'webllm_completed_models_v1';
   // Familias entrenadas con el formato <tool_call> y con tamaño suficiente para encadenar herramientas.
   const TOOLS_RECOMMENDED_MODEL_PATTERN = /^(Qwen3-(4B|8B)|Qwen3\.5-(4B|9B)|Hermes-3-Llama-3\.1-8B|Hermes-2-Pro-)/;
@@ -87,16 +93,40 @@
     return await getModelAvailability(webllm, modelId, appConfig) === 'cached';
   }
 
+  /** Comprueba que `bytes` tienen la huella SHA-384 (base64) esperada; si no, lanza sin ejecutar nada. */
+  async function verifyModuleIntegrity(bytes, expectedSha384) {
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-384', bytes));
+    if (Utils.bytesToBase64(digest) !== expectedSha384) throw new Error('the downloaded WebLLM module failed the integrity check.');
+  }
+
+  /** URL blob: de la librería WebLLM descargada y verificada; la comparten la página y el worker. */
+  async function webllmModuleUrl() {
+    if (!verifiedModuleUrl) {
+      verifiedModuleUrl = (async () => {
+        const res = await fetch(WEBLLM_URL);
+        if (!res.ok) throw new Error(`HTTP ${res.status} downloading WebLLM.`);
+        const bytes = await res.arrayBuffer();
+        await verifyModuleIntegrity(bytes, WEBLLM_SHA384);
+        verifiedModuleBlobUrl = URL.createObjectURL(new Blob([bytes], { type: 'text/javascript' }));
+        return verifiedModuleBlobUrl;
+      })().catch(error => {
+        verifiedModuleUrl = null;
+        throw error;
+      });
+    }
+    return verifiedModuleUrl;
+  }
+
   function loadWebLLM(loader) {
     if (!supported()) return Promise.reject(new Error(supportError()));
     if (!modulePromise) {
-      const importModule = loader || (async (url) => {
+      const importModule = loader || (async () => {
         if (typeof globalThis !== 'undefined' && globalThis.webllm?.CreateWebWorkerMLCEngine) {
           return globalThis.webllm;
         }
-        return await import(/* webpackIgnore: true */ url);
+        return await import(/* webpackIgnore: true */ await webllmModuleUrl());
       });
-      modulePromise = Promise.resolve().then(() => importModule(WEBLLM_URL)).catch(error => {
+      modulePromise = Promise.resolve().then(() => importModule()).catch(error => {
         modulePromise = null;
         throw new Error(`No se pudo preparar WebLLM: ${error.message || error}`);
       });
@@ -264,7 +294,8 @@
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) return abort();
 
-      const source = `import * as webllm from ${JSON.stringify(WEBLLM_URL)};\nconst handler = new webllm.WebWorkerMLCEngineHandler();\nself.onmessage = event => handler.onmessage(event);`;
+      // El worker importa la copia verificada; sin ella, la URL del CDN, que la CSP de la página no admite.
+      const source = `import * as webllm from ${JSON.stringify(verifiedModuleBlobUrl || WEBLLM_URL)};\nconst handler = new webllm.WebWorkerMLCEngineHandler();\nself.onmessage = event => handler.onmessage(event);`;
       workerUrl = URL.createObjectURL(new Blob([source], { type: 'text/javascript' }));
       try {
         worker = new Worker(workerUrl, { type: 'module' });
@@ -506,6 +537,7 @@
   Providers.registry.register(adapter);
   return {
     COMPLETED_MODELS_STORAGE_KEY,
+    verifyModuleIntegrity,
     compareCatalogModels,
     normalizeProgress,
     parseProgressDetail,

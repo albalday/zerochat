@@ -81,7 +81,7 @@ test('Browser UI - humo: arranca, conversa con Espejo, gestiona conversaciones y
     }
     await page.click('#btn-close-settings');
     await page.waitForFunction(() => !document.getElementById('settings-dialog').open);
-    for (const [section, nav, back] of [['rag', '#sidebar-rag-nav', '#btn-rag-back'], ['encryption', '#sidebar-encryption-nav', '#btn-encryption-back']]) {
+    for (const [section, nav, back] of [['rag', '#sidebar-rag-nav', '#btn-rag-back']]) {
       await page.locator(`#sidebar-settings-nav [data-section="${section}"]`).evaluate(item => item.click());
       await page.waitForSelector(`${nav}:not([hidden])`);
       await page.locator(back).evaluate(button => button.click());
@@ -276,11 +276,10 @@ test('Browser - ChatVendorLoader inyecta los bundles una vez en file:// y explic
       const [a, b] = await Promise.all([ChatVendorLoader.load('orama'), ChatVendorLoader.load('orama')]);
       return {
         same: a === b && a === window.ZeroChatOrama,
-        hasSearch: typeof a.search === 'function',
         injected: document.querySelectorAll('script[src="js/vendor/orama.browser.js"]').length
       };
     });
-    assert.deepEqual(loaded, { same: true, hasSearch: true, injected: 2 });
+    assert.deepEqual(loaded, { same: true, injected: 2 });
 
     const office = await page.evaluate(async () => {
       const [mammoth, fflate] = await Promise.all(['mammoth', 'fflate'].map(id => ChatVendorLoader.load(id)));

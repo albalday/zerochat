@@ -8,8 +8,8 @@
   const { escapeHtml, projectName } = Utils;
   const { t } = I18n;
 
-  const INTENSITY_LEVELS = Object.freeze(['none', 'low', 'medium', 'high', 'xhigh']);
-  const LEVEL_LABEL_KEYS = { none: 'reasoning_intensity_none', low: 'reasoning_level_low', medium: 'reasoning_level_medium', high: 'reasoning_level_high', xhigh: 'reasoning_intensity_max' };
+  const LEVEL_LABEL_KEYS = Utils.resolveDep('ChatDefaults', './defaults.js').REASONING_LEVEL_LABEL_KEYS;
+  const INTENSITY_LEVELS = Object.freeze(Object.keys(LEVEL_LABEL_KEYS));
   // Acciones cuyo nombre no basta para saber qué hacen.
   const PROJECT_ACTION_TITLES = Object.freeze({
     updateRules: 'project_action_updateRules_title',
@@ -47,22 +47,15 @@
 
   function closeReasoningMenu(elements) {
     const modal = getModal(elements);
-    if (modal) {
-      if (typeof modal.close === 'function' && modal.open) {
-        modal.close();
-      }
-      modal.hidden = true;
-    }
+    if (modal.open) modal.close();
+    modal.hidden = true;
     elements.btnReasoning.setAttribute('aria-expanded', 'false');
   }
 
   function openReasoningMenu(elements, appConfig) {
     const modal = getModal(elements);
-    if (!modal) return;
     modal.hidden = false;
-    if (typeof modal.showModal === 'function' && !modal.open) {
-      modal.showModal();
-    }
+    if (!modal.open) modal.showModal();
     elements.btnReasoning.setAttribute('aria-expanded', 'true');
     syncReasoningIntensity(elements, appConfig.reasoningEffort || 'medium');
     elements.chkSubagents.checked = appConfig.subagents === true;

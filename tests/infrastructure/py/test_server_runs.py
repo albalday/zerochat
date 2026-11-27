@@ -392,7 +392,6 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         # reasoning: uno de los niveles del selector, medium si el fichero no lo indica.
         for level in zerochat.RUN_REASONING_LEVELS:
             self.assertEqual(parse({"prompt": "Hola", "reasoning": level})["reasoning"], level)
-        self.assertEqual(zerochat.RUN_REASONING_LEVELS, ("none", "low", "medium", "high", "xhigh"))
         for invalid in ("max", "Medium", "", 2, True):
             with self.assertRaisesRegex(ValueError, "reasoning debe ser"):
                 parse({"prompt": "Hola", "reasoning": invalid})

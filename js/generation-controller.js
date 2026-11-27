@@ -181,7 +181,7 @@
     }
 
     if ((State.get('mcp')?.serverRuns || []).some(run => run?.conversationId === generationSessionId)) {
-      resolveDep('ChatMCP', './mcp.js').manager.cancelServerRun(generationSessionId).catch(() => {});
+      resolveDep('ChatMCP', './mcp.js').manager.cancelServerRun(generationSessionId).catch(error => console.warn('[GenerationController] Could not cancel the server run:', error));
     }
 
     // Al reanudar un paso pausado, la decisión del usuario contesta el reto del backend de esa misma
@@ -239,14 +239,13 @@
 
     let cancelled = false;
     try {
-      const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').loadUnlocked(config.activeProfile?.id);
+      const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').load(config.activeProfile?.id);
       const loopResult = await getEngine().executeAgentTurnLoop({
         apiKey: activeProfile?.settings?.apiKey || '',
         chatHistory: State.get('messages'),
         appConfig: config,
-        // switch_model cambia de perfil como el selector: arranca sus servicios MCP, sin avisos a mitad de turno.
-        activateProfile: profileId => resolveDep('ChatUIProfiles', './ui-profiles.js').activateConnectionProfile(profileId)
-          .catch(error => console.warn('[GenerationController] Could not start the profile MCP servers:', error)),
+        // switch_model cambia de perfil como el selector (activateConnectionProfile es síncrona).
+        activateProfile: profileId => resolveDep('ChatUIProfiles', './ui-profiles.js').activateConnectionProfile(profileId),
         assistantMsgId,
         currentRagSystemContext,
         projectContext,

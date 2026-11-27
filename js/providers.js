@@ -36,6 +36,7 @@
   const REASONING_REPLAY_FIELDS = ['reasoning_content', 'reasoning'];
 
   const { serializeContent, fetchWithTimeout } = Utils;
+  const REASONING_LEVELS = Object.keys(Utils.resolveDep('ChatDefaults', './defaults.js').REASONING_LEVEL_LABEL_KEYS);
 
   // Capacidades que el inspector infiere del nombre de los modelos.
   const MODEL_NAME_INFERENCES = [
@@ -60,6 +61,12 @@
   }
 
   /** Mensaje de un error que el servidor envía dentro del streaming: texto u objeto con message o type. */
+  /** Temperatura del perfil como número; 0 es válida y solo un valor vacío o no numérico usa 0,7. */
+  function profileTemperature(temperature) {
+    const parsed = parseFloat(temperature);
+    return Number.isFinite(parsed) ? parsed : 0.7;
+  }
+
   function streamErrorMessage(error) {
     if (typeof error === 'string') return error;
     return error.message || error.type || JSON.stringify(error);
@@ -102,7 +109,7 @@
     constructor(options = {}) {
       this.id = options.id || 'openai';
       this.label = options.label || 'OpenAI / LM Studio';
-      this.reasoningLevels = options.reasoningLevels || ['none', 'low', 'medium', 'high', 'xhigh'];
+      this.reasoningLevels = options.reasoningLevels || [...REASONING_LEVELS];
       this.connection = {
         endpoint: options.connection?.endpoint || 'http://localhost:1234/v1',
         knownEndpoints: Array.isArray(options.connection?.knownEndpoints) ? [...options.connection.knownEndpoints] : [],
@@ -260,7 +267,7 @@
         messages: formattedMessages
       };
       if (capabilities.temperature !== false) {
-        payload.temperature = parseFloat(temperature) || 0.7;
+        payload.temperature = profileTemperature(temperature);
       }
 
       if (capabilities.streaming && stream !== false) {
@@ -641,7 +648,6 @@
         id: 'claude',
         label: 'Anthropic Claude',
         connection: { endpoint: 'https://api.anthropic.com/v1' },
-        reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
           streaming: true,
           vision: true,
@@ -786,7 +792,7 @@
       const payload = {
         model: modelKey,
         messages: nonSystemMessages,
-        temperature: parseFloat(temperature) || 0.7,
+        temperature: profileTemperature(temperature),
         max_tokens: effectiveMaxTokens
       };
       Object.defineProperty(payload, '_endpoint', {
@@ -1154,7 +1160,6 @@
         id: 'ollama',
         label: 'Ollama',
         connection: { endpoint: 'http://localhost:11434' },
-        reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
           streaming: true,
           vision: true,
@@ -1211,7 +1216,6 @@
         id: 'openrouter',
         label: 'OpenRouter',
         connection: { endpoint: 'https://openrouter.ai/api/v1' },
-        reasoningLevels: ['none', 'low', 'medium', 'high', 'xhigh'],
         capabilities: {
           streaming: true,
           vision: true,

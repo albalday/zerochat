@@ -270,6 +270,27 @@ test('AgentRuntime - la conexión del agente solo llega a las herramientas de ca
   assert.equal(seen.spawning_tool.agent.model, 'main-model');
 });
 
+test('AgentRuntime - una herramienta registrada que no se ofreció en el paso se rechaza sin ejecutarla', async t => {
+  const registry = new ToolRegistry();
+  const executed = [];
+  registry.registerTool(makeTool({ name: 'offered_tool', execute: async () => { executed.push('offered_tool'); return { ok: true }; } }));
+  registry.registerTool(makeTool({ name: 'disabled_tool', execute: async () => { executed.push('disabled_tool'); return { ok: true }; } }));
+  let step = 0;
+  const result = await runAgent(t, registry, {
+    resolveToolDefinitions: () => [registry.getTool('offered_tool').getDefinition()],
+    api: {
+      streamChatCompletion: async () => (++step === 1
+        ? { accumulatedText: '', toolCalls: [{ id: 'c1', function: { name: 'disabled_tool', arguments: '{}' } }, { id: 'c2', function: { name: 'offered_tool', arguments: '{}' } }], stats: { tokens: 5 } }
+        : { accumulatedText: 'Hecho', toolCalls: [], stats: { tokens: 5 } })
+    },
+    messages: [{ role: 'user', content: 'usa las dos' }]
+  });
+  assert.deepEqual(executed, ['offered_tool']);
+  const [rejected] = result.history.filter(m => m.role === 'tool');
+  assert.equal(rejected.name, 'disabled_tool');
+  assert.match(JSON.parse(rejected.content).error, /not available in this conversation/);
+});
+
 test('AgentRuntime - pasos secuenciales, error de herramienta con recuperación y fin limpio si el modelo devuelve vacío', async t => {
   const registry = new ToolRegistry();
   let attempts = 0;
@@ -666,6 +687,27 @@ test('AgentRuntime - una herramienta con endTurn cede el turno sin más peticion
   assert.equal(result.status, 'completed');
   assert.equal(result.history.at(-1).name, 'ask_user');
   assert.equal(result.history.at(-2).content, 'Necesito tu decisión.');
+
+  // Las llamadas del lote posteriores a la que cede el turno no se ejecutan ni quedan en el historial
+  const sideEffects = [];
+  registry.registerTool(makeTool({ name: 'side_effect', execute: async args => { sideEffects.push(args.n); return { ok: true }; } }));
+  const batched = await runAgent(t, registry, {
+    api: {
+      streamChatCompletion: async () => ({
+        accumulatedText: '',
+        toolCalls: [
+          { id: 'c_before', type: 'function', function: { name: 'side_effect', arguments: '{"n":1}' } },
+          { id: 'c_ask', type: 'function', function: { name: 'ask_user', arguments: JSON.stringify({ question: '¿Borro?', options: ['Sí', 'No'] }) } },
+          { id: 'c_after', type: 'function', function: { name: 'side_effect', arguments: '{"n":2}' } }
+        ],
+        stats: null
+      })
+    },
+    messages: [{ role: 'user', content: 'Limpia' }]
+  });
+  assert.deepEqual(sideEffects, [1]);
+  assert.deepEqual(batched.history.find(m => m.role === 'assistant').tool_calls.map(call => call.id), ['c_before', 'c_ask']);
+  assert.deepEqual(batched.history.filter(m => m.role === 'tool').map(m => m.tool_call_id), ['c_before', 'c_ask']);
 
   let badRequests = 0;
   const recovered = await runAgent(t, registry, {

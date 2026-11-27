@@ -347,7 +347,7 @@
       }
 
       const activeConfig = Config.getActive();
-      const activeProfile = await ProfileRepository.loadUnlocked(activeConfig.activeProfile?.id);
+      const activeProfile = await ProfileRepository.load(activeConfig.activeProfile?.id);
       if (activeProfile?.settings?.apiType === 'webllm' || activeConfig.apiType === 'webllm') {
         return { error: 'WebLLM / WebGPU is not supported in the headless Node.js runner.' };
       }

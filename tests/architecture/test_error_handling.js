@@ -5,8 +5,9 @@ const path = require('node:path');
 const { listSourceFiles } = require('../helpers/source-files');
 
 const JS_DIR = path.resolve(__dirname, '../../js');
-// Un catch sin cuerpo oculta el error; debe registrarlo, propagarlo o explicar con un comentario por qué lo ignora.
-const EMPTY_CATCH = /catch\s*(\([^)]*\))?\s*\{\s*\}/g;
+// Un catch sin cuerpo (bloque o .catch(() => {}) de una promesa) oculta el error; debe registrarlo,
+// propagarlo o explicar con un comentario por qué lo ignora.
+const EMPTY_CATCH = /catch\s*(\([^)]*\))?\s*\{\s*\}|\.catch\(\s*(?:\(\s*\w*\s*\)|\w+)\s*=>\s*\{\s*\}\s*\)/g;
 
 test('Errores - ningún módulo usa bloques catch vacíos', () => {
   const offenders = [];

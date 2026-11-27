@@ -368,7 +368,7 @@ test('Browser UI - confirmar cambio de proyecto al abrir chat, enlace de fichero
       window.__dirs = [];
       window.ChatMCP.manager.setProjectDirectory = async path => {
         window.__dirs.push(path);
-        if (path === '/repo/borrado') throw new Error('Error MCP (-32602): no existe');
+        if (path === '/repo/borrado') throw Object.assign(new Error('MCP error (-32602): no existe'), { rpcError: { code: -32602, message: 'no existe' } });
         window.ChatMCP.manager.recordProjectContext(path, { status: 'missing' });
         await window.ChatMCP.manager.applyLiveState({ cwd: path });
         return { cwd: path };

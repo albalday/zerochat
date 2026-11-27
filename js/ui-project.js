@@ -33,7 +33,7 @@
     try {
       await getMCP().manager.setProjectDirectory(project);
     } catch (error) {
-      const reason = String(error?.message || error).replace(/^Error MCP \(-?\d+\): /, '');
+      const reason = getMCP().errorReason(error);
       await getDialogs().alert(t('conversation_project_unavailable', { project, error: reason }), { type: 'warning' });
     }
   }

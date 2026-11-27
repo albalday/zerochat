@@ -11,11 +11,13 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, Database) {
   'use strict';
 
-  const { createId } = Utils;
+  const { createId, resolveDep } = Utils;
   const { STORES, openDatabase, requestResult, transactionDone, deleteByIndex, getAllByIndex } = Database;
   const DOCUMENT_STORES = [STORES.ragDocuments, STORES.ragImages, STORES.ragChunks];
   const BACKUP_SCHEMA = 'zerochat-knowledge';
   const BACKUP_VERSION = 2;
+  // Texto de una copia comprimida: cerca del límite de cadenas del navegador, que la importación no puede pasar.
+  const MAX_BACKUP_TEXT_BYTES = 512 * 1024 * 1024;
 
   class RagStorageError extends Error {
     constructor(message, details = {}) { super(message); this.name = 'RagStorageError'; this.details = details; }
@@ -343,7 +345,8 @@
    */
   async function readBackupText(file) {
     if (file.name.toLowerCase().endsWith('.gz') || await isGzipBlob(file)) {
-      return new Response(file.stream().pipeThrough(new DecompressionStream('gzip'))).text();
+      // Se corta al pasar del tope en lugar de agotar la memoria hasta el límite de cadenas del navegador.
+      return resolveDep('ChatIngestionEngine', './ingestionEngine.js').readGzipText(file, MAX_BACKUP_TEXT_BYTES);
     }
     return file.text();
   }

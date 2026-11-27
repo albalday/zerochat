@@ -27,7 +27,7 @@ test('RunMode.createProgressReporter limita el streaming al intervalo y envía s
 test('RunMode.pendingAskUserQuestion toma la pregunta de ask_user de los mensajes tool del final del turno', () => {
   const askCall = (id, question) => ({ id, type: 'function', function: { name: 'ask_user', arguments: JSON.stringify({ question, options: ['A', 'B'] }) } });
   const readCall = { id: 'r1', type: 'function', function: { name: 'read_file', arguments: '{}' } };
-  const tool = (id, name) => ({ role: 'tool', tool_call_id: id, name, content: '{}' });
+  const tool = (id, name, content = name === 'ask_user' ? JSON.stringify({ status: 'shown_to_user' }) : '{}') => ({ role: 'tool', tool_call_id: id, name, content });
   const user = { role: 'user', content: 'hola' };
   const rows = [
     [[user, { role: 'assistant', tool_calls: [askCall('a1', ' ¿Sigo? ')] }, tool('a1', 'ask_user')], '¿Sigo?'],
@@ -37,6 +37,8 @@ test('RunMode.pendingAskUserQuestion toma la pregunta de ask_user de los mensaje
     [[user, { role: 'assistant', tool_calls: [askCall('a1', '¿Cuál?')] }, tool('a1', 'ask_user'), user, { role: 'assistant', content: 'Hecho' }], null],
     [[user, { role: 'assistant', tool_calls: [readCall] }, tool('r1', 'read_file')], null],
     [[user, { role: 'assistant', tool_calls: [{ id: 'a1', function: { name: 'ask_user', arguments: 'no json' } }] }, tool('a1', 'ask_user')], 'ask_user'],
+    // Un ask_user fallido no es una pregunta pendiente (no tapa una autorización del mismo paso).
+    [[user, { role: 'assistant', tool_calls: [askCall('a1', '¿Cuál?'), readCall] }, tool('a1', 'ask_user', JSON.stringify({ success: false, error: 'options' })), tool('r1', 'read_file')], null],
     [[], null]
   ];
   for (const [messages, expected] of rows) assert.equal(RunMode.pendingAskUserQuestion(messages), expected, JSON.stringify(messages));
@@ -170,7 +172,7 @@ test('RunMode.start - ciclo completo: nueva conversación, límites, needs_input
     afterSubmitMessages: [
       { role: 'user', content: 'Pregunta' },
       { role: 'assistant', tool_calls: [{ id: 'c1', function: { name: 'ask_user', arguments: '{"question":"¿A o B?"}' } }] },
-      { role: 'tool', tool_call_id: 'c1', name: 'ask_user', content: '{}' }
+      { role: 'tool', tool_call_id: 'c1', name: 'ask_user', content: '{"status":"shown_to_user"}' }
     ]
   });
   assert.deepEqual(ask.calls.find(c => c.method === 'zerochat/run/result')?.params, {
