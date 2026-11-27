@@ -293,6 +293,43 @@
       : null;
   }
 
+  /**
+   * Compacta a petición la conversación activa como la compactación automática: los turnos cerrados pasan a un
+   * resumen y el último se conserva literal. Mientras resume, la conversación está ocupada y el botón de parar lo
+   * cancela. Devuelve true si se compactó.
+   */
+  async function compactCurrentSession(options) {
+    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
+    const State = getState();
+    const config = getConfig().getActive();
+    const sessionId = getActiveSessionId();
+    let result = null;
+    let cancelled = false;
+    try {
+      result = await getGenerationController().runCancellableTask(async signal => {
+        State.setGenerationStatus({ phase: 'custom', text: t('chat_compact_running') });
+        const compacted = await resolveDep('ChatContextManager', './context-manager.js').compressHistory({
+          messages: getHistory(),
+          summarizeFn: params => summarizeHistory({ ...params, signal }),
+          options: { model: config.model, totalContextLimit: config.modelContextLimit }
+        });
+        cancelled = signal.aborted;
+        return compacted;
+      });
+    } finally {
+      State.clearGenerationStatus();
+    }
+    if (cancelled) return false;
+    if (!result?.compressed) {
+      await getDialogs().alert(t('chat_compact_failed'), { type: 'error' });
+      return false;
+    }
+    if (!await activateConversation(sessionId, result.messages, 'chat_new_blocked_generating', options)) return false;
+    showActiveSession(options, { resetComposer: false });
+    await saveCurrentSession(options);
+    return true;
+  }
+
   /** Decide si la rama se resume; null si el usuario cancela la bifurcación. */
   async function askBranchMode(history, boundary) {
     if (!shouldOfferBranchSummary(history, boundary)) return { summarize: false };
@@ -517,6 +554,7 @@
     switchToSession,
     createNewSession,
     createConversationBranch,
+    compactCurrentSession,
     deleteSession,
     removeProjectSessions,
     deleteAllSessions,

@@ -853,6 +853,22 @@
    * Por defecto (`keepActiveTurn: true`) resume solo los turnos cerrados anteriores al último mensaje `user`
    * y conserva intactos ese mensaje `user` y los pasos del turno en curso.
    */
+  /**
+   * Lo que compressHistory resumiría: el diálogo entre el último checkpoint y el turno en curso (si se conserva).
+   */
+  function compressibleDialogue(messages, keepActiveTurn = true) {
+    const lastCheckpointIndex = messages.findLastIndex(m => m && m._isSummaryBlock);
+    const activeTurnStart = keepActiveTurn ? findActiveTurnStartIndex(messages) : -1;
+    const compressibleEnd = activeTurnStart !== -1 ? activeTurnStart : messages.length;
+    const dialogue = messages.slice(lastCheckpointIndex + 1, compressibleEnd).filter(m => m && m.role && m.role !== 'system');
+    return { activeTurnStart, compressibleEnd, dialogue };
+  }
+
+  /** Hay turnos cerrados que resumir a petición del usuario (el último turno se conserva literal). */
+  function hasCompactableHistory(messages) {
+    return Array.isArray(messages) && compressibleDialogue(messages).dialogue.length > 0;
+  }
+
   async function compressHistory(params = {}) {
     const {
       messages = [],
@@ -868,26 +884,20 @@
     // memory passed to the summarizer; every later closed-turn message is passed verbatim.
     const systemMessages = [];
     let checkpoint = null;
-    let lastCheckpointIndex = -1;
 
-    messages.forEach((m, index) => {
+    messages.forEach(m => {
       if (m && m._isSummaryBlock) {
         checkpoint = m;
-        lastCheckpointIndex = index;
       } else if (m && m.role === 'system') {
         systemMessages.push(m);
       }
     });
 
-    const keepActiveTurn = options.keepActiveTurn !== false;
-    const activeTurnStart = keepActiveTurn ? findActiveTurnStartIndex(messages) : -1;
-    const compressibleEnd = activeTurnStart !== -1 ? activeTurnStart : messages.length;
+    const { activeTurnStart, compressibleEnd, dialogue } = compressibleDialogue(messages, options.keepActiveTurn !== false);
     const activeTurnMessages = activeTurnStart !== -1
       ? messages.slice(activeTurnStart).filter(m => m && m.role && m.role !== 'system')
       : [];
 
-    const dialogue = messages.slice(lastCheckpointIndex + 1, compressibleEnd)
-      .filter(m => m && m.role && m.role !== 'system');
     if (dialogue.length === 0 || typeof summarizeFn !== 'function') {
       return { messages, compressed: false, reason: dialogue.length === 0 ? 'no_new_dialogue' : 'summarizer_unavailable' };
     }
@@ -1010,6 +1020,7 @@
     TOOL_EVIDENCE_FLAG,
     getContextDiagnostics,
     shouldCompress,
+    hasCompactableHistory,
     compressHistory,
     formatHistoryTranscript
   };

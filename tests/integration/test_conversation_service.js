@@ -130,6 +130,32 @@ test('ConversationService - con resumen, la rama compacta el contexto previo y c
   assert.equal(State.get('messages')[1]._isSummaryBlock, true);
 });
 
+test('ConversationService - compactar resume los turnos cerrados, conserva el último y guarda; sin resumen avisa y no cambia nada', async t => {
+  await setupBranch(t);
+  const ContextManager = require('../../js/context-manager.js');
+  assert.equal(ContextManager.hasCompactableHistory(State.get('messages')), true);
+  assert.equal(ContextManager.hasCompactableHistory(HISTORY.slice(0, 3)), false, 'Con un solo turno no hay nada que resumir');
+  const { alerts } = useDialogs(t, []);
+  let busyDuringSummary = null;
+  useSummarizer(t, async () => {
+    busyDuringSummary = State.isConversationBusy();
+    return { accumulatedText: 'Resumen de los turnos anteriores' };
+  });
+  assert.equal(await ConversationService.compactCurrentSession(appOptions()), true);
+  assert.equal(busyDuringSummary, true, 'Mientras resume la conversación está ocupada y se puede parar');
+  assert.equal(State.isConversationBusy(), false);
+  assert.deepEqual(State.get('messages').map(message => message.content), ['sys', 'Resumen de los turnos anteriores', 'user 2', 'asst 2']);
+  assert.equal(State.get('sessions').activeId, 'parent_sess_1');
+  assert.deepEqual((await Storage.getConversation('parent_sess_1')).history.map(message => message.content), ['sys', 'Resumen de los turnos anteriores', 'user 2', 'asst 2']);
+  assert.equal(ContextManager.hasCompactableHistory(State.get('messages')), false, 'Recién compactada no queda nada que resumir');
+
+  await setupBranch(t);
+  useSummarizer(t, async () => ({ accumulatedText: '' }));
+  assert.equal(await ConversationService.compactCurrentSession(appOptions()), false);
+  assert.equal(alerts.length, 1);
+  assert.deepEqual(State.get('messages').map(message => message.id), HISTORY.map(message => message.id));
+});
+
 test('ConversationService - createConversationBranch respeta estado ocupado, parada manual y ofrece historial completo si falla el resumen', async t => {
   t.mock.method(console, 'warn', () => {});
   {

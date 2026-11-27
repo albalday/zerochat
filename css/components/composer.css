@@ -927,6 +927,12 @@
   font-size: 0.75rem;
 }
 
+.btn-compact-context {
+  justify-self: start;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+}
+
 .context-section-title {
   font-size: 0.78rem;
   font-weight: 700;

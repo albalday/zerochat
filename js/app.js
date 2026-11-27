@@ -20,7 +20,7 @@
     ChatUITelemetry: UITelemetry, ChatUIMcp: UIMcp, ChatUIBrowser: UIBrowser,
     ChatUIConnection: UIConnection, ChatRagUI: RagUI, ChatRunMode: RunMode,
     ChatBackendSession: BackendSession, ChatServerRun: ServerRun, ChatTabAlert: TabAlert,
-    ChatProfileCheck: ProfileCheck
+    ChatProfileCheck: ProfileCheck, ChatContextManager: ContextManager
   } = window;
   const { t } = I18n;
 
@@ -87,6 +87,7 @@
     contextHubCacheVal: 'context-hub-cache-val',
     contextHubPopover: 'context-hub-popover',
     btnCloseContextPopover: 'btn-close-context-popover',
+    btnCompactContext: 'btn-compact-context',
     contextProgressBar: 'context-progress-bar',
     contextMetricUsedVal: 'context-metric-used-val',
     contextMetricLimitVal: 'context-metric-limit-val',
@@ -809,7 +810,21 @@
     bindPreference(elements.themeButtons, 'data-theme', applyTheme, 'theme');
     bindPreference(elements.langButtons, 'data-lang', applyLanguage, 'language');
 
-    UITelemetry.mount(elements, () => updateConnectionTokensBadge(null, { forcePopover: true }));
+    // Al abrir el panel se rellena y se decide si hay turnos cerrados que compactar.
+    const syncCompactButton = () => {
+      elements.btnCompactContext.disabled = State.isConversationBusy() || !ContextManager.hasCompactableHistory(getChatHistory());
+    };
+    UITelemetry.mount(elements, () => {
+      updateConnectionTokensBadge(null, { forcePopover: true });
+      syncCompactButton();
+    });
+    elements.btnCompactContext.addEventListener('click', async () => {
+      elements.btnCompactContext.disabled = true;
+      if (await ConversationService.compactCurrentSession(getConversationServiceOptions())) {
+        updateConnectionTokensBadge(null, { forcePopover: true });
+      }
+      syncCompactButton();
+    });
 
     elements.messagesList.addEventListener('click', event => {
       const option = event.target.closest('[data-ask-option]');
