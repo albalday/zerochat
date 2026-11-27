@@ -296,20 +296,18 @@
       return turnMarkdown.get(turnIndex);
     };
 
-    const summarizerAddendum = getProjectContext().SUMMARIZER_PROJECT_ADDENDUM;
     /** Conexión del agente con una configuración: la del turno o la que deja switch_model. */
     const connectionFor = (config, apiKey) => {
-      const llm = { apiUrl: config.apiUrl, apiType: config.apiType, apiKey, model: config.model };
+      const compaction = createHistoryCompaction({ config, apiKey, projectContext, signal: params.signal, onBeforeRequest });
       return {
-        ...llm,
+        apiUrl: config.apiUrl,
+        apiType: config.apiType,
+        apiKey,
+        model: config.model,
         temperature: config.temperature,
         reasoningEffort: config.reasoningEffort,
-        contextOptions: {
-          totalContextLimit: config.modelContextLimit,
-          // En modo proyecto el resumen marca lo pendiente de registrar; nunca escribe en el proyecto.
-          ...(projectContext?.status === 'ready' ? { summarizerAddendum } : {})
-        },
-        summarizeHistory: createHistorySummarizer({ ...llm, signal: params.signal, onBeforeRequest })
+        contextOptions: compaction.options,
+        summarizeHistory: compaction.summarizeFn
       };
     };
     // Configuración vigente del turno: switch_model la cambia y vale desde el siguiente paso.
@@ -489,9 +487,25 @@
     };
   }
 
+  /**
+   * Compactación del historial con una configuración: el resumidor y las opciones de ContextManager.compressHistory.
+   * Única definición para la compactación automática del turno, las ramas resumidas y el botón Compactar. En modo
+   * proyecto el resumen marca lo pendiente de registrar (summarizerAddendum); nunca escribe en el proyecto.
+   */
+  function createHistoryCompaction({ config, apiKey = '', projectContext = null, signal, onBeforeRequest }) {
+    return {
+      summarizeFn: createHistorySummarizer({ apiUrl: config.apiUrl, apiType: config.apiType, apiKey, model: config.model, signal, onBeforeRequest }),
+      options: {
+        totalContextLimit: config.modelContextLimit,
+        ...(projectContext?.status === 'ready' ? { summarizerAddendum: getProjectContext().SUMMARIZER_PROJECT_ADDENDUM } : {})
+      }
+    };
+  }
+
   return {
     getConversationDateAnchor,
     createHistorySummarizer,
+    createHistoryCompaction,
     ensureConversationDate,
     getConfiguredSystemPrompt,
     buildEffectiveMessages,

@@ -262,32 +262,32 @@
     return dialogue.filter(message => message.role === 'user').length >= 2 || dialogue.length >= 4;
   }
 
-  async function summarizeHistory(params) {
+  /**
+   * Compacta `messages` con la misma compactación que un turno (ChatEngine.createHistoryCompaction): perfil activo,
+   * modo proyecto e interceptor de depuración. `extraOptions` añade opciones de compressHistory.
+   */
+  async function compressWithTurnCompaction(messages, signal, options, extraOptions = {}) {
     const config = getConfig().getActive();
     const activeProfile = await resolveDep('ChatProfileRepository', './profile-repository.js').load(config.activeProfile?.id);
-    const summarize = getEngine().createHistorySummarizer({
-      apiUrl: config.apiUrl,
-      apiType: config.apiType,
+    const { projectContext } = resolveDep('ChatProjectContext', './project-context.js').turnContext(config);
+    const compaction = getEngine().createHistoryCompaction({
+      config,
       apiKey: activeProfile?.settings?.apiKey || '',
-      model: config.model,
-      signal: params.signal
+      projectContext,
+      signal,
+      onBeforeRequest: config.enableDebugMessages ? options.openDebugInterceptorModal : null
     });
-    return summarize(params);
+    return resolveDep('ChatContextManager', './context-manager.js').compressHistory({
+      messages,
+      summarizeFn: compaction.summarizeFn,
+      options: { model: config.model, ...compaction.options, ...extraOptions }
+    });
   }
 
   /** Historial de la rama con el contexto previo resumido; null si no se pudo resumir. */
-  async function summarizeBranchHistory(history, boundary, sessionId, signal) {
-    const config = getConfig().getActive();
+  async function summarizeBranchHistory(history, boundary, sessionId, signal, options) {
     // La respuesta de anclaje se conserva literal tras el resumen, así que no se resume.
-    const compacted = await resolveDep('ChatContextManager', './context-manager.js').compressHistory({
-      messages: history.slice(0, boundary),
-      summarizeFn: params => summarizeHistory({ ...params, signal }),
-      options: {
-        model: config.model,
-        totalContextLimit: config.modelContextLimit,
-        keepActiveTurn: false
-      }
-    });
+    const compacted = await compressWithTurnCompaction(history.slice(0, boundary), signal, options, { keepActiveTurn: false });
     return compacted.compressed
       ? renumberForSession(MessageTurns.sanitizeTurnBoundaries([...compacted.messages, history[boundary]]), sessionId)
       : null;
@@ -301,18 +301,13 @@
   async function compactCurrentSession(options) {
     if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
     const State = getState();
-    const config = getConfig().getActive();
     const sessionId = getActiveSessionId();
     let result = null;
     let cancelled = false;
     try {
       result = await getGenerationController().runCancellableTask(async signal => {
         State.setGenerationStatus({ phase: 'custom', text: t('chat_compact_running') });
-        const compacted = await resolveDep('ChatContextManager', './context-manager.js').compressHistory({
-          messages: getHistory(),
-          summarizeFn: params => summarizeHistory({ ...params, signal }),
-          options: { model: config.model, totalContextLimit: config.modelContextLimit }
-        });
+        const compacted = await compressWithTurnCompaction(getHistory(), signal, options);
         cancelled = signal.aborted;
         return compacted;
       });
@@ -348,7 +343,8 @@
    * completo; null si se cancela o la conversación quedó ocupada. `onSummarizing(active)` muestra
    * y retira el indicador de progreso en la respuesta de anclaje.
    */
-  async function buildSummarizedBranchHistory(history, boundary, sessionId, onSummarizing) {
+  async function buildSummarizedBranchHistory(history, boundary, sessionId, options) {
+    const { onSummarizing } = options;
     const State = getState();
     onSummarizing(true);
     let cancelled = false;
@@ -357,7 +353,7 @@
       // Mientras se resume, la conversación cuenta como ocupada y el botón de parar la cancela.
       summarized = await getGenerationController().runCancellableTask(async signal => {
         State.setGenerationStatus({ phase: 'custom', text: t('chat_branch_summarizing') });
-        const result = await summarizeBranchHistory(history, boundary, sessionId, signal);
+        const result = await summarizeBranchHistory(history, boundary, sessionId, signal, options);
         cancelled = signal.aborted;
         return result;
       });
@@ -398,7 +394,7 @@
     const parentSession = getSavedSessions().find(session => session.id === getActiveSessionId());
     const branchSessionId = createId('session');
     const branchHistory = mode.summarize
-      ? await buildSummarizedBranchHistory(history, boundary, branchSessionId, options.onSummarizing)
+      ? await buildSummarizedBranchHistory(history, boundary, branchSessionId, options)
       : cloneBranchHistory(history, boundary, branchSessionId);
     if (!branchHistory) return false;
 

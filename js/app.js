@@ -280,6 +280,8 @@
   function getConversationServiceOptions() {
     return {
       renderSessionMessages,
+      // Las compactaciones fuera del turno (rama resumida, Compactar) pasan por el mismo interceptor de depuración.
+      openDebugInterceptorModal,
       renderSidebarChats,
       onSessionReset: () => {
         UIComposer.clearAttachedFiles(elements);
