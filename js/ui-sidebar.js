@@ -11,8 +11,9 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
-  const { escapeHtml, projectName, NO_PROJECT_NAME } = Utils;
+  const { escapeHtml, projectName, NO_PROJECT_NAME, resolveDep } = Utils;
   const { t } = I18n;
+  const getServerRun = () => resolveDep('ChatServerRun', './server-run.js');
 
   const GROUP_LABEL_KEYS = {
     today: 'sidebar_group_today',
@@ -143,8 +144,8 @@
 
   /**
    * Selector de proyecto, siempre visible: el actual (la carpeta general sin servidor), general si el actual es
-   * otro, todos y, si hay `pendingCount` conversaciones esperando la respuesta del usuario, la vista de
-   * tareas pendientes. Devuelve lo que da getSelectedProject.
+   * otro, todos y, si hay `pendingCount` conversaciones que necesitan atención (esperando al usuario o con error),
+   * la vista de tareas pendientes. Devuelve lo que da getSelectedProject.
    */
   function renderProjectFilter(select, project, pendingCount) {
     const current = select.querySelector('option[value="current"]');
@@ -164,8 +165,8 @@
    * Conmutador entre el historial de chats y el de agentes (session.agent), que no se mezclan. Solo se ve si hay
    * conversaciones de agentes. Al cambiar la conversación activa, el historial pasa al suyo para que se vea en la
    * lista; una nueva aún sin guardar (también la que sustituye a la activa borrada) no lo cambia hasta que aparece
-   * en la lista. El botón del historial que no se ve lleva una marca si alguna de sus conversaciones espera la
-   * respuesta del usuario. Devuelve si la vista es la de agentes.
+   * en la lista. El botón del historial que no se ve lleva una marca si alguna de sus conversaciones necesita
+   * atención. Devuelve si la vista es la de agentes.
    */
   function renderHistorySwitch(container, sessions, currentSessionId, runStatusMap) {
     const current = sessions.find(session => session.id === currentSessionId);
@@ -179,7 +180,7 @@
     container.querySelectorAll('[data-history]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.history === historyView)));
     container.querySelectorAll('[data-history]').forEach(button => {
       const agents = button.dataset.history === 'agents';
-      const waiting = sessions.some(session => Boolean(session.agent) === agents && runStatusMap.get(session.id) === 'needs_input');
+      const waiting = sessions.some(session => Boolean(session.agent) === agents && getServerRun().needsAttention(runStatusMap.get(session.id)));
       button.classList.toggle('has-pending', waiting && button.dataset.history !== historyView);
     });
     return historyView === 'agents';
@@ -249,8 +250,7 @@
     const runStatusMap = new Map(serverRuns.map(run => [run.conversationId, run.status]));
     const agentsView = renderHistorySwitch(elements.sidebarHistorySwitch, allSessions, currentSessionId, runStatusMap);
     const sessions = allSessions.filter(session => Boolean(session.agent) === agentsView);
-    // Pendiente es lo que espera una acción del usuario: en marcha, con error o parada por un límite ya lo dice su icono.
-    const pendingSessions = sessions.filter(session => runStatusMap.get(session.id) === 'needs_input');
+    const pendingSessions = sessions.filter(session => getServerRun().needsAttention(runStatusMap.get(session.id)));
     const viewProject = renderProjectFilter(elements.sidebarProjectFilter, project, pendingSessions.length);
     const pendingView = viewProject === undefined;
     const showAll = viewProject === null;

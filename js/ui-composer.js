@@ -175,11 +175,30 @@
     });
   }
 
+  /**
+   * Aviso pasivo sobre el compositor con las conversaciones que necesitan atención (ServerRun.attentionCounts):
+   * por historial, cuántas esperan y cuántas fallaron, sin las partes a cero. Oculto si no hay ninguna.
+   */
+  function renderAttentionNotice(elements, counts) {
+    const detail = (waiting, error) => [
+      waiting > 0 ? t('attention_notice_waiting', { count: waiting }) : '',
+      error > 0 ? t('attention_notice_error', { count: error }) : ''
+    ].filter(Boolean).join(', ');
+    const groups = [
+      ['attention_notice_agents', detail(counts.agentsNeedsInput, counts.agentsError)],
+      ['attention_notice_chats', detail(counts.chatsNeedsInput, counts.chatsError)]
+    ].filter(([, text]) => text).map(([key, text]) => t(key, { detail: text }));
+    elements.attentionNotice.hidden = groups.length === 0;
+    elements.attentionNotice.classList.toggle('has-error', counts.agentsError + counts.chatsError > 0);
+    elements.attentionNoticeText.textContent = groups.length ? t('attention_notice', { groups: groups.join(' · ') }) : '';
+  }
+
   return {
     autoResizeTextarea,
     setPromptValue,
     clearAttachedFiles,
     syncGenerationControls,
+    renderAttentionNotice,
     mount
   };
 }));

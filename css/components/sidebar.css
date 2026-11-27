@@ -468,7 +468,7 @@
   outline-offset: -2px;
 }
 
-/* El historial que no se ve tiene alguna conversación esperando la respuesta del usuario */
+/* El historial que no se ve tiene alguna conversación que necesita atención (espera al usuario o falló) */
 .sidebar-history-switch button.has-pending::after {
   content: '';
   position: absolute;

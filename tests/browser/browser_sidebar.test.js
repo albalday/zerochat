@@ -158,8 +158,8 @@ test('Browser UI - el selector muestra el proyecto actual, general, todos agrupa
     assert.equal(await page.textContent('#sidebar-chats-list .sidebar-no-chats'), await page.evaluate(() => window.ChatI18n.t('sidebar_no_project_chats')));
     assert.equal(await page.isDisabled('#btn-delete-all-chats'), true, 'Una vista vacía no se borra en bloque');
 
-    // Tareas pendientes: solo las que esperan respuesta del usuario, de todos los proyectos y desplegadas; en marcha,
-    // con error o paradas por un límite no lo son. No se borran en bloque y, sin ninguna, la vista vuelve al proyecto actual.
+    // Tareas pendientes: las que esperan respuesta del usuario o fallaron, de todos los proyectos y desplegadas; en
+    // marcha o paradas por un límite no lo son. No se borran en bloque y, sin ninguna, la vista vuelve al proyecto actual.
     const runs = [
       { conversationId: 'a2', runId: 'r1', status: 'limit' },
       { conversationId: 'n1', runId: 'r2', status: 'error' },
@@ -168,13 +168,13 @@ test('Browser UI - el selector muestra el proyecto actual, general, todos agrupa
     ];
     const pendingOption = () => page.$eval('#sidebar-project-filter option[value="pending"]', option => ({ hidden: option.hidden, text: option.textContent }));
     await render('/repo/app', runs);
-    assert.deepEqual(await pendingOption(), { hidden: false, text: await page.evaluate(() => window.ChatI18n.t('sidebar_project_pending', { count: 1 })) });
+    assert.deepEqual(await pendingOption(), { hidden: false, text: await page.evaluate(() => window.ChatI18n.t('sidebar_project_pending', { count: 2 })) });
     await choose('pending');
     await render('/repo/app', runs);
     const pendingItems = () => page.$$eval('#sidebar-chats-list .sidebar-chat-item', items => items.map(item => [
       item.dataset.sessionId, item.querySelector('.sidebar-chat-status-icon').getAttribute('class').split(' ').at(-1)]));
-    assert.deepEqual(await pendingItems(), [['b1', 'needs-input']]);
-    assert.deepEqual(await sidebarHeaders(page), ['lib']);
+    assert.deepEqual(await pendingItems(), [['b1', 'needs-input'], ['n1', 'error']]);
+    assert.deepEqual(await sidebarHeaders(page), ['lib', 'general']);
     assert.equal(await page.isDisabled('#btn-delete-all-chats'), true);
     await search('nada');
     await render('/repo/app', runs);

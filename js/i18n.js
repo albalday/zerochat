@@ -37,6 +37,7 @@
       app_title: APP_TITLE,
       tab_alert_done: 'Listo · {title}',
       tab_alert_permission: 'Permiso · {title}',
+      tab_alert_attention: 'Atención: {count} · {title}',
       app_description: 'ZeroChat - Entorno personal y privado de IA: chat multimodelo y WebLLM en navegador, RAG local, proyectos con herramientas y MCP, ejecución CLI y orquestación de agentes con supervisión humana.',
       
       // Estado de Bienvenida inicial
@@ -263,6 +264,11 @@
       input_placeholder: 'Escribe un mensaje...',
       agent_supervision_placeholder: 'Solo lectura',
       agent_supervision_notice: 'Conversación del agente {agent}, de solo lectura. Puedes contestar su pregunta o permiso pendiente, detenerla, exportarla o crear una rama.',
+      attention_notice: 'Necesitan atención · {groups}',
+      attention_notice_agents: 'Agentes: {detail}',
+      attention_notice_chats: 'Chats: {detail}',
+      attention_notice_waiting: '{count} esperando',
+      attention_notice_error: '{count} con error',
       btn_stop_title: 'Detener la generación de respuesta',
       btn_send_title: 'Enviar mensaje',
 
@@ -1011,6 +1017,7 @@
       app_title: APP_TITLE,
       tab_alert_done: 'Done · {title}',
       tab_alert_permission: 'Permission · {title}',
+      tab_alert_attention: 'Attention: {count} · {title}',
       app_description: 'ZeroChat - Personal, private AI workspace: in-browser multimodel & WebLLM chat, local RAG, MCP-enabled projects, CLI runs, and human-supervised agent orchestration.',
       
       // Welcome state
@@ -1237,6 +1244,11 @@
       input_placeholder: 'Write a message...',
       agent_supervision_placeholder: 'Read only',
       agent_supervision_notice: 'Conversation of agent {agent}, read only. You can answer its pending question or permission, stop it, export it or create a branch.',
+      attention_notice: 'Need attention · {groups}',
+      attention_notice_agents: 'Agents: {detail}',
+      attention_notice_chats: 'Chats: {detail}',
+      attention_notice_waiting: '{count} waiting',
+      attention_notice_error: '{count} failed',
       btn_stop_title: 'Stop response generation',
       btn_send_title: 'Send message',
 

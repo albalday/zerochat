@@ -12,6 +12,22 @@ test('ServerRun.finishedRunIds devuelve las conversaciones que dejan de estar en
   assert.deepEqual(ServerRun.finishedRunIds([], current), []);
 });
 
+test('ServerRun.attentionCounts cuenta por historial las conversaciones que esperan al usuario o fallaron', () => {
+  const sessions = [{ id: 'chat' }, { id: 'chat2' }, { id: 'agent', agent: 'informes.diario' }, { id: 'agent2', agent: 'x' }, { id: 'quieta' }];
+  const runs = [
+    { conversationId: 'chat', status: 'needs_input' },
+    { conversationId: 'chat2', status: 'error' },
+    { conversationId: 'agent', status: 'needs_input' },
+    { conversationId: 'agent2', status: 'needs_input' },
+    // En marcha o parada por un límite no piden nada; una conversación que la lista aún no trae no cuenta.
+    { conversationId: 'quieta', status: 'running' },
+    { conversationId: 'quieta', status: 'limit' },
+    { conversationId: 'sin-guardar', status: 'error' }
+  ];
+  assert.deepEqual(ServerRun.attentionCounts(sessions, runs), { agentsNeedsInput: 2, agentsError: 0, chatsNeedsInput: 1, chatsError: 1 });
+  assert.deepEqual(ServerRun.attentionCounts(sessions, []), { agentsNeedsInput: 0, agentsError: 0, chatsNeedsInput: 0, chatsError: 0 });
+});
+
 test('ServerRun - la ejecución con error de la conversación activa se muestra sin bloquear el compositor', t => {
   const previousMcp = ChatState.get('mcp');
   const previousSessions = ChatState.get('sessions');

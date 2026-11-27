@@ -119,6 +119,8 @@
     btnAttachFile: 'btn-attach-file',
     agentSupervisionNotice: 'agent-supervision-notice',
     agentSupervisionText: 'agent-supervision-text',
+    attentionNotice: 'attention-notice',
+    attentionNoticeText: 'attention-notice-text',
     fileInput: 'file-input',
     attachmentsContainer: 'attachments-container',
     // Razonamiento y modo proyecto
@@ -533,12 +535,23 @@
 
   const applyTheme = theme => UISettings.applyTheme(elements, theme);
 
+  /** Conversaciones de cualquier proyecto que necesitan atención: aviso sobre el compositor y en la pestaña. */
+  const getAttentionCounts = (sessions = State.get('sessions'), mcp = State.get('mcp')) => ServerRun.attentionCounts(sessions.list, mcp.serverRuns);
+  function syncAttention(counts) {
+    UIComposer.renderAttentionNotice(elements, counts);
+    TabAlert.setAttention({
+      needsInput: counts.agentsNeedsInput + counts.chatsNeedsInput,
+      error: counts.agentsError + counts.chatsError
+    });
+  }
+
   function applyLanguage(lang) {
     UISettings.applyLanguage(elements, lang);
     UIReasoning.updateReasoningUI(elements, getRuntimeConfig().reasoningEffort);
     UIReasoning.syncProjectIndicator(elements, getRuntimeConfig(), State.get('project'));
     UIProject.syncProjectFilesLink(elements);
     syncLiveServerRun();
+    UIComposer.renderAttentionNotice(elements, getAttentionCounts());
   }
 
   function updateUIFromConfig() {
@@ -849,9 +862,9 @@
         if (finishedIds.length === 0) return;
         const activeId = getCurrentSessionId();
         if (finishedIds.includes(activeId)) {
+          // Esperar al usuario o fallar ya lo avisa el recuento de atención.
           const finishedRun = serverRuns.find(run => run.conversationId === activeId);
-          if (finishedRun?.status === 'needs_input') TabAlert.notifyPermission();
-          else TabAlert.notifyDone();
+          if (!ServerRun.needsAttention(finishedRun?.status)) TabAlert.notifyDone();
           ConversationService.switchToSession(activeId, {
             ...getConversationServiceOptions(),
             force: true,
@@ -978,6 +991,8 @@
       recheckFailedProfile();
     });
     TabAlert.mount();
+    State.subscribe(state => getAttentionCounts(state.sessions, state.mcp), syncAttention);
+    syncAttention(getAttentionCounts());
     ProfileCheck.start();
     updateNewTabLink();
     // Registro del Service Worker para aceleración de arranque y soporte offline en móvil.

@@ -208,7 +208,7 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
     });
   });
 
-  test('Browser UI - título y favicon avisan cuando un turno termina o pide permiso en segundo plano y se limpian al volver', async () => {
+  test('Browser UI - título y favicon avisan cuando un turno termina o pide permiso en segundo plano y se limpian al volver, y cuentan las conversaciones que necesitan atención', async () => {
     await withTestApp(async page => {
       const setHidden = hidden => page.evaluate(value => {
         Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
@@ -271,6 +271,40 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
         window.__authCard.querySelector('.btn-auth-deny').click();
         return window.__pendingAuth;
       });
+
+      // 4. Conversaciones de cualquier proyecto que necesitan atención: tarjeta sobre el compositor, número en el título
+      // y punto en el favicon (rojo si alguna falló); con la pestaña oculta, si llega una nueva el título alterna con el
+      // aviso hasta volver a ella.
+      const tr = (key, params) => page.evaluate(([key, params]) => window.ChatI18n.t(key, params), [key, params]);
+      const setRuns = runs => page.evaluate(runs => window.ChatState.set('mcp', { ...window.ChatState.get('mcp'), serverRuns: runs }), runs);
+      await page.evaluate(() => {
+        const sessions = window.ChatState.get('sessions');
+        window.ChatState.set('sessions', { ...sessions, list: [...sessions.list,
+          { id: 'at1', title: 'Espera', project: '/repo/otro', updatedAt: Date.now() },
+          { id: 'at2', title: 'Informe', agent: 'informes.diario', updatedAt: Date.now() }] });
+      });
+      const waiting = { conversationId: 'at1', runId: 'r1', status: 'needs_input' };
+      await setRuns([waiting]);
+      const chatsDetail = await tr('attention_notice_chats', { detail: await tr('attention_notice_waiting', { count: 1 }) });
+      assert.deepEqual(await page.$eval('#attention-notice', notice => [notice.hidden, notice.textContent.trim()]),
+        [false, await tr('attention_notice', { groups: chatsDetail })]);
+      assert.equal(await page.title(), `(1) ${baseTitle}`);
+      const danger = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--danger').trim());
+      assert.ok(!decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes(`fill="${danger}"`));
+
+      await setHidden(true);
+      await setRuns([waiting, { conversationId: 'at2', runId: 'r2', status: 'error' }]);
+      assert.ok(decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes(`fill="${danger}"`));
+      const agentsDetail = await tr('attention_notice_agents', { detail: await tr('attention_notice_error', { count: 1 }) });
+      assert.equal(await page.textContent('#attention-notice-text'), await tr('attention_notice', { groups: `${agentsDetail} · ${chatsDetail}` }));
+      await page.waitForFunction(expected => document.title === expected, await tr('tab_alert_attention', { count: 2, title: baseTitle }));
+
+      await setHidden(false);
+      assert.equal(await page.title(), `(2) ${baseTitle}`);
+      await setRuns([]);
+      assert.equal(await page.title(), baseTitle);
+      assert.equal(await page.isHidden('#attention-notice'), true);
+      assert.ok(!decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes('<circle'));
     });
   });
 });

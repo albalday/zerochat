@@ -2,8 +2,8 @@
  * Control de la ejecución en servidor: el agente de una conversación corre en zerochat.py y la página
  * sigue su estado vivo (`mcp.serverRuns`, que mantiene ChatMCP). Decide si la ejecución en servidor está
  * disponible, qué ejecución corresponde a la conversación activa, si esta bloquea el compositor, qué
- * ejecuciones han terminado y si hay pasos grabados que la página aún no muestra; arranca y cancela
- * ejecuciones con la política de herramientas vigente.
+ * ejecuciones han terminado, cuáles necesitan atención y si hay pasos grabados que la página aún no muestra;
+ * arranca y cancela ejecuciones con la política de herramientas vigente.
  */
 (function (root, factory) {
   if (typeof exports === 'object' && typeof module !== 'undefined') {
@@ -18,6 +18,10 @@
   const getState = () => resolveDep('ChatState', './state.js');
   const getMcpManager = () => resolveDep('ChatMCP', './mcp.js').manager;
   const getToolSecurity = () => resolveDep('ChatToolSecurity', './tool-security.js').manager;
+
+  // Estados que esperan una acción del usuario, los mismos que AGENT_ATTENTION_STATUSES del servidor. Un error
+  // cuenta hasta que la conversación se relanza o se borra: abrirla no lo limpia.
+  const ATTENTION_STATUSES = Object.freeze(['needs_input', 'error']);
 
   const getRuns = () => getState().get('mcp').serverRuns;
   const getActiveId = () => getState().get('sessions').activeId;
@@ -55,6 +59,27 @@
     const running = list => new Set(list.filter(run => run.status === 'running').map(run => run.conversationId));
     const current = running(runs);
     return [...running(previousRuns)].filter(id => !current.has(id));
+  }
+
+  /** El estado de una ejecución pide una acción del usuario (las tareas pendientes del historial). */
+  function needsAttention(status) {
+    return ATTENTION_STATUSES.includes(status);
+  }
+
+  /**
+   * Conversaciones de `sessions` (todos los proyectos) que necesitan atención según `runs`, por historial (agentes o
+   * chats) y estado. Plano para que un selector de ChatState lo compare sin cambios. Una ejecución cuya conversación
+   * aún no está en la lista no cuenta hasta que la lista la trae.
+   */
+  function attentionCounts(sessions, runs) {
+    const counts = { agentsNeedsInput: 0, agentsError: 0, chatsNeedsInput: 0, chatsError: 0 };
+    for (const run of runs) {
+      if (!needsAttention(run.status)) continue;
+      const session = sessions.find(item => item.id === run.conversationId);
+      if (!session) continue;
+      counts[`${session.agent ? 'agents' : 'chats'}${run.status === 'error' ? 'Error' : 'NeedsInput'}`] += 1;
+    }
+    return counts;
   }
 
   /** Arranca la ejecución con la política de herramientas vigente y, al reanudar, la decisión del usuario. */
@@ -102,6 +127,8 @@
     isActiveSessionRunning,
     isComposerBusy,
     finishedRunIds,
+    needsAttention,
+    attentionCounts,
     start,
     cancelActive,
     refreshLiveState,

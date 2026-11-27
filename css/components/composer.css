@@ -88,6 +88,15 @@
   color: var(--primary);
 }
 
+/* Aviso de conversaciones de cualquier proyecto que esperan al usuario o fallaron */
+.attention-notice .ui-icon {
+  color: var(--warning);
+}
+
+.attention-notice.has-error .ui-icon {
+  color: var(--danger);
+}
+
 .file-chip {
   display: inline-flex;
   align-items: center;
