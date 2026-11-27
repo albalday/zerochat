@@ -204,6 +204,19 @@
 
     if (saveCurrent) await saveCurrentSession(options);
 
+    const loaded = await readConversation(sessionId);
+    if (!loaded) return false;
+    const { conversation, history } = loaded;
+
+    if (!await activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
+    recordLoadedConversation(conversation, history);
+    showActiveSession(options, { resetComposer: false });
+    await options.onSessionSwitched(conversation);
+    return true;
+  }
+
+  /** Lee una conversación guardada con su historial listo para mostrar; avisa y devuelve null si no se puede. */
+  async function readConversation(sessionId) {
     let conversation = null;
     try {
       conversation = await getStorage().getConversation(sessionId);
@@ -211,19 +224,36 @@
       console.warn('[ConversationService] Could not read conversation:', error);
       const notDownloaded = error?.code === getStorage().CONVERSATION_NOT_DOWNLOADED;
       await getDialogs().alert(t(notDownloaded ? 'chat_not_downloaded' : 'chat_storage_read_error'), { type: 'error' });
-      return false;
+      return null;
     }
-    if (!conversation) return false;
+    if (!conversation) return null;
     const history = conversation.history.length > 0 ? [...conversation.history] : createInitialChatHistory();
     getEngine().ensureConversationDate(history, conversation.createdAt);
+    return { conversation, history };
+  }
 
-    if (!await activateConversation(conversation.id, history, 'chat_switch_blocked_generating', options)) return false;
+  /** La conversación mostrada coincide con la guardada; su cabecera leída se fusiona con la de la lista. */
+  function recordLoadedConversation(conversation, history) {
     cleanSession = { id: conversation.id, signature: historySignature(history) };
-    // La cabecera leída se fusiona con la guardada en la lista.
     const { history: _history, ...header } = conversation;
     getState().saveSessionMetadata({ ...header, messageCount: history.length });
-    showActiveSession(options, { resetComposer: false });
-    await options.onSessionSwitched(conversation);
+  }
+
+  /**
+   * Trae lo que una ejecución en el servidor grabó en la conversación abierta. Es la misma conversación,
+   * no un cambio: solo se sustituyen los mensajes y la cabecera, y siguen abiertos los diálogos, paneles y
+   * adjuntos (al vaciar los avisos se cerraba, p. ej., la petición de un secreto a medio escribir).
+   */
+  async function reloadActiveSession(options) {
+    const sessionId = getActiveSessionId();
+    const loaded = await readConversation(sessionId);
+    if (!loaded) return false;
+    // Mientras se leía pudo cambiarse de conversación o empezar una inferencia en esta.
+    if (getActiveSessionId() !== sessionId || getState().isConversationBusy()) return false;
+    getState().replaceMessages(loaded.history);
+    recordLoadedConversation(loaded.conversation, loaded.history);
+    options.renderSessionMessages(getHistory());
+    options.renderSidebarChats();
     return true;
   }
 
@@ -548,6 +578,7 @@
     buildSessionMetadata,
     saveCurrentSession,
     switchToSession,
+    reloadActiveSession,
     createNewSession,
     createConversationBranch,
     compactCurrentSession,

@@ -140,13 +140,27 @@ describe('Browser UI - ejecución en servidor', { concurrency: 2 }, () => {
     assert.equal(startCalls[0].profile, 'server');
     assert.equal(startCalls[0].subagents, true);
 
-    // Un paso que la ejecución graba llega con el siguiente latido: la página recarga la conversación grabada.
+    // Un paso que la ejecución graba llega con el siguiente latido: la página recarga la conversación grabada
+    // sin cerrar el diálogo abierto (p. ej. un secreto a medio escribir) ni quitar los adjuntos del compositor.
+    await page.evaluate(() => {
+      window.ChatState.setAttachments([{ name: 'notas.txt', content: 'hola', size: 4 }]);
+      window.__secretPrompt = window.ChatDialogs.prompt('Valor del secreto', '', { inputType: 'password' });
+    });
+    await page.locator('#notice-input').fill('s3cret');
     const runningRecord = savedConversations.get(activeConvId);
     runningRecord.history.push({ id: 'srv_step_1', role: 'assistant', content: 'Analizando **código**' });
     runningRecord.updatedAt += 1000;
     currentFocusRun = { ...currentFocusRun, conversation_updated_at: runningRecord.updatedAt };
     await page.evaluate(() => window.ChatMCP.manager.readLiveState());
     await page.waitForFunction(() => document.querySelector('.message-wrapper.assistant:not(.server-run-live-wrapper) strong')?.textContent === 'código');
+    assert.deepEqual(await page.evaluate(() => ({
+      dialogOpen: document.getElementById('notice-dialog').open,
+      typed: document.getElementById('notice-input').value,
+      attachments: window.ChatState.get('ui').attachedFiles.map(file => file.name)
+    })), { dialogOpen: true, typed: 's3cret', attachments: ['notas.txt'] });
+    await page.locator('#notice-accept').click();
+    assert.equal(await page.evaluate(() => window.__secretPrompt), 's3cret');
+    await page.evaluate(() => window.ChatState.setAttachments([]));
     const liveView = await page.evaluate(() => ({
       banner: document.querySelector('.server-run-banner-title')?.textContent,
       step: document.querySelector('.server-run-step')?.textContent,

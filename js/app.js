@@ -855,7 +855,7 @@
     State.subscribe(state => state.mcp.focusRun, focusRun => {
       syncLiveServerRun();
       if (!ServerRun.hasNewerSavedSteps(focusRun) || isBusy()) return;
-      ConversationService.switchToSession(focusRun.conversation_id, { ...getConversationServiceOptions(), force: true, saveCurrent: false })
+      ConversationService.reloadActiveSession(getConversationServiceOptions())
         .catch(error => console.warn('[App] Could not reload the server conversation:', error));
     });
 
@@ -875,11 +875,8 @@
           // Esperar al usuario o fallar ya lo avisa el recuento de atención.
           const finishedRun = serverRuns.find(run => run.conversationId === activeId);
           if (!ServerRun.needsAttention(finishedRun?.status)) TabAlert.notifyDone();
-          ConversationService.switchToSession(activeId, {
-            ...getConversationServiceOptions(),
-            force: true,
-            saveCurrent: false
-          }).catch(error => console.warn('[App] Could not reload completed server conversation:', error));
+          ConversationService.reloadActiveSession(getConversationServiceOptions())
+            .catch(error => console.warn('[App] Could not reload completed server conversation:', error));
         }
         if (finishedIds.length === 1 && finishedIds[0] === activeId) return;
         ConversationService.loadSessionsFromStorage(getConversationServiceOptions());
