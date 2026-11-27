@@ -71,14 +71,36 @@
   }
 
   /**
+   * Extrae la primera imagen segura de un bloque MCP estándar `{ type: 'image', data, mimeType }`.
+   */
+  function extractImageFromMcpContent(content) {
+    if (!Array.isArray(content)) return null;
+    for (const item of content) {
+      if (item?.type !== 'image' || typeof item.data !== 'string') continue;
+      const embedded = parseDataUrl(item.data);
+      const mimeType = String(embedded?.mimeType || item.mimeType || item.mime_type || 'image/png').toLowerCase();
+      const imageBase64 = embedded?.base64 || item.data.replace(/\s+/g, '');
+      if (toSafeImageDataUrl(imageBase64, mimeType)) {
+        return { imageBase64, mimeType, item };
+      }
+    }
+    return null;
+  }
+
+  /**
    * Normaliza la respuesta de ejecución de una herramienta MCP (directa o tras autorización).
    */
   function formatToolCallResult(result, { name = '', serverName = '', args = {}, elapsed = 0 } = {}) {
+    const embeddedImage = extractImageFromMcpContent(result?.content);
     let textOutput = '';
     if (Array.isArray(result?.content)) {
       textOutput = result.content.map(item => {
         if (item.type === 'text') return item.text || '';
-        if (item.type === 'image') return `[Embedded image: ${item.mimeType || 'image/png'}]`;
+        if (item.type === 'image') {
+          return item === embeddedImage?.item
+            ? `[Embedded image: ${embeddedImage.mimeType} - attached as visual evidence]`
+            : `[Embedded image: ${item.mimeType || 'image/png'} (omitted: unsupported format or exceeds size limit)]`;
+        }
         if (item.type === 'resource') return `[Resource: ${item.resource?.uri || 'URI'}]\n${item.resource?.text || ''}`;
         return JSON.stringify(item);
       }).join('\n\n').trim();
@@ -105,8 +127,8 @@
     if (result?.requiresAuthorization) return { ...pendingCall(), requiresAuthorization: true, challengeId: result.challengeId };
     if (result?.awaitingApproval) return { ...pendingCall(), awaitingApproval: true };
 
-    const extractedImage = extractImageFromMcpText(textOutput);
-    if (extractedImage) textOutput = extractedImage.content;
+    const extractedImage = embeddedImage || extractImageFromMcpText(textOutput);
+    if (!embeddedImage && extractedImage) textOutput = extractedImage.content;
     if (textOutput.length > MAX_OUTPUT_LENGTH) {
       textOutput = textOutput.slice(0, MAX_OUTPUT_LENGTH) + '\n\n[... MCP content truncated due to size limit ...]';
     }

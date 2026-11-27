@@ -189,10 +189,10 @@ def _rereads_runs(state: dict) -> bool:
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
     """Detiene limpiamente el servidor y todos los subsistemas evitando reentradas."""
-    if _SERVER_SHUTTING_DOWN.is_set():
-        return
-    _SERVER_SHUTTING_DOWN.set()
     with _SHUTDOWN_LOCK:
+        if _SERVER_SHUTTING_DOWN.is_set():
+            return
+        _SERVER_SHUTTING_DOWN.set()
         for listener in list(_SHUTDOWN_LISTENERS):
             listener.set()
     HEARTBEAT_WATCHDOG_STOP.set()

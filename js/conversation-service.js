@@ -133,21 +133,25 @@
   }
 
   let cleanSession = null;
+  let reloadSessionSeq = 0;
 
   const historySignature = history => JSON.stringify(history);
+  const isSessionServerRunning = sessionId => getState().get('mcp').serverRuns.some(
+    run => run.conversationId === sessionId && run.status === 'running'
+  );
 
   async function saveCurrentSession(options, overrides = {}) {
     const State = getState();
     const Storage = getStorage();
     const history = getHistory();
     const sessionId = getActiveSessionId();
-    if (State.get('mcp').serverRuns.some(run => run.conversationId === sessionId && run.status === 'running')) {
+    if (isSessionServerRunning(sessionId)) {
       options.renderSidebarChats();
       return;
     }
 
     const existing = getSavedSessions().find(session => session.id === sessionId);
-    if (!history.some(message => message.role === 'user')) {
+    if (!history.some(message => message.role === 'user' || message._isSummaryBlock)) {
       if (existing) {
         State.removeSession(sessionId);
         try {
@@ -246,10 +250,13 @@
    */
   async function reloadActiveSession(options) {
     const sessionId = getActiveSessionId();
+    const seq = ++reloadSessionSeq;
     const loaded = await readConversation(sessionId);
     if (!loaded) return false;
-    // Mientras se leía pudo cambiarse de conversación o empezar una inferencia en esta.
-    if (getActiveSessionId() !== sessionId || getState().isConversationBusy()) return false;
+    // Mientras se leía pudo cambiarse de conversación, empezar una inferencia o llegar una recarga más reciente.
+    if (seq !== reloadSessionSeq || getActiveSessionId() !== sessionId || getState().isConversationBusy()) return false;
+    const current = getSavedSessions().find(session => session.id === sessionId);
+    if (current?.updatedAt && loaded.conversation.updatedAt && loaded.conversation.updatedAt < current.updatedAt) return false;
     getState().replaceMessages(loaded.history);
     recordLoadedConversation(loaded.conversation, loaded.history);
     options.renderSessionMessages(getHistory());
@@ -324,23 +331,28 @@
   }
 
   /**
-   * Compacta a petición la conversación activa como la compactación automática: los turnos cerrados pasan a un
-   * resumen y el último se conserva literal. Mientras resume, la conversación está ocupada y el botón de parar lo
-   * cancela. Devuelve true si se compactó.
+   * Compacta a petición la conversación activa en un bloque de resumen (fuera de un turno en marcha,
+   * todos los turnos ya cerrados pasan al resumen). Mientras resume, la conversación está ocupada y el
+   * botón de parar lo cancela. Devuelve true si se compactó.
    */
   async function compactCurrentSession(options) {
-    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
     const State = getState();
     const sessionId = getActiveSessionId();
+    const activeSession = getSavedSessions().find(session => session.id === sessionId);
+    // Una conversación de agente es de solo lectura y una con ejecución en servidor activa la escribe el servidor.
+    if (isAgentConversation(activeSession) || isSessionServerRunning(sessionId)) return false;
+    if (await blockSessionTransitionIfBusy('chat_new_blocked_generating')) return false;
     let result = null;
     let cancelled = false;
     try {
       result = await getGenerationController().runCancellableTask(async signal => {
         State.setGenerationStatus({ phase: 'custom', text: t('chat_compact_running') });
-        const compacted = await compressWithTurnCompaction(getHistory(), signal, options);
+        const compacted = await compressWithTurnCompaction(getHistory(), signal, options, { keepActiveTurn: false });
         cancelled = signal.aborted;
         return compacted;
       });
+    } catch (error) {
+      console.warn('[ConversationService] Could not compact conversation:', error);
     } finally {
       State.clearGenerationStatus();
     }
@@ -349,8 +361,12 @@
       await getDialogs().alert(t('chat_compact_failed'), { type: 'error' });
       return false;
     }
-    if (!await activateConversation(sessionId, result.messages, 'chat_new_blocked_generating', options)) return false;
-    showActiveSession(options, { resetComposer: false });
+    if (getActiveSessionId() !== sessionId || State.isConversationBusy() || isSessionServerRunning(sessionId)) return false;
+    // Es la misma conversación: se sustituyen los mensajes y la telemetría sin borrar adjuntos, avisos ni depuración.
+    State.replaceMessages(result.messages);
+    State.set('telemetry', { stats: null });
+    options.renderSessionMessages(getHistory());
+    options.renderSidebarChats();
     await saveCurrentSession(options);
     return true;
   }

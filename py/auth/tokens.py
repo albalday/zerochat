@@ -31,6 +31,7 @@ RUNNER_ALLOWED_METHODS = frozenset({
     "zerochat/jobs/stop",
     "zerochat/heartbeat",
     "zerochat/external/servers/start",
+    "zerochat/external/servers/wait",
     "zerochat/external/servers/stop",
     "zerochat/sandbox/execute",
 })

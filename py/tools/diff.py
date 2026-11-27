@@ -250,6 +250,7 @@ def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool =
         popen_kwargs["start_new_session"] = True
 
     proc = subprocess.Popen(cmd, **popen_kwargs)
+    threading.Thread(target=proc.wait, daemon=True).start()
     return {
         "success": True,
         "has_diff": True,
@@ -654,8 +655,7 @@ def _full_file_bytes(git_bin: str, repo_root: Path, target: Path, rel_path: str,
     """El archivo entero para el visor: el del commit si se muestra uno, si no el del disco (hasta DIFF_MAX_BYTES)."""
     if commit:
         shown, truncated, code = _capped_git_output([git_bin, "show", f"{commit}:{rel_path}"], repo_root, 5)
-        if code == 0 and not truncated:
-            return shown
+        return shown if code == 0 and not truncated else None
     try:
         if target.is_file() and target.stat().st_size <= DIFF_MAX_BYTES:
             return target.read_bytes()

@@ -186,15 +186,23 @@ export function resolveChangedFiles() {
   if (changed.length === 0) return [];
 
   // Excepción AGENTS.md: cambios exclusivos de documentación no disparan tests (help/ solo su prueba de páginas)
-  const isDocOnly = changed.every(f => f.startsWith('docs/') || f.startsWith('.zerochat/') || f.endsWith('.md') || f === 'LICENSE');
+  const isDocOnly = changed.every(f => f.startsWith('docs/') || (f.startsWith('.zerochat/') && !f.endsWith('.py')) || f.endsWith('.md') || f === 'LICENSE');
   if (isDocOnly) return [];
 
   const levelsToRun = new Set();
   const directTestFiles = new Set();
+  const uiDomJsFiles = new Set([
+    'js/files-page.js', 'js/icons.js', 'js/app.js', 'js/rag-ui.js', 'js/tool-cards.js',
+    'js/command-card.js', 'js/tab-alert.js', 'js/i18n.js', 'js/generation-controller.js', 'js/sandbox.js'
+  ]);
 
   for (const f of changed) {
     if (f.startsWith('tests/')) {
-      if (isTestFile(path.basename(f))) {
+      if (f.startsWith('tests/helpers/')) {
+        for (const lvl of ['unit', 'integration', 'browser', 'architecture']) levelsToRun.add(lvl);
+        continue;
+      }
+      if (isTestFile(path.basename(f)) && fs.existsSync(path.join(rootDir, f))) {
         directTestFiles.add(f);
       }
       for (const lvl of VALID_LEVELS) {
@@ -205,10 +213,13 @@ export function resolveChangedFiles() {
       continue;
     }
 
+    if (f === '.zerochat/task.py') {
+      directTestFiles.add('tests/unit/test_task_helper.js');
+    }
     if (f.startsWith('help/')) {
       directTestFiles.add('tests/architecture/test_help_pages.js');
     }
-    if (f === 'zerochat.py' || f.startsWith('py/') || f.startsWith('services/')) {
+    if (f === 'zerochat.py' || f === 'pyproject.toml' || f.startsWith('py/') || f.startsWith('services/')) {
       levelsToRun.add('infrastructure');
     }
     if (f === 'zerochat.py' || f.startsWith('py/')) {
@@ -219,16 +230,16 @@ export function resolveChangedFiles() {
       levelsToRun.add('integration');
       levelsToRun.add('infrastructure');
     }
-    if (f.startsWith('css/') || f === 'zerochat.html' || f === 'files.html' || f === 'manifest.webmanifest' || f.startsWith('js/ui-') || f === 'js/files-page.js' || f === 'js/icons.js' || f === 'sw.js') {
+    if (f === 'sw.js') {
+      levelsToRun.add('unit');
+    }
+    if (f.startsWith('css/') || f === 'zerochat.html' || f === 'files.html' || f === 'manifest.webmanifest' || f.startsWith('js/ui-') || uiDomJsFiles.has(f) || f === 'sw.js') {
       levelsToRun.add('browser');
       levelsToRun.add('architecture');
     }
-    if (f.startsWith('js/providers') || f.startsWith('js/tools/') || f.startsWith('js/mcp')) {
-      levelsToRun.add('integration');
-      levelsToRun.add('unit');
-    }
     if (f.startsWith('js/')) {
       levelsToRun.add('unit');
+      levelsToRun.add('integration');
       levelsToRun.add('architecture');
     }
     if (f === 'package.json' || f === 'package-lock.json' || f.startsWith('scripts/')) {
@@ -413,6 +424,8 @@ export async function run() {
   const runOnce = async () => {
     const python = process.platform === 'win32' ? 'python' : 'python3';
     const py = Promise.all(pyFiles.map(file => spawnTests(python, pyArgs(file), pyEnv, { buffered: true })));
+    // Evita UnhandledPromiseRejection si python falla al arrancar mientras node --test sigue en curso.
+    py.catch(() => {});
     const js = jsFiles.length ? await spawnTests(process.execPath, testArgs, process.env) : { code: 0 };
     let code = js.code;
     for (const result of await py) {

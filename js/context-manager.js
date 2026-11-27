@@ -864,9 +864,9 @@
     return { activeTurnStart, compressibleEnd, dialogue };
   }
 
-  /** Hay turnos cerrados que resumir a petición del usuario (el último turno se conserva literal). */
+  /** Hay diálogo tras el último checkpoint que resumir a petición del usuario (fuera de un turno en marcha). */
   function hasCompactableHistory(messages) {
-    return Array.isArray(messages) && compressibleDialogue(messages).dialogue.length > 0;
+    return Array.isArray(messages) && compressibleDialogue(messages, false).dialogue.length > 0;
   }
 
   async function compressHistory(params = {}) {

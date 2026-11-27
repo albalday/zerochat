@@ -141,8 +141,6 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       page.setDefaultTimeout(5000);
       await page.evaluate(() => {
         window.__tokenCalls = [];
-        window.__prompts = ['mal token!', 'PLAYWRIGHT_MCP_EXTENSION_TOKEN="tok_1"'];
-        window.ChatDialogs.prompt = async (message, value, options) => { window.__promptType = options.inputType; return window.__prompts.shift(); };
         window.ChatDialogs.confirm = async () => true;
         window.ChatMCP.manager.clients.set('mcp_proxy', {
           async request(method, params) {
@@ -165,16 +163,24 @@ describe('Browser UI - Navegación de Configuración Móvil y Sidebar', { concur
       assert.equal(await page.locator('[data-browser-action="token-delete"]').count(), 0);
 
       await page.click('[data-browser-action="token-set"]');
+      await page.waitForSelector('#notice-dialog[open] #notice-input');
+      assert.equal(await page.locator('#notice-input').getAttribute('type'), 'password');
+      await page.locator('#notice-input').fill('mal token!');
+      await page.locator('#notice-accept').click();
       await page.waitForSelector('#settings-browser .status-error');
       assert.match(await page.textContent('#settings-browser .status-error'), /letras, cifras/, 'un token no válido no se envía');
       await page.click('[data-browser-action="token-set"]');
+      await page.waitForSelector('#notice-dialog[open] #notice-input');
+      assert.equal(await page.locator('#notice-input').getAttribute('type'), 'password');
+      await page.locator('#notice-input').fill('PLAYWRIGHT_MCP_EXTENSION_TOKEN="tok_1"');
+      await page.locator('#notice-accept').click();
       await page.waitForSelector('[data-browser-action="token-delete"]');
       assert.equal(await page.textContent(badge), 'Guardado');
       assert.doesNotMatch(await page.innerHTML('#settings-browser'), /tok_1/, 'el token no queda en la página');
 
       await page.click('[data-browser-action="token-delete"]');
       await page.waitForFunction(() => !document.querySelector('[data-browser-action="token-delete"]'));
-      assert.deepEqual(await page.evaluate(() => [window.__promptType, window.__tokenCalls]), ['password', ['tok_1', null]]);
+      assert.deepEqual(await page.evaluate(() => window.__tokenCalls), ['tok_1', null]);
     });
   });
 

@@ -109,8 +109,8 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
         raise ValueError("Los parámetros deben ser un objeto")
     upload_id = params.get("uploadId")
     raw_conv = params.get("conversation")
-    if isinstance(raw_conv, dict) and "launch" in raw_conv:
-        raw_conv = {k: v for k, v in raw_conv.items() if k != "launch"}
+    if isinstance(raw_conv, dict) and ("launch" in raw_conv or "agent" in raw_conv):
+        raw_conv = {k: v for k, v in raw_conv.items() if k not in ("launch", "agent")}
     conversation = run_conversation_meta(raw_conv)
     # Una ejecución viva es la única que escribe su conversación: la copia de la interfaz la pisaría a medias.
     # En un servidor de ejecución solo llega su runner (M87-D2), que sí guarda la suya.

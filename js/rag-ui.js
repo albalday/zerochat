@@ -523,6 +523,7 @@
     const document = await storage().getDocumentById(documentId);
     if (!document || document.branchId !== branchId || !(await storage().getBranchById(branchId))) return;
     await storage().deleteDocument(documentId);
+    resolveDep('ChatMarkdown', './markdown.js').clearRagImagesCache(documentId);
     indexer().invalidateBranch(branchId);
     await renderWorkspace(branchId);
   }
@@ -602,6 +603,7 @@
     if (!id || id === NEW_BRANCH || !await getDialogs().confirm(t('rag_delete_branch_confirm'))) return;
     if (!(await storage().getBranchById(id))) return;
     await storage().deleteBranch(id);
+    resolveDep('ChatMarkdown', './markdown.js').clearRagImagesCache();
     indexer().invalidateBranch(id);
     if (isBranchActive(id)) changeActiveBranches(getActiveBranchIds().filter(item => item !== id));
     await renderManageDialog();

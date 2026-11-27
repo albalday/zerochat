@@ -73,7 +73,8 @@ class PlaywrightLaunchTest(unittest.TestCase):
             self.manager.start("playwright")
             self.manager.close()
         self.launched_env = constructor.call_args.args[3]
-        return constructor.call_args.args[1][1:]
+        self.assertEqual(constructor.call_args.args[1][:2], ["/svc/node_modules/@playwright/mcp/cli.js", "--caps=vision,storage"])
+        return constructor.call_args.args[1][2:]
 
     def own_args(self, engine):
         # El motor propio arranca con el User-Agent activo de las salidas web (web/fetch.py).

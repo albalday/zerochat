@@ -15,7 +15,8 @@ test('Security - la CSP de zerochat.html restringe objetos, base, formularios, m
   const csp = pageCsp('zerochat.html');
   assert.ok(csp, 'zerochat.html debe contener la etiqueta meta CSP');
   // WebLLM se ejecuta desde una copia verificada en blob: (js/providers-webllm.js): ningún script de un CDN.
-  assert.ok(csp.get('script-src').every(source => !/^https?:/.test(source)), 'La CSP no admite scripts de otros orígenes');
+  assert.deepEqual(csp.get('default-src'), ["'self'"]);
+  assert.deepEqual(csp.get('script-src'), ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'blob:'], 'La CSP no admite scripts de otros orígenes');
   assert.deepEqual(csp.get('worker-src'), ["'self'", 'blob:'], 'Los workers solo desde la propia página o blob:');
   assert.deepEqual(csp.get('object-src'), ["'none'"]);
   assert.deepEqual(csp.get('base-uri'), ["'self'"]);

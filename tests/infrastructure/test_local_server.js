@@ -39,8 +39,7 @@ describe('Servidor local zerochat.py', () => {
     if (json.result?.requiresAuthorization) {
       const auth = await rpc('zerochat/security/authorize', {
         challengeId: json.result.challengeId,
-        decision: 'allow_once',
-        directoryRule: `RW:${os.tmpdir()}/**`
+        decision: 'allow_once'
       }, { headers });
       json = { jsonrpc: '2.0', id: json.id, result: auth.result?.result };
     }

@@ -356,7 +356,7 @@
         // check_command: su tarjeta muestra la espera y abortar el turno corta la espera, no el comando.
         const isLocalWait = isProxy && toolName === LOCAL_WAIT_TOOL;
         const isBrowserAction = isProxy && toolName === BROWSER_ACTION_TOOL;
-        const usesBrowser = isBrowserAction || (isProxy && toolName === 'browser_fill_secret') || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
+        const usesBrowser = isBrowserAction || (isProxy && getAgentCore().PLAYWRIGHT_LOCAL_TOOLS.has(toolName)) || (external && sourceServer === PLAYWRIGHT_SERVER_ID);
         // check_agents, launch_agent…: el servidor las marca; se encienden con «Subagentes», no en Ajustes.
         const isController = isProxy && rt.metadata?.controller === true;
         const namespacedName = publicToolName(isProxy ? null : sourceServer, toolName);

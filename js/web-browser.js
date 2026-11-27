@@ -218,6 +218,7 @@
     if (halves.length > 2) return null;
     const parse = part => (part ? part.split(':').map(group => (/^[0-9a-f]{1,4}$/.test(group) ? parseInt(group, 16) : NaN)) : []);
     const [head, tail = []] = halves.map(parse);
+    if (halves.length === 2 && 8 - head.length - tail.length < 1) return null;
     const groups = halves.length === 2 ? [...head, ...Array(8 - head.length - tail.length).fill(0), ...tail] : head;
     return groups.length === 8 && groups.every(Number.isInteger) ? groups : null;
   }

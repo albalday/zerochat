@@ -255,8 +255,9 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     launch = None
     if args.run_file is not None and request.get("agent"):
         launch = {"profile": profile_name, **{key: request[key] for key in RUN_LAUNCH_KEYS if key in request}}
-    subagents = (args.run_file is None and not (conv and conv.get("agent"))
-                 and os.environ.get(ZEROCHAT_RUN_SUBAGENTS_ENV) == "1")
+    subagents_env = os.environ.pop(ZEROCHAT_RUN_SUBAGENTS_ENV, None)
+    subagents = (args.run_file is None and conversation_id is not None and not (conv and conv.get("agent"))
+                 and subagents_env == "1")
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),

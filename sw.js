@@ -139,6 +139,9 @@ self.addEventListener('activate', event => {
   );
 });
 
+// Solo rutas estáticas conocidas de ZeroChat: evita interceptar o cachear endpoints API/proxy del mismo origen.
+const STATIC_ASSET_PATTERN = /(?:^|\/)(?:(?:zerochat|files|index)\.html|manifest\.webmanifest|favicon\.(?:ico|svg)|apple-touch-icon\.png|(?:css|js|help|templates|icons)\/[^?#]+)$/;
+
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') {
@@ -147,28 +150,31 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(req.url);
 
-  // Exclusivamente para peticiones del mismo origen
-  if (url.origin !== self.location.origin) {
+  // Exclusivamente para recursos estáticos conocidos del mismo origen.
+  if (url.origin !== self.location.origin || !STATIC_ASSET_PATTERN.test(url.pathname)) {
     return;
   }
 
   // Stale-While-Revalidate. La clave no lleva la consulta: zerochat.html?project=… y files.html?path=… son la
   // misma página (sin copias repetidas ni rutas locales guardadas en Cache Storage, y abren sin conexión).
   const key = url.origin + url.pathname;
-  event.respondWith((async () => {
-    const cache = await caches.open(CACHE_NAME);
-    const cachedResponse = await cache.match(key);
-    const fetchPromise = fetch(req).then(networkResponse => {
-      if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-        event.waitUntil(cache.put(key, networkResponse.clone()));
-      }
-      return networkResponse;
-    });
-    if (cachedResponse) {
-      // La revalidación sigue viva aunque se responda antes desde la caché.
-      event.waitUntil(fetchPromise.catch(() => undefined));
-      return cachedResponse;
+  const cachePromise = caches.open(CACHE_NAME);
+  const revalidatePromise = fetch(req).then(networkResponse => {
+    if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+      const copy = networkResponse.clone();
+      return cachePromise
+        .then(cache => cache.put(key, copy))
+        .catch(() => undefined)
+        .then(() => networkResponse);
     }
-    return fetchPromise.catch(() => Response.error());
-  })());
+    return networkResponse;
+  });
+
+  // Registrado síncronamente dentro del evento fetch para mantener viva la revalidación y la escritura en caché.
+  event.waitUntil(revalidatePromise.catch(() => undefined));
+  event.respondWith(
+    cachePromise
+      .then(cache => cache.match(key))
+      .then(cachedResponse => cachedResponse || revalidatePromise.catch(() => Response.error()))
+  );
 });

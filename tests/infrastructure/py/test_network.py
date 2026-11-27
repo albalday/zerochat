@@ -80,7 +80,7 @@ class DevelopmentStaticFilesTest(unittest.TestCase):
             served = lambda rel: zerochat.static_file_target(root, rel)
             self.assertEqual(served("/js/app.js"), root / "js" / "app.js")
             self.assertEqual(served("/todo.txt?v=1"), root / "todo.txt")
-            for rel in ("/.git/config", "/.env", "/js/../.env", "/js/enlace.txt", "/../fuera.txt", "/js", "/", "/no-existe.js"):
+            for rel in ("/.git/config", "/.env", "/js/../.env", "/js/enlace.txt", "/../fuera.txt", "/js", "/", "/no-existe.js", "/a\x00b.html"):
                 with self.subTest(rel=rel):
                     self.assertIsNone(served(rel))
 
@@ -104,7 +104,10 @@ class WebFetchTest(unittest.TestCase):
         for host in dangerous:
             with self.subTest(host=host):
                 self.assertIs(zerochat.is_dangerous_host(host), True)
-        self.assertIs(zerochat.is_dangerous_host("8.8.8.8"), False)
+        # Las IPs literales se evalúan sin consultar DNS.
+        with patch.object(zerochat.socket, "getaddrinfo", side_effect=AssertionError("no debe resolver IP literal")):
+            self.assertIs(zerochat.is_dangerous_host("127.0.0.1"), True)
+            self.assertIs(zerochat.is_dangerous_host("8.8.8.8"), False)
         # Un nombre hecho solo de letras hexadecimales no es una notación numérica: se resuelve como cualquier otro.
         public = [(None, None, None, "", ("93.184.216.34", 0))]
         with patch.object(zerochat.socket, "getaddrinfo", return_value=public):
@@ -130,6 +133,9 @@ class WebFetchTest(unittest.TestCase):
         bomb = gzip.compress(b"\0" * (50 * 1024 * 1024))
         data, truncated = zerochat._read_limited_body(io.BytesIO(bomb), "gzip", limit)
         self.assertEqual((len(data), truncated), (limit, True))
+        with patch.object(zerochat, "WEB_FETCH_MAX_BYTES", 32):
+            data, truncated = zerochat._read_limited_body(io.BytesIO(bomb), "gzip", limit)
+        self.assertTrue(truncated)
 
     def test_se_siguen_web_fetch_max_redirects_redirecciones_y_una_mas_es_error(self):
         class Chain(BaseHTTPRequestHandler):

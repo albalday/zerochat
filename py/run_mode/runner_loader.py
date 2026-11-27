@@ -1,6 +1,7 @@
 """Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
 
-El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz> <política>` y una
+El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <política>` (la URL con el token
+viaja en la variable de entorno `ZEROCHAT_RUNNER_URL`, nunca en `argv`, y el cargador la borra al leerla) y una
 tubería como stdin: cuando se cierra (muere el proceso que lo lanzó), el runner termina. Desde la
 carpeta de la interfaz (GitHub Pages en producción, este servidor en desarrollo) descarga `js/run-node.js` y,
 siguiendo sus `require('./…')`, los módulos que usa, en paralelo; los ejecuta con un `require` mínimo que los
@@ -26,6 +27,8 @@ from core.version import UI_VERSION_TITLE_PATTERN
 # Política de caché del runner: ejecutar la caché si es de la versión publicada, o descargar siempre (desarrollo).
 RUNNER_CACHE_BY_VERSION = "version"
 RUNNER_CACHE_ALWAYS_DOWNLOAD = "always"
+# Variable de entorno en la que viaja la URL de la interfaz con el runner_token (fuera de argv; se borra al leerla).
+RUNNER_URL_ENV = "ZEROCHAT_RUNNER_URL"
 
 # Tope de lo descargado en una ejecución: la interfaz completa ocupa unas pocas centenas de KiB.
 RUNNER_MAX_BYTES = 16 * 1024 * 1024
@@ -35,7 +38,10 @@ RUNNER_LOADER_SCRIPT = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const [cacheFile, uiUrl, cachePolicy] = process.argv.slice(1);
+const [cacheFile, cachePolicy] = process.argv.slice(1);
+const uiUrl = process.env.__RUNNER_URL_ENV__ || '';
+delete process.env.__RUNNER_URL_ENV__;
+if (!uiUrl) throw new Error('Missing runner URL in environment.');
 
 // El proceso zerochat que lanza el runner le da como stdin una tubería en la que nunca escribe: el sistema la cierra
 // cuando ese proceso muere, también con SIGKILL, y el runner termina en vez de seguir llamando al modelo por su cuenta.
@@ -187,4 +193,4 @@ async function loadFiles(version) {
   process.exit(1);
 });
 """.replace("__MAX_BYTES__", str(RUNNER_MAX_BYTES)).replace("__VERSION_PATTERN__", json.dumps(UI_VERSION_TITLE_PATTERN)).replace(
-    "__BY_VERSION__", RUNNER_CACHE_BY_VERSION)
+    "__BY_VERSION__", RUNNER_CACHE_BY_VERSION).replace("__RUNNER_URL_ENV__", RUNNER_URL_ENV)

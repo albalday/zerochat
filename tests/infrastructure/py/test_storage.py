@@ -418,6 +418,15 @@ class StorageEngineTest(unittest.TestCase):
         self.assertIsNotNone(retrieved)
         self.assertEqual(retrieved["id"], "session_test_123")
         self.assertEqual(retrieved["title"], "Conversación de prueba")
+
+        # Una petición externa de conversations/save no puede fijar agent
+        res_ext, err_ext, _ = zerochat.dispatch_conversations("zerochat/conversations/save", {
+            "conversation": {"id": "conv_ext_no_agent", "title": "General", "agent": "suplantado"},
+            "messages": [{"id": "u1", "role": "user", "content": "hola"}],
+        })
+        self.assertIsNone(err_ext)
+        self.assertNotIn("agent", res_ext["conversation"])
+        zerochat.delete_conversation("conv_ext_no_agent")
         self.assertEqual(retrieved["profileId"], "deepseek")
         self.assertEqual(retrieved["serverRun"], True)
         self.assertEqual(len(retrieved["history"]), 3)
@@ -462,11 +471,13 @@ class StorageEngineTest(unittest.TestCase):
         self.assertEqual(updated["serverRun"], True)
         self.assertEqual(len(zerochat.get_conversation("session_test_123")["history"]), 3)
 
-        # El proyecto se fija la primera vez y no cambia al guardar desde otro proyecto
-        with_project = zerochat.save_conversation({"id": "session_test_123", "project": "/repo/a"}, new_messages)
+        # El proyecto se fija al crear la conversación (también en general) y no cambia al guardar desde otro proyecto
+        self.assertNotIn("project", zerochat.save_conversation({"id": "session_test_123", "project": "/repo/a"}, new_messages))
+        with_project = zerochat.save_conversation({"id": "session_proj_a", "project": "/repo/a"}, new_messages)
         self.assertEqual(with_project["project"], "/repo/a")
-        moved = zerochat.save_conversation({"id": "session_test_123", "project": "/repo/b"}, new_messages)
+        moved = zerochat.save_conversation({"id": "session_proj_a", "project": "/repo/b"}, new_messages)
         self.assertEqual(moved["project"], "/repo/a")
+        zerochat.delete_conversation("session_proj_a")
         with self.assertRaises(ValueError):
             zerochat.save_conversation({"id": "session_test_123", "project": ["/repo"]}, new_messages)
 

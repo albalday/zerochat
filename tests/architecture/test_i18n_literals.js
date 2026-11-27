@@ -29,8 +29,8 @@ test('ChatI18n - el texto visible asignado desde JavaScript no usa literales sin
   assert.deepEqual(offenders, [], `Usa claves de ChatI18n en lugar de literales:\n${offenders.join('\n')}`);
 });
 
-// t() devuelve la propia clave si falta la traducción, así que un literal tras «||» nunca se usa.
-const UNREACHABLE_FALLBACK = /(?<![\w$])(?:t|tFn|translate|translator)\(\s*'[\w.]+'(?:\s*,(?:[^()]|\([^()]*\))*)?\)\s*\|\|\s*['"`]/g;
+// t() devuelve la propia clave si falta la traducción, así que un literal tras «||» o «??» nunca se usa.
+const UNREACHABLE_FALLBACK = /(?<![\w$])(?:t|tFn|translate|translator)\(\s*['"][\w.]+['"](?:\s*,(?:[^()]|\([^()]*\))*)?\)\s*(?:\|\||\?\?)\s*['"`]/g;
 
 test('ChatI18n - no hay textos alternativos tras t(), que nunca se usarían', () => {
   const offenders = [];

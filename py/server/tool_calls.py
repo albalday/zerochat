@@ -18,6 +18,7 @@ from security.controller import ACCESS_CONTROLLER
 from security.rules import COMMAND_TOOL, JOB_CONTROL_TOOL, POLICY_ASK, POLICY_DENY
 from server.state import BROWSER_LEASES, BROWSER_LEASE_IDLE_SECONDS
 from tools.agents import CONTROLLER_TOOLS
+from tools.browser_secret import PLAYWRIGHT_LOCAL_TOOLS
 from tools.common import _tool_error
 from tools.registry import LOCAL_TOOL_HANDLERS
 
@@ -38,7 +39,7 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
     if origin == "local":
         if tool_name == "browser_action":
             browser = tool_name
-        elif tool_name == "browser_fill_secret":
+        elif tool_name in PLAYWRIGHT_LOCAL_TOOLS:
             browser = PLAYWRIGHT_SERVER_ID
         else:
             browser = None
@@ -178,6 +179,16 @@ def call_tool(params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | N
         origin = "external"
     else:
         return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+    session = current_run_session()
+    if session is not None and session.disabled_tools:
+        disabled = set(session.disabled_tools)
+        server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) if origin == "external" else None
+        if (tool_name in disabled or (server_id and server_id in disabled)
+                or (origin == "local" and tool_name in PLAYWRIGHT_LOCAL_TOOLS and PLAYWRIGHT_SERVER_ID in disabled)):
+            return {
+                "content": [{"type": "text", "text": _tool_error(f"Herramienta '{tool_name}' desactivada en esta ejecución.")}],
+                "isError": True,
+            }, None, ""
     raw_args = params.get("arguments")
     args = dict(raw_args) if isinstance(raw_args, dict) else {}
     meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}

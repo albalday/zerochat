@@ -170,15 +170,20 @@ test('AgentCore - las definiciones y la guía del prompt siguen los interruptore
   // dos, aunque el interruptor general de browser_action esté apagado.
   registry.registerTool(makeTool({ name: 'browser_action', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'mcp_proxy' }, execute: async () => '' }));
   registry.registerTool(makeTool({ name: 'browser_fill_secret', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'mcp_proxy' }, execute: async () => '' }));
+  registry.registerTool(makeTool({ name: 'browser_save_state', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'mcp_proxy' }, execute: async () => '' }));
   registry.registerTool(makeTool({ name: 'playwright_browser_click', category: 'mcp', settings: { showInSettings: true }, metadata: { mcpServerId: 'playwright' }, execute: async () => '' }));
   const browserTools = (browser, enabledTools = { browser_action: false }) => registry.getActiveDefinitions(ConfigStore.normalize({ browser, enabledTools }))
-    .map(d => d.function.name).filter(name => ['browser_action', 'browser_fill_secret', 'playwright_browser_click'].includes(name));
+    .map(d => d.function.name).filter(name => ['browser_action', 'browser_fill_secret', 'browser_save_state', 'playwright_browser_click'].includes(name));
   assert.deepEqual(browserTools('browser_action'), ['browser_action']);
-  assert.deepEqual(browserTools('playwright'), ['browser_fill_secret', 'playwright_browser_click']);
-  assert.deepEqual(browserTools('playwright', { browser_fill_secret: false }), ['playwright_browser_click'],
+  assert.deepEqual(browserTools('playwright'), ['browser_fill_secret', 'browser_save_state', 'playwright_browser_click']);
+  assert.deepEqual(browserTools('playwright', { browser_fill_secret: false }), ['browser_save_state', 'playwright_browser_click'],
     'disabledTools puede quitar herramientas concretas de Playwright sin apagar el navegador');
   assert.deepEqual(browserTools('none'), []);
   assert.deepEqual(browserTools('otro'), ['browser_action'], 'Un valor desconocido toma el predeterminado');
+
+  // disabledTools también desactiva herramientas sin interruptor en Ajustes (p. ej. RAG o del controlador).
+  const ragOff = registry.getActiveDefinitions(config({ list_documents: false })).map(d => d.function.name);
+  assert.ok(!ragOff.includes('list_documents'));
 });
 
 test('AgentCore - una herramienta MCP activa sustituye a las nativas que declara en replaces, y al apagarse vuelven', () => {

@@ -23,7 +23,7 @@ from tools.agents import (
     stop_agent,
 )
 from tools.browser_action import BROWSER_ACTIONS, browser_action
-from tools.browser_secret import BROWSER_SECRET_MODES, browser_fill_secret
+from tools.browser_secret import browser_fill_secret, browser_load_state, browser_save_state
 from tools.filesystem import READ_FILE_DEFAULT_MAX_BYTES, edit_file, get_diagnostics, list_directory, read_file, search_files, write_file
 from tools.jobs import (
     COMMAND_DEFAULT_TIMEOUT,
@@ -48,7 +48,7 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "read_file",
-        "description": "Read a text file, whole or by line range, or only its last lines with tail_lines (like tail -n): use tail_lines for logs that keep growing.",
+        "description": "Read a text file (whole, by line range, or last lines with tail_lines) or a raster image (PNG, JPEG, WebP, GIF up to 6 MB, delivered as visual evidence).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -209,21 +209,46 @@ LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "browser_fill_secret",
         "description": (
-            "Fill a saved project secret into Playwright MCP without exposing its value to the model or chat history. "
-            "Use mode='input' with ref (for text/password inputs via browser_type) or mode='keypad' with keypad_map "
-            "mapping each character (e.g. '0'..'9') to its button ref or [x, y] coordinates for virtual keypads."
+            "Fill a saved project secret into a text/password input in Playwright MCP via browser_type "
+            "using its snapshot element ref, without exposing the secret value to the model or chat history."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "secret": {"type": "string", "maxLength": 64, "description": "Name of the saved project secret"},
-                "mode": {"type": "string", "enum": list(BROWSER_SECRET_MODES), "maxLength": 16, "description": "Target mode: 'input' or 'keypad'"},
-                "ref": {"type": "string", "maxLength": 128, "description": "Playwright snapshot element ref for mode='input'"},
+                "ref": {"type": "string", "maxLength": 128, "description": "Playwright snapshot element ref for the input field"},
                 "element": {"type": "string", "maxLength": 256, "description": "Human-readable description of the input element"},
-                "submit": {"type": "boolean", "description": "Press Enter after typing in mode='input'", "default": False},
-                "keypad_map": {"type": "object", "description": "Map of character -> button ref string or [x, y] coordinates for mode='keypad'"}
+                "submit": {"type": "boolean", "description": "Press Enter after typing", "default": False},
             },
-            "required": ["secret", "mode"]
+            "required": ["secret", "ref"]
+        }
+    },
+    {
+        "name": "browser_save_state",
+        "description": (
+            "Save the current Playwright browser session state (cookies and localStorage) under a name scoped to this project "
+            "so later runs can reuse an authenticated session without repeating 2FA."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "maxLength": 64, "description": "State name (letters, digits, '-' or '_')"}
+            },
+            "required": ["name"]
+        }
+    },
+    {
+        "name": "browser_load_state",
+        "description": (
+            "Restore a previously saved Playwright browser session state (cookies and localStorage) for this project. "
+            "Clears current cookies and localStorage before restoring."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "maxLength": 64, "description": "Name of the saved browser state to restore"}
+            },
+            "required": ["name"]
         }
     }
 ]
@@ -333,6 +358,8 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action,
     "browser_fill_secret": browser_fill_secret,
+    "browser_save_state": browser_save_state,
+    "browser_load_state": browser_load_state,
     AGENTS_TOOL: check_agents,
     LAUNCH_AGENT_TOOL: launch_agent,
     STOP_AGENT_TOOL: stop_agent,
@@ -379,8 +406,5 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
     if tool_name == "browser_action":
         if arguments.get("action") not in BROWSER_ACTIONS:
             return f"Acción de navegador no permitida: {arguments.get('action')}"
-    if tool_name == "browser_fill_secret":
-        if arguments.get("mode") not in BROWSER_SECRET_MODES:
-            return f"Modalidad no permitida: {arguments.get('mode')}"
 
     return None

@@ -11,7 +11,7 @@ const UI_SLICE_WRITERS = new Set(['state.js', 'ui-inspector.js']);
 test('ChatState - solo state.js y ui-inspector.js escriben el slice ui con State.set', () => {
   const offenders = listSourceFiles(JS_DIR).map(file => path.relative(JS_DIR, file))
     .filter(name => !UI_SLICE_WRITERS.has(name))
-    .filter(name => /\.set\(\s*['"]ui['"]|setState\(\s*\{\s*ui\b/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
+    .filter(name => /\.set\(\s*['"]ui['"]|setState\(\s*\{[^}]*\bui\b\s*[:,}]/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
 
   assert.deepEqual(offenders, [], `Usa los mutadores de ChatState en lugar de State.set('ui', …): ${offenders.join(', ')}`);
 });
@@ -19,7 +19,7 @@ test('ChatState - solo state.js y ui-inspector.js escriben el slice ui con State
 test('ChatState - el slice project solo se escribe mediante setProjectContext', () => {
   const offenders = listSourceFiles(JS_DIR).map(file => path.relative(JS_DIR, file))
     .filter(name => name !== 'state.js')
-    .filter(name => /\.set\(\s*['"]project['"]|setState\(\s*\{\s*project\b/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
+    .filter(name => /\.set\(\s*['"]project['"]|setState\(\s*\{[^}]*\bproject\b\s*[:,}]/.test(fs.readFileSync(path.join(JS_DIR, name), 'utf8')));
 
   assert.deepEqual(offenders, [], `Usa ChatState.setProjectContext: ${offenders.join(', ')}`);
 });

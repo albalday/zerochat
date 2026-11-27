@@ -368,8 +368,7 @@ test('Browser UI - el modo proyecto se activa desde el panel de razonamiento, pe
       let secondDialog = null;
       page.once('dialog', async dialog => { secondDialog = dialog.type(); await dialog.dismiss(); });
       await page.evaluate(() => { location.href = 'about:blank#salir'; });
-      // Aserción negativa: la espera fija es a propósito para confirmar que el diálogo no aparece.
-      await page.waitForTimeout(300);
+      await page.waitForURL('about:blank#salir');
       assert.equal(secondDialog, null, 'Sin comandos en marcha no se pide confirmación al salir');
       assert.deepEqual(errors, []);
     } finally {

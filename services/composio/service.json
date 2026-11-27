@@ -36,7 +36,6 @@
       "--auth-timeout",
       "120"
     ],
-    "cwd": "${serviceDir}",
     "env": {
       "HOME": "${serviceDir}",
       "USERPROFILE": "${serviceDir}"

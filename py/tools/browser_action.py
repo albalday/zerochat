@@ -282,6 +282,8 @@ def browser_url_error(url: str) -> str | None:
     """Por qué browser_action no abre la URL, o None: solo http(s), y nunca metadatos cloud ni enlace local.
     localhost y la red privada sí, para probar webs en desarrollo. Solo se valida la URL pedida: lo que la
     página abra después queda fuera."""
+    if "\\" in url:
+        return "The URL must not contain backslashes."
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return f"browser_action only opens http:// and https:// URLs, not '{parsed.scheme or url}'."

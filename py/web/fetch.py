@@ -102,7 +102,10 @@ def is_dangerous_host(hostname: str) -> bool:
         return True
     if clean_host.endswith((".localhost", ".local", ".internal")):
         return True
-    return any(not _is_public_ip(address) for address in _resolved_addresses(clean_host))
+    try:
+        return not _is_public_ip(clean_host)
+    except ValueError:
+        return any(not _is_public_ip(address) for address in _resolved_addresses(clean_host))
 
 
 def _is_metadata_ip(address: str) -> bool:
@@ -137,32 +140,59 @@ def _validate_web_url(url: str) -> str:
 
 
 class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Sigue redirecciones solo si el destino supera la misma validación anti-SSRF que la URL pedida."""
+    """Sigue redirecciones (hasta WEB_FETCH_MAX_REDIRECTS saltos totales, sin leer cuerpos 30x) solo si el destino
+    supera la misma validación anti-SSRF que la URL pedida."""
     max_redirections = WEB_FETCH_MAX_REDIRECTS
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        hops = getattr(req, "_zerochat_hops", 0) + 1
+        if hops > WEB_FETCH_MAX_REDIRECTS:
+            raise urllib.error.HTTPError(newurl, code, self.inf_msg + msg, headers, fp)
         _validate_web_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            new_req._zerochat_hops = hops  # pyright: ignore[reportAttributeAccessIssue]
+        return new_req
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        location = headers.get("location") or headers.get("uri")
+        if not location:
+            return
+        newurl = urllib.parse.urljoin(req.full_url, location.strip())
+        new_req = self.redirect_request(req, fp, code, msg, headers, newurl)
+        if not new_req:
+            return
+        fp.close()
+        return self.parent.open(new_req, timeout=req.timeout)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
 
 
 _WEB_OPENER = urllib.request.build_opener(_ValidatingRedirectHandler)
 
 
 def _read_limited_body(stream, content_encoding: str, max_bytes: int) -> tuple[bytes, bool]:
-    """Lee el cuerpo ya descomprimido hasta `max_bytes`; indica si había más (truncado)."""
+    """Lee el cuerpo ya descomprimido hasta `max_bytes` (y acota los bytes comprimidos leídos); indica si truncó."""
     encoding = (content_encoding or "").strip().lower()
     # MAX_WBITS | 32 detecta la cabecera gzip o zlib.
     decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate") else None
     data = bytearray()
+    raw_read = 0
+    max_raw = max(max_bytes, WEB_FETCH_MAX_BYTES)
+    truncated = False
     while len(data) <= max_bytes:
         chunk = stream.read(WEB_FETCH_READ_CHUNK)
         if not chunk:
             break
+        raw_read += len(chunk)
         if decompressor:
             # La salida se limita al hueco restante: un cuerpo comprimido no puede crecer sin tope.
             chunk = decompressor.decompress(chunk, max_bytes + 1 - len(data))
         data += chunk
-    truncated = len(data) > max_bytes
+        if raw_read > max_raw:
+            truncated = True
+            break
+    truncated = truncated or len(data) > max_bytes
     return bytes(data[:max_bytes]), truncated
 
 
@@ -256,6 +286,8 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, t
             err_body = he.read(2048).decode("utf-8", errors="replace")
         except OSError:
             pass
+        finally:
+            he.close()
         return {
             "ok": False,
             "status": he.code,

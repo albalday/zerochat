@@ -366,6 +366,7 @@ class ServiceCatalogTest(unittest.TestCase):
             "ruta absoluta": catalog(files={"/etc/x": digest}),
             "fichero oculto": catalog(files={".installed.json": digest}),
             "id con ruta": catalog(server_id="../demo"),
+            "id con salto": catalog(server_id="demo\n"),
             "huella no válida": catalog(files={"README.md": "x"}),
             "sin service.json": json.dumps({"schemaVersion": 1, "services": {"demo": {"version": "1", "files": {}}}}).encode(),
             "otra versión del catálogo": catalog(schema=2),

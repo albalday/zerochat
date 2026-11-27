@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "playwright",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "displayName": {
     "es": "Playwright MCP",
     "en": "Playwright MCP"
@@ -13,10 +13,28 @@
   "transport": "stdio",
   "launch": {
     "executable": "${nodeExecutable}",
-    "args": ["${serviceDir}/node_modules/@playwright/mcp/cli.js"],
-    "cwd": "${serviceDir}",
+    "args": ["${serviceDir}/node_modules/@playwright/mcp/cli.js", "--caps=vision,storage"],
     "env": {},
     "handshakeTimeoutSeconds": 30,
     "callTimeoutSeconds": 120
+  },
+  "tools": {
+    "browser_cookie_clear": { "enabledByDefault": false },
+    "browser_cookie_delete": { "enabledByDefault": false },
+    "browser_cookie_get": { "enabledByDefault": false },
+    "browser_cookie_list": { "enabledByDefault": false },
+    "browser_cookie_set": { "enabledByDefault": false },
+    "browser_localstorage_clear": { "enabledByDefault": false },
+    "browser_localstorage_delete": { "enabledByDefault": false },
+    "browser_localstorage_get": { "enabledByDefault": false },
+    "browser_localstorage_list": { "enabledByDefault": false },
+    "browser_localstorage_set": { "enabledByDefault": false },
+    "browser_sessionstorage_clear": { "enabledByDefault": false },
+    "browser_sessionstorage_delete": { "enabledByDefault": false },
+    "browser_sessionstorage_get": { "enabledByDefault": false },
+    "browser_sessionstorage_list": { "enabledByDefault": false },
+    "browser_sessionstorage_set": { "enabledByDefault": false },
+    "browser_storage_state": { "enabledByDefault": false },
+    "browser_set_storage_state": { "enabledByDefault": false }
   }
 }

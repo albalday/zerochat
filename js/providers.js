@@ -60,13 +60,13 @@
     return null;
   }
 
-  /** Mensaje de un error que el servidor envía dentro del streaming: texto u objeto con message o type. */
   /** Temperatura del perfil como número; 0 es válida y solo un valor vacío o no numérico usa 0,7. */
   function profileTemperature(temperature) {
     const parsed = parseFloat(temperature);
     return Number.isFinite(parsed) ? parsed : 0.7;
   }
 
+  /** Mensaje de un error que el servidor envía dentro del streaming: texto u objeto con message o type. */
   function streamErrorMessage(error) {
     if (typeof error === 'string') return error;
     return error.message || error.type || JSON.stringify(error);

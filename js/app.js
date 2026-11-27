@@ -20,7 +20,8 @@
     ChatUITelemetry: UITelemetry, ChatUIMcp: UIMcp, ChatUIBrowser: UIBrowser,
     ChatUIConnection: UIConnection, ChatRagUI: RagUI, ChatRunMode: RunMode,
     ChatBackendSession: BackendSession, ChatServerRun: ServerRun, ChatTabAlert: TabAlert,
-    ChatProfileCheck: ProfileCheck, ChatContextManager: ContextManager
+    ChatProfileCheck: ProfileCheck, ChatContextManager: ContextManager,
+    ChatUIGenerationStatus: UIGenerationStatus
   } = window;
   const { t } = I18n;
 
@@ -812,9 +813,12 @@
     bindPreference(elements.themeButtons, 'data-theme', applyTheme, 'theme');
     bindPreference(elements.langButtons, 'data-lang', applyLanguage, 'language');
 
-    // Al abrir el panel se rellena y se decide si hay turnos cerrados que compactar.
+    // Al abrir el panel o cambiar el estado de la conversación se decide si hay turnos cerrados que compactar.
     const syncCompactButton = () => {
-      elements.btnCompactContext.disabled = State.isConversationBusy() || !ContextManager.hasCompactableHistory(getChatHistory());
+      elements.btnCompactContext.disabled = State.isConversationBusy()
+        || ServerRun.isActiveSessionRunning()
+        || Boolean(activeAgentSession())
+        || !ContextManager.hasCompactableHistory(getChatHistory());
     };
     UITelemetry.mount(elements, () => {
       updateConnectionTokensBadge(null, { forcePopover: true });
@@ -822,11 +826,18 @@
     });
     elements.btnCompactContext.addEventListener('click', async () => {
       elements.btnCompactContext.disabled = true;
-      if (await ConversationService.compactCurrentSession(getConversationServiceOptions())) {
-        updateConnectionTokensBadge(null, { forcePopover: true });
+      try {
+        if (await ConversationService.compactCurrentSession(getConversationServiceOptions())) {
+          updateConnectionTokensBadge(null, { forcePopover: true });
+        }
+      } finally {
+        syncCompactButton();
       }
-      syncCompactButton();
     });
+    State.subscribe('streaming', syncCompactButton);
+    State.subscribe('messages', syncCompactButton);
+    State.subscribe(state => state.sessions.activeId, syncCompactButton);
+    State.subscribe(state => state.mcp.serverRuns, syncCompactButton);
 
     elements.messagesList.addEventListener('click', event => {
       const option = event.target.closest('[data-ask-option]');
@@ -849,6 +860,7 @@
 
     State.subscribe(state => state.mcp.status, syncServerRunControl);
     State.subscribe(state => state.ui.profileCheck, () => UIProfiles.syncActiveProfileTrigger());
+    State.subscribe(state => state.ui.generationStatus, status => UIGenerationStatus.render(elements.generationStatus, status));
     syncServerRunControl();
 
     // Lo que la ejecución va grabando se trae de SQLite: la página muestra siempre la conversación grabada.

@@ -28,15 +28,15 @@ test.after(() => {
 const DAILY_TOKEN = 'run-mode-token-0123456789';
 
 const FAKE_BROWSER = `
-import json, sys, time, urllib.error, urllib.parse, urllib.request
+import json, os, sys, time, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
-# Los navegadores reciben la URL al final; el runner de Node, la URL y después la política de caché.
-url_index = max(i for i, arg in enumerate(sys.argv) if arg.startswith("http"))
-url = sys.argv[url_index]
+# La URL con el runner_token viaja por entorno (ZEROCHAT_RUNNER_URL), nunca en argv.
+url = os.environ.get("ZEROCHAT_RUNNER_URL", "")
+assert url and not any(arg.startswith("http") for arg in sys.argv[1:]), "runner_token debe viajar solo por ZEROCHAT_RUNNER_URL"
 fragment = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).fragment))
 config = json.loads(Path(sys.argv[0]).with_name("fake-ui.json").read_text(encoding="utf-8"))
 scenario = config["scenario"]
-info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment), "launcher": Path(sys.argv[0]).name, "args": sys.argv[1:url_index], "after_url": sys.argv[url_index + 1:]}
+info = {"url": url.split("#", 1)[0], "fragment_keys": sorted(fragment), "launcher": Path(sys.argv[0]).name, "args": sys.argv[1:-1], "after_url": sys.argv[-1:]}
 
 # La interfaz de desarrollo la sirve el propio servidor de la ejecución: su origen es el de la petición.
 ORIGIN = f"http://{fragment['host']}:{fragment['port']}"

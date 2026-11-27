@@ -71,8 +71,10 @@
   /** API key descifrada; una que no se puede abrir (dañada o de otro cifrado) lanza API_KEY_UNREADABLE. */
   async function decryptApiKey(secret) {
     const { iv, ciphertext } = validateApiKeySecret(secret);
+    const subtle = cryptoOrThrow().subtle;
+    const key = await getKey();
     try {
-      const plaintext = await cryptoOrThrow().subtle.decrypt({ name: 'AES-GCM', iv }, await getKey(), ciphertext);
+      const plaintext = await subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
       return new TextDecoder().decode(plaintext);
     } catch (_) {
       throw Object.assign(new Error('The stored API key cannot be opened.'), { code: 'API_KEY_UNREADABLE' });

@@ -176,6 +176,8 @@ def wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
         return _windows_wait_pid_exit(pid, timeout)
     except ProcessLookupError:
         return True
+    except OSError:
+        return None
 
 
 def _windows_wait_pid_exit(pid: int, timeout: float | None) -> bool | None:

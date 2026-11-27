@@ -255,9 +255,7 @@ class AccessController:
     @staticmethod
     def _check_entry_limit(state: dict):
         """Único tope de entradas, sobre el estado resultante (guardado o capa de sesión)."""
-        dir_rules = state.get("directoryRules")
-        dir_count = sum(len(v) for v in dir_rules.values()) if isinstance(dir_rules, dict) else len(dir_rules or [])
-        total = dir_count + len(state.get("tools") or {}) + len(state.get("servers") or {})
+        total = len(state.get("directoryRules") or []) + len(state.get("tools") or {}) + len(state.get("servers") or {})
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
@@ -333,6 +331,8 @@ class AccessController:
                         session.directory_rules = None
                     elif patch.added_rules and session.directory_rules is not None:
                         session.directory_rules = self._append_rules(session.directory_rules, patch.added_rules)
+                    if patch.command_patterns is not None:
+                        session.command_patterns.clear()
                 for kind, entries in (("tools", patch.tools), ("servers", patch.servers)):
                     for item_id in entries or {}:
                         session.entries(kind).pop(item_id, None)
@@ -526,7 +526,12 @@ class AccessController:
             if checked is None:
                 return None
             challenges.pop(challenge_id)
-        self._record_decision(challenge, decision, *checked, context)
+        try:
+            self._record_decision(challenge, decision, *checked, context)
+        except Exception:
+            with self._lock:
+                self._session(context).challenges.setdefault(challenge_id, challenge)
+            raise
         return challenge
 
     def revoke_challenge(self, challenge_id: str, *, context: SecurityContext) -> bool:
@@ -542,6 +547,8 @@ class AccessController:
         if decision == "allow_server_always" and not challenge.get("serverId"):
             return None
         rules = self._validate_directory_rules([directory_rule]) if directory_rule else []
+        if rules and decision == "allow_once":
+            raise ValueError("allow_once no admite una regla de carpeta.")
         if rules and command_pattern:
             raise ValueError("Una decisión lleva un patrón de comando o una regla de carpeta, no los dos.")
         return (None if rules else self._validate_command_pattern(decision, command_pattern, challenge)), rules
@@ -761,7 +768,10 @@ class AccessController:
             if resolved is None:
                 return None
             folders.append(resolved if resolved.is_dir() else resolved.parent)
-        common = Path(os.path.commonpath(folders))
+        try:
+            common = Path(os.path.commonpath(folders))
+        except ValueError:
+            return None
         home = Path.home().resolve()
         if home not in common.parents or any(part.startswith(".") for part in common.relative_to(home).parts):
             return None

@@ -15,6 +15,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons) {
   'use strict';
 
+  const MAX_RESOLVED_RAG_IMAGES_CACHE = 100;
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
 
@@ -710,14 +711,33 @@
 
   /** Imagen rag-image://docId:imgId guardada en la base de conocimiento, como data URL; null si no existe. */
   async function loadRagImage(ref) {
-    if (resolvedRagImagesCache.has(ref)) return resolvedRagImagesCache.get(ref);
+    if (resolvedRagImagesCache.has(ref)) {
+      const cached = resolvedRagImagesCache.get(ref);
+      resolvedRagImagesCache.delete(ref);
+      resolvedRagImagesCache.set(ref, cached);
+      return cached;
+    }
     const reference = Utils.parseRagImageRef(ref);
     if (!reference) return null;
     const imageRecord = await resolveDep('ChatRagStorage', './ragStorage.js').getDocumentImage(reference.documentId, reference.imageId);
     if (!imageRecord?.dataUrl) return null;
     const finalUrl = await resolveDep('ChatFileParser', './file-parser.js').convertCmykDataUrlToRgb(imageRecord.dataUrl);
     resolvedRagImagesCache.set(ref, finalUrl);
+    while (resolvedRagImagesCache.size > MAX_RESOLVED_RAG_IMAGES_CACHE) {
+      resolvedRagImagesCache.delete(resolvedRagImagesCache.keys().next().value);
+    }
     return finalUrl;
+  }
+
+  /** Vacía la caché de imágenes RAG resueltas (todas, o solo las de un documento borrado). */
+  function clearRagImagesCache(documentId = null) {
+    if (!documentId) {
+      resolvedRagImagesCache.clear();
+      return;
+    }
+    for (const key of resolvedRagImagesCache.keys()) {
+      if (Utils.parseRagImageRef(key)?.documentId === documentId) resolvedRagImagesCache.delete(key);
+    }
   }
 
   /** Sustituye las imágenes rag-image://docId:imgId por la imagen guardada en la base de conocimiento. */
@@ -786,11 +806,13 @@
   }
 
   return {
+    MAX_RESOLVED_RAG_IMAGES_CACHE,
     escapeHtml,
     sanitizeUrl,
     sanitizeImageUrl,
     parseMarkdown,
     loadRagImage,
+    clearRagImagesCache,
     attachContentListeners
   };
 });

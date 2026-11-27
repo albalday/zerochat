@@ -25,10 +25,10 @@ CATALOG_SCHEMA_VERSION = 1
 # Tope de cada descarga (el catálogo y cada fichero): los de ahora ocupan unos pocos KiB.
 CATALOG_MAX_BYTES = 1024 * 1024
 CATALOG_TIMEOUT_SECONDS = 10
-SERVICE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+SERVICE_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 # Rutas relativas sin segmentos ocultos ni '..': un segmento no empieza por punto.
-SERVICE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$")
-SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+SERVICE_FILE_PATTERN = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*")
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 SERVICE_DEFINITION = "service.json"
 
 
@@ -61,7 +61,7 @@ def parse_catalog(raw: bytes) -> dict[str, dict]:
     if not isinstance(services, dict):
         raise ValueError("El catálogo de servicios no tiene services")
     for server_id, entry in services.items():
-        if not SERVICE_ID_PATTERN.match(server_id):
+        if not isinstance(server_id, str) or not SERVICE_ID_PATTERN.fullmatch(server_id):
             raise ValueError(f"Id de servicio no válido en el catálogo: {server_id!r}")
         if not isinstance(entry, dict) or not isinstance(entry.get("version"), str) or not entry["version"]:
             raise ValueError(f"El servicio {server_id} del catálogo no tiene version")
@@ -69,7 +69,7 @@ def parse_catalog(raw: bytes) -> dict[str, dict]:
         if not isinstance(files, dict) or SERVICE_DEFINITION not in files:
             raise ValueError(f"El servicio {server_id} del catálogo no incluye {SERVICE_DEFINITION}")
         for path, digest in files.items():
-            if not SERVICE_FILE_PATTERN.match(path) or not isinstance(digest, str) or not SHA256_PATTERN.match(digest):
+            if not isinstance(path, str) or not SERVICE_FILE_PATTERN.fullmatch(path) or not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
                 raise ValueError(f"Fichero no válido en el servicio {server_id} del catálogo: {path!r}")
     return services
 
@@ -103,6 +103,12 @@ def download_service(base: str, server_id: str, entry: dict) -> dict[str, bytes]
 
 def install_service(services_root: Path, server_id: str, files: dict[str, bytes]) -> None:
     """Escribe los ficheros del servicio, cada uno de forma atómica; service.json, con la versión, el último."""
+    services_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            services_root.chmod(0o700)
+        except OSError:
+            pass
     service_dir = services_root / server_id
     for path in sorted(files, key=lambda name: name == SERVICE_DEFINITION):
         destination = service_dir / path

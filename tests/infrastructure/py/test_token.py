@@ -63,6 +63,7 @@ class DailyTokenTest(unittest.TestCase):
         self.assertEqual(grant.kind, "runner")
         self.assertTrue(grant.allows("tools/call", {"name": "read_file"}))
         self.assertTrue(grant.allows("zerochat/run/prompt", {}))
+        self.assertTrue(grant.allows("zerochat/external/servers/wait", {}))
         self.assertTrue(grant.allows("zerochat/sandbox/execute", {"code": "1+1"}))
         self.assertTrue(grant.allows("zerochat/conversations/get", {"id": "conv-1"}))
         self.assertTrue(grant.allows("zerochat/conversations/save", {"conversation": {"id": "conv-1"}}))

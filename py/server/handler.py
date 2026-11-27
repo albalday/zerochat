@@ -46,13 +46,13 @@ def static_file_target(root: Path, rel_path: str) -> Path | None:
     salvo ficheros ocultos (.git, .env, .zerochat) y rutas que al resolverse salen de ella (enlaces simbólicos).
     """
     clean_rel = rel_path.split("?", 1)[0].lstrip("/")
-    if not clean_rel:
+    if not clean_rel or "\x00" in clean_rel:
         return None
     base = root.resolve()
-    target = (base / clean_rel).resolve()
     try:
+        target = (base / clean_rel).resolve()
         parts = target.relative_to(base).parts
-    except ValueError:
+    except (OSError, ValueError):
         return None
     if any(part.startswith(".") for part in parts) or not target.is_file():
         return None

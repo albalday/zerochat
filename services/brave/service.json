@@ -66,7 +66,6 @@
       "--transport",
       "stdio"
     ],
-    "cwd": "${serviceDir}",
     "env": {
       "BRAVE_API_KEY": "${secret:BRAVE_API_KEY}",
       "BRAVE_MCP_TRANSPORT": "stdio"

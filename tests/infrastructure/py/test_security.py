@@ -407,6 +407,10 @@ class PolicyStateTest(ControllerTestCase):
         res = self.controller.import_state({"servers": {"s1": None, "s2": {"policy": "deny"}}}, self.ctx)
         self.assertEqual(list(res["servers"]), ["s2"])
 
+        self.controller._allow_for_session(self.ctx, "run_command", "", "pytest *")
+        self.controller.import_state({"commandPatterns": {"global": [], "project": []}}, self.ctx)
+        self.assertEqual(self.controller._session(self.ctx).command_patterns, [])
+
         # Las RPC aplican el mismo parche y devuelven el estado completo, igual que initialize
         rpc, err, _ = zerochat.dispatch_security("zerochat/security/update", {"tools": {"t4": {"policy": "allow"}}}, cwd())
         self.assertIsNone(err)
@@ -659,11 +663,16 @@ class ChallengeTest(HandlerTestCase):
         self.assertIn(ch["id"], challenges(self.controller))
         self.assertIsNone(tool_entry(self.controller, "custom_tool"))
 
+        res, err = self.authorize(ch["id"], "allow_once", directoryRule=f"R:{self.norm_ws}/**")
+        self.assertEqual((res, err["code"]), (None, -32602))
+        self.assertIn(ch["id"], challenges(self.controller))
+
         with unittest.mock.patch("zerochat.update_security_policy_data", side_effect=sqlite3.OperationalError("database is locked")), \
                 unittest.mock.patch.object(zerochat, "execute_tool") as execute:
             res, err = self.authorize(ch["id"], "allow_always")
         self.assertEqual((res, err["code"]), (None, -32603))
         self.assertIn("database is locked", err["message"])
+        self.assertIn(ch["id"], challenges(self.controller))
         execute.assert_not_called()
 
         gate = self.call_local("run_command", {"command": "cat /etc/hosts"}, _meta={"zerochatJobKey": "inv-1"})
@@ -1071,6 +1080,11 @@ class SessionLifecycleTest(HandlerTestCase):
             controller.export_state(projects["d"])
             self.assertEqual(set(controller.sessions), {key("c"), key("d")})
             self.assertIsNone(tool_entry(controller, "t", projects["a"]), "Al volver, a empieza vacía")
+
+    def test_validate_deletable_project_dir_rejects_ancestors_of_startup_workspace(self):
+        parent_ctx = zerochat.SecurityContext(workspace_dir=self.ctx.workspace_dir.parent)
+        with unittest.mock.patch.object(zerochat, "project_context", return_value=self.ctx), self.assertRaises(ValueError):
+            zerochat.validate_deletable_project_dir(parent_ctx)
 
 
 class RpcValidationTest(unittest.TestCase):

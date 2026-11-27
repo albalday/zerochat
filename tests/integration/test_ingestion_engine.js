@@ -111,11 +111,11 @@ trailer << /Size 7 /Root 1 0 R >>
   ), 'latin1'));
   assert.ok(asciiText.includes('GA-Z77P-D3') && asciiText.includes("User's Manual") && asciiText.includes('GIGABYTE'));
 
-  // Un rango beginbfrange mayor que el espacio de códigos de dos bytes se ignora sin recorrerlo
+  // Un rango beginbfrange mayor que el espacio de códigos de dos bytes (o >= 2^53 / Infinity) se ignora sin recorrerlo
   const started = performance.now();
   const hostileRange = await FileParser.extractTextFromPdf(Buffer.from(buildCmapPdf(
     '<0000> <FFFF>',
-    '2 beginbfrange\n<000000> <ffffff> <0041>\n<0001> <0002> <0041>\nendbfrange',
+    '4 beginbfrange\n<000000> <ffffff> <0041>\n<20000000000000> <20000000000000> <0041>\n<' + 'f'.repeat(300) + '> <' + 'f'.repeat(300) + '> <0041>\n<0001> <0002> <0041>\nendbfrange',
     '<00010002>'
   ), 'latin1'));
   assert.ok(hostileRange.includes('AB'));

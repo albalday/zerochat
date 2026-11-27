@@ -171,3 +171,32 @@ test('Markdown - las citas se reconocen sobre el texto escapado y el código con
   assert.equal(Markdown.parseMarkdown('> hola <b>'), '<blockquote>hola &lt;b&gt;</blockquote>');
   assert.match(Markdown.parseMarkdown('```js\nconst s = "\uD800";\n```'), /data-code="[^"]*%EF%BF%BD/);
 });
+
+test('Markdown - resolvedRagImagesCache respeta el tope N/N+1 y clearRagImagesCache invalida por documento o todo', async t => {
+  const RagStorage = require('../../js/ragStorage.js');
+  const FileParser = require('../../js/file-parser.js');
+  let reads = 0;
+  t.mock.method(RagStorage, 'getDocumentImage', async (docId, imgId) => {
+    reads += 1;
+    return { dataUrl: `data:image/png;base64,${docId}_${imgId}` };
+  });
+  t.mock.method(FileParser, 'convertCmykDataUrlToRgb', async url => url);
+  Markdown.clearRagImagesCache();
+
+  const limit = Markdown.MAX_RESOLVED_RAG_IMAGES_CACHE;
+  for (let i = 0; i < limit; i++) await Markdown.loadRagImage(`rag-image://doc${i}:img0`);
+  assert.equal(reads, limit);
+  // Con N entradas la primera sigue en caché; al añadir la N+1 se expulsa la más antigua.
+  await Markdown.loadRagImage('rag-image://doc0:img0');
+  assert.equal(reads, limit);
+  await Markdown.loadRagImage(`rag-image://doc${limit}:img0`);
+  assert.equal(reads, limit + 1);
+  // doc1 era ahora la más antigua (doc0 se refrescó), así que doc1 se expulsó.
+  await Markdown.loadRagImage('rag-image://doc1:img0');
+  assert.equal(reads, limit + 2);
+
+  Markdown.clearRagImagesCache('doc0');
+  await Markdown.loadRagImage('rag-image://doc0:img0');
+  assert.equal(reads, limit + 3);
+  Markdown.clearRagImagesCache();
+});

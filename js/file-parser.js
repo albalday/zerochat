@@ -84,7 +84,7 @@
         const start = parseInt(cm[1], 16);
         const end = parseInt(cm[2], 16);
         const len = cm[1].length;
-        if (end - start > MAX_CMAP_RANGE_CODES) continue;
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start || end - start > MAX_CMAP_RANGE_CODES) continue;
         const destMatches = cm[3].match(/<([0-9a-fA-F]+)>/g) || [];
         for (let s = start, idx = 0; s <= end && idx < destMatches.length; s++, idx++) {
           const srcHex = s.toString(16).padStart(len, '0').toLowerCase();
@@ -110,7 +110,7 @@
         const destStart = parseInt(cm[3], 16);
         const len = cm[1].length;
         // Un rango válido no pasa del espacio de códigos de dos bytes: uno mayor es hostil y se ignora.
-        if (end - start > MAX_CMAP_RANGE_CODES) continue;
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || end < start || end - start > MAX_CMAP_RANGE_CODES) continue;
         for (let s = start; s <= end; s++) {
           const srcHex = s.toString(16).padStart(len, '0').toLowerCase();
           const dstCode = destStart + (s - start);
@@ -1003,11 +1003,12 @@
     const catalogBody = catalogObjNum ? (allObjects.get(catalogObjNum) || '') : '';
     const pagesMatch = catalogBody.match(/\/Pages\s+(\d+)\s+\d+\s+R/);
 
-    // Cada nodo del árbol de páginas se visita una vez: un /Kids en ciclo o que repite ramas (DAG) no se recorre de nuevo.
+    // Cada nodo del árbol de páginas se visita una vez y con profundidad acotada: evita ciclos, DAG y desbordes de pila.
+    const MAX_PDF_KIDS_DEPTH = 128;
     const pagesList = [];
     const visitedNodes = new Set();
-    function traverse(nodeObjNum) {
-      if (visitedNodes.has(String(nodeObjNum))) return;
+    function traverse(nodeObjNum, depth = 0) {
+      if (depth > MAX_PDF_KIDS_DEPTH || visitedNodes.has(String(nodeObjNum))) return;
       visitedNodes.add(String(nodeObjNum));
       const body = allObjects.get(String(nodeObjNum));
       if (!body) return;
@@ -1020,7 +1021,7 @@
         const refs = kidsMatch[1].match(/(\d+)\s+\d+\s+R/g) || [];
         for (const ref of refs) {
           const kidNum = ref.match(/^(\d+)/)[1];
-          traverse(kidNum);
+          traverse(kidNum, depth + 1);
         }
       }
     }

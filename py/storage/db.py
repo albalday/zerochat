@@ -613,6 +613,8 @@ def _merge_saved_header(existing, session_meta: dict, created_at: int, title: st
     extra = {**existing_extra, **extra}
     if existing_extra.get("project"):
         extra["project"] = existing_extra["project"]
+    else:
+        extra.pop("project", None)
     extra.pop("agent", None)
     if existing_extra.get("agent"):
         extra["agent"] = existing_extra["agent"]

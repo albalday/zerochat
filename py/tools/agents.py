@@ -27,6 +27,8 @@ from run_mode.state import (
     MAX_CONCURRENT_RUNS,
     RUN_FILE_LIMIT_KEYS,
     RUN_FILE_MAX_BYTES,
+    RUN_INTERRUPTED_ERROR,
+    RUN_LAUNCH_KEYS,
     RUN_REASONING_LEVELS,
     ControllerState,
     check_no_active_run,
@@ -129,7 +131,7 @@ def _agent_conversations(ctx: SecurityContext, own_id: str, state: ControllerSta
     convs = [conv for conv in list_conversations()
              if conv["id"] != own_id and conv.get("agent") and (conv.get("project") or "") == project]
     saved = {conv["id"] for conv in convs}
-    pending = [{"id": conv_id, **meta} for conv_id, meta in state.launched_agents.items()
+    pending = [{"id": conv_id, **meta, "_unsaved": True} for conv_id, meta in state.launched_agents.items()
                if conv_id not in saved and meta["project"] == project]
     if not pending:
         return convs
@@ -158,14 +160,21 @@ def _agent_state(conv: dict, run: dict) -> dict:
 AGENT_CUT_STATUSES = ("limit", "error")
 
 
+def _last_turn_start(history: list[dict]) -> int:
+    """Índice del último mensaje del usuario (la evidencia visual _toolEvidence es parte del turno, no su inicio)."""
+    return max((index for index, message in enumerate(history)
+                if message.get("role") == "user" and not message.get("_toolEvidence")), default=0)
+
+
 def _final_answer(conv: dict, state: dict, run: dict) -> tuple[str, bool]:
     """La respuesta final y si es parcial: la que entregó o, si se cortó (límite, error o proceso muerto) sin
-    entregarla, el último texto del asistente en su conversación, que dice al menos dónde se quedó."""
+    entregarla, el último texto del asistente de su último turno, que dice al menos dónde se quedó."""
     result = run.get("result_text") or ""
     if result or state["status"] not in AGENT_CUT_STATUSES:
         return result, False
     history = (get_conversation(conv["id"]) or {}).get("history") or []
-    partial = next((message["content"].strip() for message in reversed(history) if message.get("role") == "assistant"
+    start = _last_turn_start(history)
+    partial = next((message["content"].strip() for message in reversed(history[start:]) if message.get("role") == "assistant"
                     and isinstance(message.get("content"), str) and message["content"].strip()), "")
     return partial, bool(partial)
 
@@ -222,10 +231,8 @@ def _result_page(result: str, offset: int) -> dict:
 
 
 def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
-    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó.
-    La evidencia visual de las herramientas (user con _toolEvidence, M67-D1) es parte del turno, no su inicio."""
-    start = max((index for index, message in enumerate(history)
-                 if message.get("role") == "user" and not message.get("_toolEvidence")), default=0)
+    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó."""
+    start = _last_turn_start(history)
     budget, truncated, messages = AGENT_TURN_MAX_CHARS, False, []
     for message in history[start:]:
         content, clipped = _clip("" if message.get("content") is None else str(message["content"]), budget)
@@ -303,6 +310,8 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
     de runs; las que están en marcha o esperan a una persona se conservan y se indican."""
     deleted, skipped, seen = [], [], {}
     for conv in convs:  # De la más reciente a la más antigua.
+        if conv.get("_unsaved"):
+            continue
         if agent is not None and conv["agent"] != agent:
             continue
         seen[conv["agent"]] = seen.get(conv["agent"], 0) + 1
@@ -390,7 +399,7 @@ def stop_agent(conversation_id: str | None = None, project: str | None = None,
     _kill_process_tree(run["pid"], grace_seconds=AGENT_STOP_GRACE_SECONDS)
     # Releer tras el plazo de gracia para conservar usage/warnings recientes o un resultado terminado a tiempo.
     fresh = get_run_state(conv_id) or run
-    if fresh.get("status") != "running":
+    if fresh.get("status") != "running" and not (fresh.get("status") == "error" and fresh.get("error") == RUN_INTERRUPTED_ERROR):
         return _detail(conv, fresh, state, 0, False, {"stopped": False})
     now = int(time.time() * 1000)
     upsert_run_state({**fresh, "status": "error", "error": AGENT_STOPPED_ERROR, "updated_at": now, "finished_at": now})
@@ -520,7 +529,8 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
         return _tool_error(str(exc))
     if run_file is None:
         try:
-            return _launch(_inline_request(fields, prompt), prompt, target, own_id, state)
+            inline_keys = {INLINE_LAUNCH_FIELDS[key] for key in fields}
+            return _launch(_inline_request(fields, prompt), prompt, target, own_id, state, inline_keys=inline_keys)
         except ValueError as exc:
             return _tool_error(str(exc))
     if fields:
@@ -561,7 +571,8 @@ def _target_conversation(conv_id: str | None, agent: str, target: SecurityContex
     return conv
 
 
-def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str, state: ControllerState) -> str:
+def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str, state: ControllerState,
+            *, inline_keys: set[str] | None = None) -> str:
     agent = request.get("agent")
     if not agent:
         raise ValueError("The run-file must set an agent.")
@@ -579,6 +590,13 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
     conv = _target_conversation(conv_id, agent, target, own_id)
     if "prompt" not in request and conv is None:
         raise ValueError("The conversation does not exist yet: give prompt to start it.")
+    # Continuar en línea una conversación existente conserva el lanzamiento guardado (manual, disabledTools, perfil,
+    # razonamiento y límites) salvo lo que la llamada sobreescriba de forma explícita.
+    if inline_keys is not None and conv is not None:
+        stored = get_conversation_launch(conv_id) or {}
+        for key in ("profile", *RUN_LAUNCH_KEYS):
+            if key not in inline_keys and key in stored and (key != "disabledTools" or stored[key]):
+                request[key] = stored[key]
     request["conversation_id"] = conv_id or f"session_{uuid.uuid4()}"
     try:
         check_no_active_run(request["conversation_id"])

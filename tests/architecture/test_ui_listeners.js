@@ -64,7 +64,7 @@ test('Interfaz - addEventListener solo en código que se ejecuta una vez por mon
     }
 
     lines.forEach((line, index) => {
-      const match = line.match(/([\w.]+)\.addEventListener\(/) || line.match(/(?<![\w.])listen\(\s*([\w.]+)\s*,/);
+      const match = line.match(/([\w.]+)\??\.addEventListener\(/) || line.match(/(?<![\w.])listen\(\s*([\w.]+)\s*,/);
       if (!match) return;
       const range = enclosing(index);
       if (!range || once.has(range.name) || EXCEPTIONS[file]?.[range.name]) return;

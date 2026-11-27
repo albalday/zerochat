@@ -33,6 +33,38 @@ test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanen
   } finally { security.manager.setToolPolicy = previous; }
 });
 
+test('AgentRuntime - los bloques MCP type:image válidos llegan como evidencia visual y respetan MIME y tope N/N+1', () => {
+  const McpResults = require('../../js/mcp-results.js');
+  const b64 = Buffer.from('png-bytes').toString('base64');
+  const ok = McpResults.formatToolCallResult({
+    content: [{ type: 'text', text: 'Captura lista' }, { type: 'image', data: b64, mimeType: 'image/png' }],
+    isError: false
+  });
+  assert.equal(ok.image_base64, b64);
+  assert.equal(ok.mime_type, 'image/png');
+  assert.match(ok.content, /attached as visual evidence/);
+
+  const svg = McpResults.formatToolCallResult({
+    content: [{ type: 'image', data: b64, mimeType: 'image/svg+xml' }],
+    isError: false
+  });
+  assert.equal(svg.image_base64, undefined);
+  assert.match(svg.content, /omitted/);
+
+  const maxLen = 8 * 1024 * 1024;
+  const atLimit = McpResults.formatToolCallResult({
+    content: [{ type: 'image', data: 'A'.repeat(maxLen), mimeType: 'image/png' }],
+    isError: false
+  });
+  assert.equal(atLimit.image_base64.length, maxLen);
+  const overLimit = McpResults.formatToolCallResult({
+    content: [{ type: 'image', data: 'A'.repeat(maxLen + 4), mimeType: 'image/png' }],
+    isError: false
+  });
+  assert.equal(overLimit.image_base64, undefined);
+  assert.match(overLimit.content, /omitted/);
+});
+
 test('AgentRuntime - la pausa del servidor en una ejecución desatendida cierra el turno sin preguntar y deja la llamada pendiente', async t => {
   const registry = new ToolRegistry();
   let asked = false;

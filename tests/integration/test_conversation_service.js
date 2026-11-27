@@ -130,23 +130,24 @@ test('ConversationService - con resumen, la rama compacta el contexto previo y c
   assert.equal(State.get('messages')[1]._isSummaryBlock, true);
 });
 
-test('ConversationService - compactar resume los turnos cerrados, conserva el último y guarda; sin resumen avisa y no cambia nada', async t => {
+test('ConversationService - compactar resume todo el historial acumulado y guarda; sin resumen avisa y no cambia nada', async t => {
   await setupBranch(t);
   const ContextManager = require('../../js/context-manager.js');
   assert.equal(ContextManager.hasCompactableHistory(State.get('messages')), true);
-  assert.equal(ContextManager.hasCompactableHistory(HISTORY.slice(0, 3)), false, 'Con un solo turno no hay nada que resumir');
+  assert.equal(ContextManager.hasCompactableHistory(HISTORY.slice(0, 3)), true, 'Un único turno cerrado también es compactable');
+  assert.equal(ContextManager.hasCompactableHistory(HISTORY.slice(0, 1)), false, 'Sin diálogo no hay nada que resumir');
   const { alerts } = useDialogs(t, []);
   let busyDuringSummary = null;
   useSummarizer(t, async () => {
     busyDuringSummary = State.isConversationBusy();
-    return { accumulatedText: 'Resumen de los turnos anteriores' };
+    return { accumulatedText: 'Resumen de la conversación' };
   });
   assert.equal(await ConversationService.compactCurrentSession(appOptions()), true);
   assert.equal(busyDuringSummary, true, 'Mientras resume la conversación está ocupada y se puede parar');
   assert.equal(State.isConversationBusy(), false);
-  assert.deepEqual(State.get('messages').map(message => message.content), ['sys', 'Resumen de los turnos anteriores', 'user 2', 'asst 2']);
+  assert.deepEqual(State.get('messages').map(message => message.content), ['sys', 'Resumen de la conversación']);
   assert.equal(State.get('sessions').activeId, 'parent_sess_1');
-  assert.deepEqual((await Storage.getConversation('parent_sess_1')).history.map(message => message.content), ['sys', 'Resumen de los turnos anteriores', 'user 2', 'asst 2']);
+  assert.deepEqual((await Storage.getConversation('parent_sess_1')).history.map(message => message.content), ['sys', 'Resumen de la conversación']);
   assert.equal(ContextManager.hasCompactableHistory(State.get('messages')), false, 'Recién compactada no queda nada que resumir');
 
   await setupBranch(t);
@@ -154,6 +155,54 @@ test('ConversationService - compactar resume los turnos cerrados, conserva el ú
   assert.equal(await ConversationService.compactCurrentSession(appOptions()), false);
   assert.equal(alerts.length, 1);
   assert.deepEqual(State.get('messages').map(message => message.id), HISTORY.map(message => message.id));
+
+  // No llama a onSessionReset (conserva adjuntos/avisos/depuración) y captura excepciones sin rechazar
+  await setupBranch(t);
+  let resetCalled = false;
+  useSummarizer(t, async () => ({ accumulatedText: 'Resumen limpio' }));
+  assert.equal(await ConversationService.compactCurrentSession(appOptions({ onSessionReset: () => { resetCalled = true; } })), true);
+  assert.equal(resetCalled, false);
+
+  await setupBranch(t);
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(require('../../js/profile-repository.js'), 'load', async () => { throw new Error('boom'); });
+  const prevAlerts = alerts.length;
+  assert.equal(await ConversationService.compactCurrentSession(appOptions()), false);
+  assert.equal(alerts.length, prevAlerts + 1);
+
+  // Rechaza conversaciones de agente (solo lectura) y conversaciones con ejecución en servidor activa
+  await setupBranch(t);
+  State.saveSessionMetadata({ ...State.get('sessions').list.find(s => s.id === 'parent_sess_1'), agent: 'diario' });
+  assert.equal(await ConversationService.compactCurrentSession(appOptions()), false);
+  State.saveSessionMetadata({ ...State.get('sessions').list.find(s => s.id === 'parent_sess_1'), agent: null });
+  State.set('mcp', { serverRuns: [{ conversationId: 'parent_sess_1', status: 'running' }] });
+  assert.equal(await ConversationService.compactCurrentSession(appOptions()), false);
+  State.set('mcp', { serverRuns: [] });
+});
+
+test('ConversationService - reloadActiveSession descarta lecturas atrasadas fuera de orden', async t => {
+  await setupBranch(t);
+  let resolveSlow;
+  let calls = 0;
+  t.mock.method(Storage, 'getConversation', async () => {
+    calls += 1;
+    if (calls === 1) {
+      return new Promise(resolve => { resolveSlow = resolve; });
+    }
+    return {
+      id: 'parent_sess_1', title: 'Nueva', createdAt: 1, updatedAt: 200,
+      history: [{ id: 's', role: 'system', content: 'sys' }, { id: 'u', role: 'user', content: 'paso 2' }]
+    };
+  });
+  const slow = ConversationService.reloadActiveSession(appOptions());
+  const fast = ConversationService.reloadActiveSession(appOptions());
+  assert.equal(await fast, true);
+  resolveSlow({
+    id: 'parent_sess_1', title: 'Vieja', createdAt: 1, updatedAt: 100,
+    history: [{ id: 's', role: 'system', content: 'sys' }, { id: 'u', role: 'user', content: 'paso 1' }]
+  });
+  assert.equal(await slow, false);
+  assert.equal(State.get('messages')[1].content, 'paso 2');
 });
 
 test('ConversationService - createConversationBranch respeta estado ocupado, parada manual y ofrece historial completo si falla el resumen', async t => {

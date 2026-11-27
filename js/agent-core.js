@@ -78,13 +78,15 @@
     return enabledTools[name] !== undefined ? enabledTools[name] !== false : defaultEnabled;
   }
 
+  const PLAYWRIGHT_LOCAL_TOOLS = new Set(['browser_fill_secret', 'browser_save_state', 'browser_load_state']);
+
   /**
    * Navegador al que pertenece una herramienta: browser_action del servidor local o las de
    * Playwright MCP. Ajustes › Navegador elige uno solo; null para el resto de herramientas.
    */
   function browserOfTool(tool) {
     if (tool.name === 'browser_action') return 'browser_action';
-    if (tool.name === 'browser_fill_secret' || tool.metadata.mcpServerId === 'playwright') return 'playwright';
+    if (PLAYWRIGHT_LOCAL_TOOLS.has(tool.name) || tool.metadata.mcpServerId === 'playwright') return 'playwright';
     return null;
   }
 
@@ -220,7 +222,7 @@
       const browser = browserOfTool(tool);
       // Las herramientas de un navegador (p. ej. browser_fill_secret o una de Playwright) pueden apagarse por separado con disabledTools.
       if (browser) return browser === activeBrowserTool(appConfig) && (tool.name === browser || isToolEnabled(appConfig.enabledTools, tool.name, true));
-      if (!tool.settings.showInSettings) return true;
+      if (!tool.settings.showInSettings) return isToolEnabled(appConfig.enabledTools, tool.name, true);
       return isToolEnabled(appConfig.enabledTools, tool.name, tool.settings.defaultEnabled);
     }
 
@@ -947,6 +949,7 @@
   const runtime = new AgentRuntime({ registry, executor });
 
   return {
+    PLAYWRIGHT_LOCAL_TOOLS,
     TOOL_WORKFLOW_INSTRUCTION,
     isToolEnabled,
     browserOfTool,

@@ -40,7 +40,7 @@ PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador. Es de solo
 # escritura, como los secretos MCP: ningún método lo devuelve, solo si está guardado.
-_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
+_EXTENSION_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,256}")
 _BROWSER_CONFIG_CHOICES = {
     "mode": BROWSER_MODES,
     "engine": ALL_OWN_ENGINES,
@@ -114,7 +114,7 @@ def save_extension_token(token) -> bool:
     if token is None:
         delete_secret(BROWSER_EXTENSION_TOKEN_KEY)
         return False
-    if not isinstance(token, str) or not _EXTENSION_TOKEN.match(token):
+    if not isinstance(token, str) or not _EXTENSION_TOKEN.fullmatch(token):
         raise ValueError("token debe tener de 1 a 256 letras, cifras, guiones o guiones bajos, o ser null")
     save_secret(BROWSER_EXTENSION_TOKEN_KEY, token)
     return True

@@ -99,6 +99,8 @@ DEFAULT_RUN_REASONING = "medium"
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 # Marca que pasa start_server_run al hijo de una conversación interactiva cuando «Subagentes» está encendido.
 ZEROCHAT_RUN_SUBAGENTS_ENV = "ZEROCHAT_RUN_SUBAGENTS"
+# Error que escribe el runner al interrumpirse sin resultado (p. ej. SIGTERM); stop_agent lo reconoce para marcar parada.
+RUN_INTERRUPTED_ERROR = "El runner se cerró o la ejecución se interrumpió sin resultado."
 
 
 # Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: uno que lanzó
@@ -524,9 +526,9 @@ def start_server_run(params: dict) -> dict:
         raise ValueError(f"La carpeta del proyecto de la conversación ya no existe: {project}")
 
     run_id = secrets.token_urlsafe(24)
-    cmd = [sys.executable, str(Path(__file__).resolve()), "--conversation", clean_conv_id, "--profile", profile_name]
+    cmd = [sys.executable, str(Path(__file__).resolve()), "--conversation", clean_conv_id, f"--profile={profile_name}"]
     if prompt:
-        cmd.extend(["--prompt", prompt])
+        cmd.append(f"--prompt={prompt}")
 
     env = dict(os.environ)
     env["ZEROCHAT_RUN_ID"] = run_id
@@ -687,6 +689,7 @@ class RunSession(ControllerState):
         # Límites de --run-file: el de pasos lo aplica el bucle del runner y el de tiempo, run_supervisor.
         self.max_steps = max_steps
         self.timeout_seconds = timeout_seconds
+        self.started_monotonic = time.monotonic()
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
         self.profile_data = profile_data
@@ -1034,7 +1037,7 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
     if session.export_path and not session.exported:
         run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
     if session.result is None:
-        run_error(session.stop_reason or session.error or "El runner se cerró o la ejecución se interrumpió sin resultado.")
+        run_error(session.stop_reason or session.error or RUN_INTERRUPTED_ERROR)
         return RUN_EXIT_NO_RESULT, None
     if "limit" in session.result:
         console_error(timestamp_message(f"[run] {session.result['limit']} Lo hecho queda grabado en la conversación."))

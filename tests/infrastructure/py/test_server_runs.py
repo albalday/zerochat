@@ -274,6 +274,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(session_with_prompt.prompt, "Nuevo prompt")
         self.assertEqual(session_with_prompt.conversation_id, "conv_vacia")
 
+        # --prompt sin --conversation nunca hereda ZEROCHAT_RUN_SUBAGENTS=1 y limpia la variable
+        with mock.patch.dict(os.environ, {zerochat.ZEROCHAT_RUN_SUBAGENTS_ENV: "1"}):
+            prompt_only = zerochat.run_session_from_args(parser, parser.parse_args(["--prompt", "Hola"]))
+            self.assertNotIn(zerochat.ZEROCHAT_RUN_SUBAGENTS_ENV, os.environ)
+        self.assertFalse(prompt_only.controller)
+        self.assertFalse(zerochat._rpc_prompt({}, prompt_only)[0]["subagents"])
+
     def test_la_plantilla_de_agente_del_modo_agentes_es_un_run_file_valido(self):
         # agents/template.md de templates/project/mode-agent-templates.txt, con sus marcadores rellenos como haría el modelo.
         templates = (ZEROCHAT_PY.parent / "templates" / "project" / "mode-agent-templates.txt").read_text(encoding="utf-8")
@@ -713,9 +720,11 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         for conv_id, run in (("limite", {"status": "limit", "error": "Límite de 5 pasos alcanzado."}), ("fallo", {"status": "error", "error": "500"}),
                              ("muerto", {"status": "running", **alive_dead}), ("bien", {"status": "completed", "result_text": "Resumen"}),
                              ("pausa", {"status": "needs_input", "pending": {"kind": "ask_user", "text": "¿Cuál?"}}),
-                             ("vacio", {"status": "limit"})):
-            zerochat.save_conversation({"id": conv_id, "title": conv_id, "project": ctx.key, "agent": f"lector.{conv_id}"},
-                                       history if conv_id != "vacio" else history[:1])
+                             ("vacio", {"status": "limit"}), ("nuevo_turno", {"status": "error", "error": "500"})):
+            conv_hist = (history[:1] if conv_id == "vacio"
+                         else [*history[:2], {"id": "u2", "role": "user", "content": "Día 2"}] if conv_id == "nuevo_turno"
+                         else history)
+            zerochat.save_conversation({"id": conv_id, "title": conv_id, "project": ctx.key, "agent": f"lector.{conv_id}"}, conv_hist)
             upsert_run({"run_id": f"r_{conv_id}", "conversation_id": conv_id, **run})
         zerochat.RUN_SESSION = zerochat.RunSession("Vigila", conversation_id="master", controller=True)
 
@@ -726,15 +735,15 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         # Ya entregadas en esta ejecución: el siguiente listado no relee get_conversation para las que tenían texto.
         with mock.patch.object(zerochat, "get_conversation", wraps=zerochat.get_conversation) as get_conv:
             relisted = {item["conversation_id"]: item for item in check()["agents"]}
-        self.assertEqual([call.args[0] for call in get_conv.call_args_list], ["vacio"])
+        self.assertEqual(sorted(call.args[0] for call in get_conv.call_args_list), ["nuevo_turno", "vacio"])
         for conv_id in ("limite", "fallo", "muerto"):
             self.assertEqual((relisted[conv_id].get("result_seen"), relisted[conv_id].get("partial"), relisted[conv_id].get("result_chars")),
                              (True, True, 27), conv_id)
         detail = check(conversation_id="limite")
         self.assertEqual((detail["result_text"], detail["partial"], detail["result_chars"]), ("Leídos los capítulos 1 y 2.", True, 27))
-        # Una respuesta entregada, una pausa o un corte sin ningún texto no son parciales.
+        # Una respuesta entregada, una pausa o un corte sin ningún texto en el último turno no son parciales.
         self.assertEqual((listed["bien"]["result_text"], "partial" in listed["bien"]), ("Resumen", False))
-        for conv_id in ("pausa", "vacio"):
+        for conv_id in ("pausa", "vacio", "nuevo_turno"):
             self.assertEqual((listed[conv_id]["result_text"], "partial" in listed[conv_id]), ("", False), conv_id)
 
     def test_check_agents_espera_mientras_haya_agentes_en_marcha_y_vuelve_al_momento_si_no_hay_ninguno(self):
@@ -901,14 +910,16 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(zerochat.get_run_state("de_cron")["status"], "running")
         self.assertIn("is not running (status: error)", stop(conversation_id=conv_id)["error"])
 
-        # Si el trabajador actualiza usage/warnings o cierra completed durante el plazo de gracia, no se pisa.
-        for race_patch, expected in (
-            ({"usage": {"model_calls": 3, "prompt_tokens": 10, "completion_tokens": 5, "cached_tokens": 0, "reasoning_tokens": 0, "estimated": False}},
+        # Si el trabajador actualiza usage/warnings, cierra por SIGTERM o termina completed durante el plazo de gracia, se respeta.
+        for race_key, race_patch, expected in (
+            ("usage", {"usage": {"model_calls": 3, "prompt_tokens": 10, "completion_tokens": 5, "cached_tokens": 0, "reasoning_tokens": 0, "estimated": False}},
              (True, "error", None, {"model_calls": 3, "prompt_tokens": 10, "completion_tokens": 5, "cached_tokens": 0, "reasoning_tokens": 0, "estimated": False})),
-            ({"status": "completed", "result_text": "Terminado justo a tiempo", "error": None},
+            ("sigterm", {"status": "error", "error": zerochat.RUN_INTERRUPTED_ERROR, "usage": {"totalTokens": 99}},
+             (True, "error", None, {"totalTokens": 99})),
+            ("completed", {"status": "completed", "result_text": "Terminado justo a tiempo", "error": None},
              (False, "completed", "Terminado justo a tiempo", None)),
         ):
-            race_id = f"race_{expected[1]}"
+            race_id = f"race_{race_key}"
             zerochat.save_conversation({"id": race_id, "title": race_id, "project": ctx.key, "agent": "lector"}, [])
             base = {"run_id": f"r_{race_id}", "conversation_id": race_id, "status": "running",
                     "pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
@@ -952,7 +963,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertFalse(prune(**invalid)["success"], invalid)
         self.assertEqual(len(existing()), 11, "Nada se borra sin keep válido")
 
-        # Con agent: conserva sus N más recientes y nunca borra una en marcha ni una que espera a una persona.
+        # Con agent: conserva sus N más recientes (sin contar entradas sin guardar) y nunca borra una en marcha ni en pausa.
+        zerochat.RUN_SESSION.launched_agents["unsaved_dead"] = {"agent": "informes.diario", "project": ctx.key, "updatedAt": 9999999999999}
         result = prune(agent="informes.diario", keep=1)
         self.assertEqual([item["conversation_id"] for item in result["deleted"]], ["d4", "d1"])
         self.assertEqual([(item["conversation_id"], item["status"]) for item in result["skipped"]], [("d3", "running"), ("d2", "needs_input")])
@@ -1035,13 +1047,17 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                                     ({"agent": "jefe", "prompt": "x", "conversation_id": "jefe_fija"}, "not controllers")):
                 self.assertIn(reason, launch(**invalid)["error"], invalid)
             self.assertEqual(len(launched), 2)
-            # En línea, sin prompt, continúa una conversación existente de ese agente.
-            zerochat.save_conversation({"id": "linea_fija", "title": "linea", "project": ctx.key, "agent": "informes.linea"},
-                                       [{"id": "u", "role": "user", "content": "Empieza"}])
+            # En línea, sin prompt, continúa una conversación existente conservando su launch guardado.
+            zerochat.save_conversation({
+                "id": "linea_fija", "title": "linea", "project": ctx.key, "agent": "informes.linea",
+                "launch": {"systemDataPrompt": "Manual guardado", "disabledTools": ["run_command"], "reasoning": "high", "timeout": 120},
+            }, [{"id": "u", "role": "user", "content": "Empieza"}])
             resumed = launch(agent="informes.linea", conversation_id="linea_fija", max_steps=10)
             self.assertEqual((resumed["conversation_id"], resumed["new"]), ("linea_fija", False))
-            self.assertEqual(launched[-1][0], {"agent": "informes.linea", "conversation_id": "linea_fija", "maxSteps": 10,
-                                                "projectMode": False, "reasoning": "medium"})
+            self.assertEqual(launched[-1][0], {
+                "agent": "informes.linea", "conversation_id": "linea_fija", "maxSteps": 10, "projectMode": False,
+                "systemDataPrompt": "Manual guardado", "disabledTools": ["run_command"], "reasoning": "high", "timeout": 120,
+            })
 
             # Un conversation_id fijo en marcha no se lanza otra vez.
             upsert_run({"run_id": "r_fija", "conversation_id": "fija", "status": "running", "pid": os.getpid(),
@@ -1323,11 +1339,13 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
                 _proc, stderr_log = zerochat.launch_node_runner(url)
                 self.addCleanup(stderr_log.close)
                 self.assertIs(popen.call_args.kwargs["stderr"], stderr_log)
-                # Del disco solo toca su caché; ni procesos, ni workers, ni inspector.
+                # Del disco solo toca su caché; la URL con el runner_token viaja por entorno, nunca en argv.
                 self.assertEqual(popen.call_args.args[0], [
                     "/usr/bin/node", "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
-                    "-e", zerochat.RUNNER_LOADER_SCRIPT, str(cache_dir / "modules.json"), url, policy,
+                    "-e", zerochat.RUNNER_LOADER_SCRIPT, str(cache_dir / "modules.json"), policy,
                 ])
+                self.assertNotIn(url, popen.call_args.args[0])
+                self.assertEqual(popen.call_args.kwargs["env"][zerochat.RUNNER_URL_ENV], url)
         if os.name != "nt":
             self.assertEqual(stat.S_IMODE(cache_dir.stat().st_mode), 0o700)
 
@@ -1439,6 +1457,14 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
         self.assertEqual(zerochat.RUN_SESSION.warnings, ["disabledTools: imp"])
         self.assertIn("[run] Aviso: disabledTools: imp", stderr.getvalue())
         self.assertEqual(zerochat.RUN_SESSION.step_text, "", "Un aviso no es el paso en curso")
+
+        # call_tool también rechaza herramientas en disabled_tools (incluidas las del controlador y playwright).
+        zerochat.RUN_SESSION = zerochat.RunSession("Hola", controller=True, disabled_tools=("prune_agents", "playwright"))
+        ctx = zerochat.SecurityContext(workspace_dir=self.data_dir)
+        for name, args in (("prune_agents", {"keep": 1}), ("browser_fill_secret", {"secret": "X", "ref": "e1"})):
+            res, err, _ = zerochat.call_tool({"name": name, "arguments": args}, ctx)
+            self.assertIsNone(err)
+            self.assertTrue(res["isError"], name)
         zerochat.RUN_SESSION = None
 
     def test_como_mucho_max_concurrent_runs_ejecuciones_vivas_a_la_vez(self):
@@ -1521,10 +1547,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             self.assertEqual(cmd[0], sys.executable)
             self.assertIn("--conversation", cmd)
             self.assertEqual(cmd[cmd.index("--conversation") + 1], "conv_val")
-            self.assertIn("--profile", cmd)
-            self.assertEqual(cmd[cmd.index("--profile") + 1], "valid-profile")
-            self.assertIn("--prompt", cmd)
-            self.assertEqual(cmd[cmd.index("--prompt") + 1], "Genera reporte")
+            self.assertIn("--profile=valid-profile", cmd)
+            self.assertIn("--prompt=Genera reporte", cmd)
 
             env = kwargs["env"]
             self.assertEqual(env["ZEROCHAT_RUN_ID"], run_id)

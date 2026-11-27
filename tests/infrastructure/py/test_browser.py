@@ -158,6 +158,7 @@ class BrowserActionUrlTest(unittest.TestCase):
     def test_solo_abre_http_y_https_admite_localhost_y_nunca_metadatos_ni_enlace_local(self):
         public = [(None, None, None, "", ("93.184.216.34", 0))]
         metadata = [(None, None, None, "", ("169.254.169.254", 0))]
+        self.assertIsNotNone(zerochat.browser_url_error("http://169.254.169.254\\@example.com"))
         with patch.object(zerochat.socket, "getaddrinfo", return_value=public):
             for url in ("http://localhost:5173/", "http://127.0.0.1:8000/app", "http://192.168.1.10/", "https://example.com/"):
                 with self.subTest(url=url):

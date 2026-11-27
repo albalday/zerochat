@@ -14,7 +14,6 @@
   "launch": {
     "executable": "${nodeExecutable}",
     "args": ["${serviceDir}/node_modules/@modelcontextprotocol/server-memory/dist/index.js"],
-    "cwd": "${serviceDir}",
     "env": {
       "MEMORY_FILE_PATH": "${serviceDir}/memory.jsonl"
     },

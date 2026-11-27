@@ -518,6 +518,7 @@ RUNNER_ALLOWED_METHODS = frozenset({
     "zerochat/jobs/stop",
     "zerochat/heartbeat",
     "zerochat/external/servers/start",
+    "zerochat/external/servers/wait",
     "zerochat/external/servers/stop",
     "zerochat/sandbox/execute",
 })
@@ -1005,6 +1006,8 @@ def wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
         return _windows_wait_pid_exit(pid, timeout)
     except ProcessLookupError:
         return True
+    except OSError:
+        return None
 
 
 def _windows_wait_pid_exit(pid: int, timeout: float | None) -> bool | None:
@@ -1318,10 +1321,10 @@ CATALOG_SCHEMA_VERSION = 1
 # Tope de cada descarga (el catálogo y cada fichero): los de ahora ocupan unos pocos KiB.
 CATALOG_MAX_BYTES = 1024 * 1024
 CATALOG_TIMEOUT_SECONDS = 10
-SERVICE_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+SERVICE_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 # Rutas relativas sin segmentos ocultos ni '..': un segmento no empieza por punto.
-SERVICE_FILE_PATTERN = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*$")
-SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+SERVICE_FILE_PATTERN = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*")
+SHA256_PATTERN = re.compile(r"[0-9a-f]{64}")
 SERVICE_DEFINITION = "service.json"
 
 
@@ -1354,7 +1357,7 @@ def parse_catalog(raw: bytes) -> dict[str, dict]:
     if not isinstance(services, dict):
         raise ValueError("El catálogo de servicios no tiene services")
     for server_id, entry in services.items():
-        if not SERVICE_ID_PATTERN.match(server_id):
+        if not isinstance(server_id, str) or not SERVICE_ID_PATTERN.fullmatch(server_id):
             raise ValueError(f"Id de servicio no válido en el catálogo: {server_id!r}")
         if not isinstance(entry, dict) or not isinstance(entry.get("version"), str) or not entry["version"]:
             raise ValueError(f"El servicio {server_id} del catálogo no tiene version")
@@ -1362,7 +1365,7 @@ def parse_catalog(raw: bytes) -> dict[str, dict]:
         if not isinstance(files, dict) or SERVICE_DEFINITION not in files:
             raise ValueError(f"El servicio {server_id} del catálogo no incluye {SERVICE_DEFINITION}")
         for path, digest in files.items():
-            if not SERVICE_FILE_PATTERN.match(path) or not isinstance(digest, str) or not SHA256_PATTERN.match(digest):
+            if not isinstance(path, str) or not SERVICE_FILE_PATTERN.fullmatch(path) or not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
                 raise ValueError(f"Fichero no válido en el servicio {server_id} del catálogo: {path!r}")
     return services
 
@@ -1396,6 +1399,12 @@ def download_service(base: str, server_id: str, entry: dict) -> dict[str, bytes]
 
 def install_service(services_root: Path, server_id: str, files: dict[str, bytes]) -> None:
     """Escribe los ficheros del servicio, cada uno de forma atómica; service.json, con la versión, el último."""
+    services_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.name != "nt":
+        try:
+            services_root.chmod(0o700)
+        except OSError:
+            pass
     service_dir = services_root / server_id
     for path in sorted(files, key=lambda name: name == SERVICE_DEFINITION):
         destination = service_dir / path
@@ -1687,7 +1696,8 @@ class StdioMcpClient:
 # --- run_mode.runner_loader ---
 """Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
 
-El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <url de la interfaz> <política>` y una
+El servidor lo lanza con `node --permission -e RUNNER_LOADER_SCRIPT <caché> <política>` (la URL con el token
+viaja en la variable de entorno `ZEROCHAT_RUNNER_URL`, nunca en `argv`, y el cargador la borra al leerla) y una
 tubería como stdin: cuando se cierra (muere el proceso que lo lanzó), el runner termina. Desde la
 carpeta de la interfaz (GitHub Pages en producción, este servidor en desarrollo) descarga `js/run-node.js` y,
 siguiendo sus `require('./…')`, los módulos que usa, en paralelo; los ejecuta con un `require` mínimo que los
@@ -1710,6 +1720,8 @@ de terceros que se cargan bajo demanda (`ChatVendorLoader`) siguen el mismo cami
 # Política de caché del runner: ejecutar la caché si es de la versión publicada, o descargar siempre (desarrollo).
 RUNNER_CACHE_BY_VERSION = "version"
 RUNNER_CACHE_ALWAYS_DOWNLOAD = "always"
+# Variable de entorno en la que viaja la URL de la interfaz con el runner_token (fuera de argv; se borra al leerla).
+RUNNER_URL_ENV = "ZEROCHAT_RUNNER_URL"
 
 # Tope de lo descargado en una ejecución: la interfaz completa ocupa unas pocas centenas de KiB.
 RUNNER_MAX_BYTES = 16 * 1024 * 1024
@@ -1719,7 +1731,10 @@ RUNNER_LOADER_SCRIPT = r"""
 const fs = require('node:fs');
 const vm = require('node:vm');
 
-const [cacheFile, uiUrl, cachePolicy] = process.argv.slice(1);
+const [cacheFile, cachePolicy] = process.argv.slice(1);
+const uiUrl = process.env.__RUNNER_URL_ENV__ || '';
+delete process.env.__RUNNER_URL_ENV__;
+if (!uiUrl) throw new Error('Missing runner URL in environment.');
 
 // El proceso zerochat que lanza el runner le da como stdin una tubería en la que nunca escribe: el sistema la cierra
 // cuando ese proceso muere, también con SIGKILL, y el runner termina en vez de seguir llamando al modelo por su cuenta.
@@ -1871,7 +1886,7 @@ async function loadFiles(version) {
   process.exit(1);
 });
 """.replace("__MAX_BYTES__", str(RUNNER_MAX_BYTES)).replace("__VERSION_PATTERN__", json.dumps(UI_VERSION_TITLE_PATTERN)).replace(
-    "__BY_VERSION__", RUNNER_CACHE_BY_VERSION)
+    "__BY_VERSION__", RUNNER_CACHE_BY_VERSION).replace("__RUNNER_URL_ENV__", RUNNER_URL_ENV)
 
 # --- security.context ---
 """Proyecto de cada petición (SecurityContext): carpeta canónica, rutas resueltas contra ella y clave de su sesión."""
@@ -3055,6 +3070,8 @@ def _merge_saved_header(existing, session_meta: dict, created_at: int, title: st
     extra = {**existing_extra, **extra}
     if existing_extra.get("project"):
         extra["project"] = existing_extra["project"]
+    else:
+        extra.pop("project", None)
     extra.pop("agent", None)
     if existing_extra.get("agent"):
         extra["agent"] = existing_extra["agent"]
@@ -4083,7 +4100,7 @@ PLAYWRIGHT_SERVER_ID = "playwright"
 PLAYWRIGHT_EXTENSION_ID = "mmlmfjhmonkocbjadbfplnigmagldckm"
 # Token que muestra la extensión: con él la conexión no pide aceptarla en el navegador. Es de solo
 # escritura, como los secretos MCP: ningún método lo devuelve, solo si está guardado.
-_EXTENSION_TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,256}$")
+_EXTENSION_TOKEN = re.compile(r"[A-Za-z0-9_-]{1,256}")
 _BROWSER_CONFIG_CHOICES = {
     "mode": BROWSER_MODES,
     "engine": ALL_OWN_ENGINES,
@@ -4157,7 +4174,7 @@ def save_extension_token(token) -> bool:
     if token is None:
         delete_secret(BROWSER_EXTENSION_TOKEN_KEY)
         return False
-    if not isinstance(token, str) or not _EXTENSION_TOKEN.match(token):
+    if not isinstance(token, str) or not _EXTENSION_TOKEN.fullmatch(token):
         raise ValueError("token debe tener de 1 a 256 letras, cifras, guiones o guiones bajos, o ser null")
     save_secret(BROWSER_EXTENSION_TOKEN_KEY, token)
     return True
@@ -5355,6 +5372,8 @@ DEFAULT_RUN_REASONING = "medium"
 RUN_FILE_MAX_BYTES = MAX_HTTP_BODY_BYTES
 # Marca que pasa start_server_run al hijo de una conversación interactiva cuando «Subagentes» está encendido.
 ZEROCHAT_RUN_SUBAGENTS_ENV = "ZEROCHAT_RUN_SUBAGENTS"
+# Error que escribe el runner al interrumpirse sin resultado (p. ej. SIGTERM); stop_agent lo reconoce para marcar parada.
+RUN_INTERRUPTED_ERROR = "El runner se cerró o la ejecución se interrumpió sin resultado."
 
 
 # Procesos de ejecución (PID y huella de arranque) cuyo final espera un hilo, y los que ya terminaron: uno que lanzó
@@ -5780,9 +5799,9 @@ def start_server_run(params: dict) -> dict:
         raise ValueError(f"La carpeta del proyecto de la conversación ya no existe: {project}")
 
     run_id = secrets.token_urlsafe(24)
-    cmd = [sys.executable, str(Path(__file__).resolve()), "--conversation", clean_conv_id, "--profile", profile_name]
+    cmd = [sys.executable, str(Path(__file__).resolve()), "--conversation", clean_conv_id, f"--profile={profile_name}"]
     if prompt:
-        cmd.extend(["--prompt", prompt])
+        cmd.append(f"--prompt={prompt}")
 
     env = dict(os.environ)
     env["ZEROCHAT_RUN_ID"] = run_id
@@ -5943,6 +5962,7 @@ class RunSession(ControllerState):
         # Límites de --run-file: el de pasos lo aplica el bucle del runner y el de tiempo, run_supervisor.
         self.max_steps = max_steps
         self.timeout_seconds = timeout_seconds
+        self.started_monotonic = time.monotonic()
         # Perfil (nombre o id) que la interfaz usa solo en esta ejecución; por defecto, local del servidor.
         self.profile = profile
         self.profile_data = profile_data
@@ -6290,7 +6310,7 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
     if session.export_path and not session.exported:
         run_error(session.export_error or f"La interfaz no envió la conversación para {session.export_path}.")
     if session.result is None:
-        run_error(session.stop_reason or session.error or "El runner se cerró o la ejecución se interrumpió sin resultado.")
+        run_error(session.stop_reason or session.error or RUN_INTERRUPTED_ERROR)
         return RUN_EXIT_NO_RESULT, None
     if "limit" in session.result:
         console_error(timestamp_message(f"[run] {session.result['limit']} Lo hecho queda grabado en la conversación."))
@@ -6419,8 +6439,8 @@ def _rpc_save_conversation(params: dict) -> RpcOutcome:
         raise ValueError("Los parámetros deben ser un objeto")
     upload_id = params.get("uploadId")
     raw_conv = params.get("conversation")
-    if isinstance(raw_conv, dict) and "launch" in raw_conv:
-        raw_conv = {k: v for k, v in raw_conv.items() if k != "launch"}
+    if isinstance(raw_conv, dict) and ("launch" in raw_conv or "agent" in raw_conv):
+        raw_conv = {k: v for k, v in raw_conv.items() if k not in ("launch", "agent")}
     conversation = run_conversation_meta(raw_conv)
     # Una ejecución viva es la única que escribe su conversación: la copia de la interfaz la pisaría a medias.
     # En un servidor de ejecución solo llega su runner (M87-D2), que sí guarda la suya.
@@ -6545,89 +6565,47 @@ def _atomic_write_text(target: Path, text: str):
         temp_path.unlink(missing_ok=True)
 
 # --- tools.browser_secret ---
-"""Relleno seguro de secretos del proyecto en Playwright MCP sin exponer valores al modelo."""
+"""Herramientas locales complementarias de Playwright MCP: secretos y estado de sesión (cookies/storage) por proyecto."""
 
 
 
 
 
-BROWSER_SECRET_MODES = ("input", "keypad")
+PLAYWRIGHT_LOCAL_TOOLS = frozenset({"browser_fill_secret", "browser_save_state", "browser_load_state"})
+MAX_BROWSER_STATES_PER_PROJECT = 32
+_STATE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
-def _scrub_secret(text: str, secret_value: str) -> str:
-    return text.replace(secret_value, "***") if secret_value and text else text
-
-
-def _mcp_call_error(tool_name: str, arguments: dict, secret_value: str) -> str | None:
+def _mcp_call_failed(tool_name: str, arguments: dict) -> bool:
     result = GLOBAL_MCP_MANAGER.call(public_tool_name(PLAYWRIGHT_SERVER_ID, tool_name), arguments)
-    if not (isinstance(result, dict) and result.get("isError")):
-        return None
-    parts = [str(item.get("text") or "") for item in (result.get("content") or []) if isinstance(item, dict)]
-    detail = _scrub_secret(" ".join(p for p in parts if p).strip(), secret_value)
-    return detail or f"Playwright {tool_name} failed."
+    return bool(isinstance(result, dict) and result.get("isError"))
 
 
 def _fill_input_secret(secret_value: str, ref: str, element: str, submit: bool) -> str | None:
     clean_ref = ref.strip() if isinstance(ref, str) else ""
     if not clean_ref:
-        return "El modo 'input' requiere un 'ref' no vacío."
+        return "Se requiere un 'ref' no vacío."
     label = element.strip() if isinstance(element, str) and element.strip() else "input field"
-    return _mcp_call_error("browser_type", {
+    if _mcp_call_failed("browser_type", {
         "element": label,
         "target": clean_ref,
         "text": secret_value,
         "submit": bool(submit),
-    }, secret_value)
-
-
-def _is_xy_target(target) -> bool:
-    if not isinstance(target, (list, tuple)) or len(target) != 2:
-        return False
-    return all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in target)
-
-
-def _keypad_click(target) -> tuple[str, dict]:
-    """Herramienta y argumentos de Playwright MCP que pulsan una tecla: un 'ref' o coordenadas [x, y]."""
-    if _is_xy_target(target):
-        return "browser_mouse_click_xy", {"x": float(target[0]), "y": float(target[1])}
-    return "browser_click", {"element": "keypad button", "target": target.strip()}
-
-
-def _fill_keypad_secret(secret_value: str, keypad_map) -> str | None:
-    """Pulsa el secreto en un teclado virtual. Ninguna respuesta depende de qué carácter falló ni de la longitud: el
-    mapa se valida entero antes de pulsar y un fallo de Playwright a mitad da siempre el mismo mensaje, sin su detalle
-    (que nombraría la tecla y con ella el carácter)."""
-    if not isinstance(keypad_map, dict) or not keypad_map:
-        return "El modo 'keypad' requiere un objeto keypad_map no vacío."
-    if not all((isinstance(target, str) and target.strip()) or _is_xy_target(target) for target in keypad_map.values()):
-        return "Cada entrada de keypad_map debe ser un 'ref' de texto o coordenadas [x, y]."
-    if any(ch not in keypad_map for ch in secret_value):
-        return "keypad_map no cubre todos los caracteres del secreto."
-    for ch in secret_value:
-        tool_name, arguments = _keypad_click(keypad_map[ch])
-        try:
-            failed = _mcp_call_error(tool_name, arguments, secret_value) is not None
-        except Exception:
-            failed = True
-        if failed:
-            return "Playwright no pudo pulsar una tecla del teclado virtual: toma una instantánea nueva y repite con sus refs actuales."
+    }):
+        return "Playwright no pudo rellenar el campo del secreto: comprueba la referencia y vuelve a intentarlo."
     return None
 
 
 def browser_fill_secret(
     secret: str,
-    mode: str,
-    ref: str = "",
+    ref: str,
     element: str = "",
     submit: bool = False,
-    keypad_map: dict | None = None,
     ctx: SecurityContext | None = None,
 ) -> str:
-    """Introduce un secreto guardado del proyecto en un campo input o teclado virtual de Playwright MCP."""
+    """Introduce un secreto guardado del proyecto en un campo input de Playwright MCP."""
     if ctx is None:
         return _tool_error("Se requiere contexto de proyecto para leer secretos.")
-    if mode not in BROWSER_SECRET_MODES:
-        return _tool_error(f"Modalidad no válida: {mode}")
     try:
         secret_value = get_project_secret(ctx.key, secret)
     except ValueError as exc:
@@ -6635,16 +6613,73 @@ def browser_fill_secret(
     if secret_value is None:
         return _tool_error(f"El secreto '{secret}' no está guardado en este proyecto.")
     try:
-        err = (
-            _fill_input_secret(secret_value, ref, element, submit)
-            if mode == "input"
-            else _fill_keypad_secret(secret_value, keypad_map)
-        )
-    except Exception as exc:
-        return _tool_error(f"Error ejecutando Playwright MCP: {_scrub_secret(str(exc), secret_value)}")
+        err = _fill_input_secret(secret_value, ref, element, submit)
+    except Exception:
+        return _tool_error("Error ejecutando Playwright MCP al rellenar el secreto.")
     if err:
         return _tool_error(err)
-    return json.dumps({"success": True, "mode": mode, "secret": secret})
+    return json.dumps({"success": True, "secret": secret})
+
+
+def _browser_state_location(ctx: SecurityContext, name: str) -> tuple[str, Path]:
+    if not isinstance(name, str) or not _STATE_NAME_RE.fullmatch(name):
+        raise ValueError("State name must be 1-64 characters of letters, digits, '-' or '_'.")
+    project_hash = hashlib.sha256(ctx.key.encode("utf-8")).hexdigest()[:24]
+    rel_path = f"states/{project_hash}/{name}.json"
+    full_path = GLOBAL_MCP_MANAGER.services_root / PLAYWRIGHT_SERVER_ID / "states" / project_hash / f"{name}.json"
+    return rel_path, full_path
+
+
+def _chmod_private(path: Path, mode: int) -> None:
+    if os.name != "nt":
+        path.chmod(mode)
+
+
+def browser_save_state(name: str, ctx: SecurityContext | None = None) -> str:
+    """Guarda el estado actual del navegador (cookies y localStorage) bajo el proyecto activo."""
+    if ctx is None:
+        return _tool_error("Project context is required to save browser state.")
+    try:
+        rel_path, target = _browser_state_location(ctx, name)
+    except ValueError as exc:
+        return _tool_error(str(exc))
+    states_root = target.parent.parent
+    project_dir = target.parent
+    states_root.mkdir(parents=True, exist_ok=True)
+    _chmod_private(states_root, 0o700)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    _chmod_private(project_dir, 0o700)
+    if not target.exists():
+        existing = sum(1 for item in project_dir.iterdir() if item.is_file() and item.suffix == ".json")
+        if existing >= MAX_BROWSER_STATES_PER_PROJECT:
+            return _tool_error(f"Project reached the maximum of {MAX_BROWSER_STATES_PER_PROJECT} saved browser states.")
+    try:
+        failed = _mcp_call_failed("browser_storage_state", {"filename": rel_path})
+    except Exception:
+        return _tool_error("Error running Playwright MCP while saving browser state.")
+    if failed or not target.is_file():
+        return _tool_error("Playwright could not save the browser state.")
+    _chmod_private(target, 0o600)
+    return json.dumps({"success": True, "name": name, "saved": True})
+
+
+def browser_load_state(name: str, ctx: SecurityContext | None = None) -> str:
+    """Restaura un estado guardado del navegador (cookies y localStorage) del proyecto activo."""
+    if ctx is None:
+        return _tool_error("Project context is required to load browser state.")
+    try:
+        rel_path, target = _browser_state_location(ctx, name)
+    except ValueError as exc:
+        return _tool_error(str(exc))
+    if not target.is_file():
+        return _tool_error(f"Saved browser state '{name}' does not exist for this project.")
+    try:
+        failed = _mcp_call_failed("browser_set_storage_state", {"filename": rel_path})
+    except Exception:
+        return _tool_error("Error running Playwright MCP while loading browser state.")
+    if failed:
+        return _tool_error("Playwright could not restore the browser state.")
+    return json.dumps({"success": True, "name": name, "loaded": True})
 
 # --- tools.diff ---
 """Visor de diferencias (zerochat/diff/open): diff frente a Git HEAD en HTML propio o con git difftool."""
@@ -6886,6 +6921,7 @@ def _open_gui_file_diff(path: str, ctx: SecurityContext, commit_fallback: bool =
         popen_kwargs["start_new_session"] = True
 
     proc = subprocess.Popen(cmd, **popen_kwargs)
+    threading.Thread(target=proc.wait, daemon=True).start()
     return {
         "success": True,
         "has_diff": True,
@@ -7290,8 +7326,7 @@ def _full_file_bytes(git_bin: str, repo_root: Path, target: Path, rel_path: str,
     """El archivo entero para el visor: el del commit si se muestra uno, si no el del disco (hasta DIFF_MAX_BYTES)."""
     if commit:
         shown, truncated, code = _capped_git_output([git_bin, "show", f"{commit}:{rel_path}"], repo_root, 5)
-        if code == 0 and not truncated:
-            return shown
+        return shown if code == 0 and not truncated else None
     try:
         if target.is_file() and target.stat().st_size <= DIFF_MAX_BYTES:
             return target.read_bytes()
@@ -8360,9 +8395,7 @@ class AccessController:
     @staticmethod
     def _check_entry_limit(state: dict):
         """Único tope de entradas, sobre el estado resultante (guardado o capa de sesión)."""
-        dir_rules = state.get("directoryRules")
-        dir_count = sum(len(v) for v in dir_rules.values()) if isinstance(dir_rules, dict) else len(dir_rules or [])
-        total = dir_count + len(state.get("tools") or {}) + len(state.get("servers") or {})
+        total = len(state.get("directoryRules") or []) + len(state.get("tools") or {}) + len(state.get("servers") or {})
         if total > MAX_POLICY_ENTRIES:
             raise ValueError(f"El número total de entradas ({total}) supera el máximo permitido ({MAX_POLICY_ENTRIES}).")
 
@@ -8438,6 +8471,8 @@ class AccessController:
                         session.directory_rules = None
                     elif patch.added_rules and session.directory_rules is not None:
                         session.directory_rules = self._append_rules(session.directory_rules, patch.added_rules)
+                    if patch.command_patterns is not None:
+                        session.command_patterns.clear()
                 for kind, entries in (("tools", patch.tools), ("servers", patch.servers)):
                     for item_id in entries or {}:
                         session.entries(kind).pop(item_id, None)
@@ -8631,7 +8666,12 @@ class AccessController:
             if checked is None:
                 return None
             challenges.pop(challenge_id)
-        self._record_decision(challenge, decision, *checked, context)
+        try:
+            self._record_decision(challenge, decision, *checked, context)
+        except Exception:
+            with self._lock:
+                self._session(context).challenges.setdefault(challenge_id, challenge)
+            raise
         return challenge
 
     def revoke_challenge(self, challenge_id: str, *, context: SecurityContext) -> bool:
@@ -8647,6 +8687,8 @@ class AccessController:
         if decision == "allow_server_always" and not challenge.get("serverId"):
             return None
         rules = self._validate_directory_rules([directory_rule]) if directory_rule else []
+        if rules and decision == "allow_once":
+            raise ValueError("allow_once no admite una regla de carpeta.")
         if rules and command_pattern:
             raise ValueError("Una decisión lleva un patrón de comando o una regla de carpeta, no los dos.")
         return (None if rules else self._validate_command_pattern(decision, command_pattern, challenge)), rules
@@ -8866,7 +8908,10 @@ class AccessController:
             if resolved is None:
                 return None
             folders.append(resolved if resolved.is_dir() else resolved.parent)
-        common = Path(os.path.commonpath(folders))
+        try:
+            common = Path(os.path.commonpath(folders))
+        except ValueError:
+            return None
         home = Path.home().resolve()
         if home not in common.parents or any(part.startswith(".") for part in common.relative_to(home).parts):
             return None
@@ -8978,7 +9023,7 @@ def _agent_conversations(ctx: SecurityContext, own_id: str, state: ControllerSta
     convs = [conv for conv in list_conversations()
              if conv["id"] != own_id and conv.get("agent") and (conv.get("project") or "") == project]
     saved = {conv["id"] for conv in convs}
-    pending = [{"id": conv_id, **meta} for conv_id, meta in state.launched_agents.items()
+    pending = [{"id": conv_id, **meta, "_unsaved": True} for conv_id, meta in state.launched_agents.items()
                if conv_id not in saved and meta["project"] == project]
     if not pending:
         return convs
@@ -9007,14 +9052,21 @@ def _agent_state(conv: dict, run: dict) -> dict:
 AGENT_CUT_STATUSES = ("limit", "error")
 
 
+def _last_turn_start(history: list[dict]) -> int:
+    """Índice del último mensaje del usuario (la evidencia visual _toolEvidence es parte del turno, no su inicio)."""
+    return max((index for index, message in enumerate(history)
+                if message.get("role") == "user" and not message.get("_toolEvidence")), default=0)
+
+
 def _final_answer(conv: dict, state: dict, run: dict) -> tuple[str, bool]:
     """La respuesta final y si es parcial: la que entregó o, si se cortó (límite, error o proceso muerto) sin
-    entregarla, el último texto del asistente en su conversación, que dice al menos dónde se quedó."""
+    entregarla, el último texto del asistente de su último turno, que dice al menos dónde se quedó."""
     result = run.get("result_text") or ""
     if result or state["status"] not in AGENT_CUT_STATUSES:
         return result, False
     history = (get_conversation(conv["id"]) or {}).get("history") or []
-    partial = next((message["content"].strip() for message in reversed(history) if message.get("role") == "assistant"
+    start = _last_turn_start(history)
+    partial = next((message["content"].strip() for message in reversed(history[start:]) if message.get("role") == "assistant"
                     and isinstance(message.get("content"), str) and message["content"].strip()), "")
     return partial, bool(partial)
 
@@ -9071,10 +9123,8 @@ def _result_page(result: str, offset: int) -> dict:
 
 
 def _last_turn(history: list[dict]) -> tuple[list[dict], bool]:
-    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó.
-    La evidencia visual de las herramientas (user con _toolEvidence, M67-D1) es parte del turno, no su inicio."""
-    start = max((index for index, message in enumerate(history)
-                 if message.get("role") == "user" and not message.get("_toolEvidence")), default=0)
+    """Mensajes desde el último del usuario, con AGENT_TURN_MAX_CHARS de texto entre todos; True si se recortó."""
+    start = _last_turn_start(history)
     budget, truncated, messages = AGENT_TURN_MAX_CHARS, False, []
     for message in history[start:]:
         content, clipped = _clip("" if message.get("content") is None else str(message["content"]), budget)
@@ -9152,6 +9202,8 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
     de runs; las que están en marcha o esperan a una persona se conservan y se indican."""
     deleted, skipped, seen = [], [], {}
     for conv in convs:  # De la más reciente a la más antigua.
+        if conv.get("_unsaved"):
+            continue
         if agent is not None and conv["agent"] != agent:
             continue
         seen[conv["agent"]] = seen.get(conv["agent"], 0) + 1
@@ -9239,7 +9291,7 @@ def stop_agent(conversation_id: str | None = None, project: str | None = None,
     _kill_process_tree(run["pid"], grace_seconds=AGENT_STOP_GRACE_SECONDS)
     # Releer tras el plazo de gracia para conservar usage/warnings recientes o un resultado terminado a tiempo.
     fresh = get_run_state(conv_id) or run
-    if fresh.get("status") != "running":
+    if fresh.get("status") != "running" and not (fresh.get("status") == "error" and fresh.get("error") == RUN_INTERRUPTED_ERROR):
         return _detail(conv, fresh, state, 0, False, {"stopped": False})
     now = int(time.time() * 1000)
     upsert_run_state({**fresh, "status": "error", "error": AGENT_STOPPED_ERROR, "updated_at": now, "finished_at": now})
@@ -9369,7 +9421,8 @@ def launch_agent(run_file: str | None = None, prompt: str | None = None, project
         return _tool_error(str(exc))
     if run_file is None:
         try:
-            return _launch(_inline_request(fields, prompt), prompt, target, own_id, state)
+            inline_keys = {INLINE_LAUNCH_FIELDS[key] for key in fields}
+            return _launch(_inline_request(fields, prompt), prompt, target, own_id, state, inline_keys=inline_keys)
         except ValueError as exc:
             return _tool_error(str(exc))
     if fields:
@@ -9410,7 +9463,8 @@ def _target_conversation(conv_id: str | None, agent: str, target: SecurityContex
     return conv
 
 
-def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str, state: ControllerState) -> str:
+def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str, state: ControllerState,
+            *, inline_keys: set[str] | None = None) -> str:
     agent = request.get("agent")
     if not agent:
         raise ValueError("The run-file must set an agent.")
@@ -9428,6 +9482,13 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
     conv = _target_conversation(conv_id, agent, target, own_id)
     if "prompt" not in request and conv is None:
         raise ValueError("The conversation does not exist yet: give prompt to start it.")
+    # Continuar en línea una conversación existente conserva el lanzamiento guardado (manual, disabledTools, perfil,
+    # razonamiento y límites) salvo lo que la llamada sobreescriba de forma explícita.
+    if inline_keys is not None and conv is not None:
+        stored = get_conversation_launch(conv_id) or {}
+        for key in ("profile", *RUN_LAUNCH_KEYS):
+            if key not in inline_keys and key in stored and (key != "disabledTools" or stored[key]):
+                request[key] = stored[key]
     request["conversation_id"] = conv_id or f"session_{uuid.uuid4()}"
     try:
         check_no_active_run(request["conversation_id"])
@@ -9616,17 +9677,47 @@ def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tu
 
 # Tope por defecto de read_file: alineado con los 60.000 chars de web/MCP, por debajo de los 64.000 de ChatContextManager.
 READ_FILE_DEFAULT_MAX_BYTES = 60000
+# Formatos de imagen ráster admitidos por read_file (alineados con SAFE_IMAGE_MIME_TYPES en js/utils.js).
+# 6 MiB binarios producen exactamente 8 MiB en base64 (MAX_IMAGE_BASE64_LENGTH en js/mcp-results.js).
+READ_FILE_IMAGE_MIME_BY_EXT = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+READ_FILE_IMAGE_MAX_BYTES = 6 * 1024 * 1024
+
+
+def _read_image_file(target: Path, path: str, mime_type: str) -> str:
+    with open(target, "rb") as handle:
+        raw = handle.read(READ_FILE_IMAGE_MAX_BYTES + 1)
+    if not raw:
+        return _tool_error(f"Image '{path}' is empty.")
+    if len(raw) > READ_FILE_IMAGE_MAX_BYTES:
+        return _tool_error(f"Image '{path}' exceeds the maximum size of {READ_FILE_IMAGE_MAX_BYTES} bytes.")
+    return json.dumps({
+        "success": True,
+        "path": str(target),
+        "size_bytes": len(raw),
+        "mime_type": mime_type,
+        "image_base64": base64.b64encode(raw).decode("ascii"),
+    }, ensure_ascii=False, indent=2)
 
 
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = READ_FILE_DEFAULT_MAX_BYTES,
               tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
-    """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
+    """Read text content from a local file in streaming mode with safe ranges and bounds, its last lines, or a raster image."""
     try:
         target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"File '{path}' does not exist.")
         if not target.is_file():
             return _tool_error(f"Path '{path}' is not a regular file.")
+
+        image_mime = READ_FILE_IMAGE_MIME_BY_EXT.get(target.suffix.lower())
+        if image_mime:
+            return _read_image_file(target, path, image_mime)
 
         file_size = target.stat().st_size
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
@@ -9849,11 +9940,12 @@ def validate_deletable_project_dir(ctx: SecurityContext) -> Path:
     no_project = get_no_project_dir().resolve()
     data_dir = get_data_dir().resolve()
     home = Path.home().resolve()
-    if target == target.parent or target == home or target == no_project:
+    if target == target.parent or target == home or target in home.parents or target == no_project:
         raise ValueError("No se puede borrar la carpeta general, la carpeta personal ni una raíz del sistema.")
     if target == data_dir or target in data_dir.parents:
         raise ValueError("No se puede borrar la carpeta de datos de ZeroChat.")
-    if target == project_context().workspace_dir:
+    startup = project_context().workspace_dir.resolve()
+    if target == startup or target in startup.parents:
         raise ValueError("Es la carpeta con la que arrancó ZeroChat: arráncalo desde otra para borrarla.")
     return target
 
@@ -10460,7 +10552,10 @@ def is_dangerous_host(hostname: str) -> bool:
         return True
     if clean_host.endswith((".localhost", ".local", ".internal")):
         return True
-    return any(not _is_public_ip(address) for address in _resolved_addresses(clean_host))
+    try:
+        return not _is_public_ip(clean_host)
+    except ValueError:
+        return any(not _is_public_ip(address) for address in _resolved_addresses(clean_host))
 
 
 def _is_metadata_ip(address: str) -> bool:
@@ -10495,32 +10590,59 @@ def _validate_web_url(url: str) -> str:
 
 
 class _ValidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Sigue redirecciones solo si el destino supera la misma validación anti-SSRF que la URL pedida."""
+    """Sigue redirecciones (hasta WEB_FETCH_MAX_REDIRECTS saltos totales, sin leer cuerpos 30x) solo si el destino
+    supera la misma validación anti-SSRF que la URL pedida."""
     max_redirections = WEB_FETCH_MAX_REDIRECTS
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        hops = getattr(req, "_zerochat_hops", 0) + 1
+        if hops > WEB_FETCH_MAX_REDIRECTS:
+            raise urllib.error.HTTPError(newurl, code, self.inf_msg + msg, headers, fp)
         _validate_web_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+        new_req = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if new_req is not None:
+            new_req._zerochat_hops = hops  # pyright: ignore[reportAttributeAccessIssue]
+        return new_req
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        location = headers.get("location") or headers.get("uri")
+        if not location:
+            return
+        newurl = urllib.parse.urljoin(req.full_url, location.strip())
+        new_req = self.redirect_request(req, fp, code, msg, headers, newurl)
+        if not new_req:
+            return
+        fp.close()
+        return self.parent.open(new_req, timeout=req.timeout)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
 
 
 _WEB_OPENER = urllib.request.build_opener(_ValidatingRedirectHandler)
 
 
 def _read_limited_body(stream, content_encoding: str, max_bytes: int) -> tuple[bytes, bool]:
-    """Lee el cuerpo ya descomprimido hasta `max_bytes`; indica si había más (truncado)."""
+    """Lee el cuerpo ya descomprimido hasta `max_bytes` (y acota los bytes comprimidos leídos); indica si truncó."""
     encoding = (content_encoding or "").strip().lower()
     # MAX_WBITS | 32 detecta la cabecera gzip o zlib.
     decompressor = zlib.decompressobj(zlib.MAX_WBITS | 32) if encoding in ("gzip", "x-gzip", "deflate") else None
     data = bytearray()
+    raw_read = 0
+    max_raw = max(max_bytes, WEB_FETCH_MAX_BYTES)
+    truncated = False
     while len(data) <= max_bytes:
         chunk = stream.read(WEB_FETCH_READ_CHUNK)
         if not chunk:
             break
+        raw_read += len(chunk)
         if decompressor:
             # La salida se limita al hueco restante: un cuerpo comprimido no puede crecer sin tope.
             chunk = decompressor.decompress(chunk, max_bytes + 1 - len(data))
         data += chunk
-    truncated = len(data) > max_bytes
+        if raw_read > max_raw:
+            truncated = True
+            break
+    truncated = truncated or len(data) > max_bytes
     return bytes(data[:max_bytes]), truncated
 
 
@@ -10614,6 +10736,8 @@ def _fetch_web_resource_unpaced(url: str, params: dict, hostname: str, parsed, t
             err_body = he.read(2048).decode("utf-8", errors="replace")
         except OSError:
             pass
+        finally:
+            he.close()
         return {
             "ok": False,
             "status": he.code,
@@ -10895,6 +11019,8 @@ def browser_url_error(url: str) -> str | None:
     """Por qué browser_action no abre la URL, o None: solo http(s), y nunca metadatos cloud ni enlace local.
     localhost y la red privada sí, para probar webs en desarrollo. Solo se valida la URL pedida: lo que la
     página abra después queda fuera."""
+    if "\\" in url:
+        return "The URL must not contain backslashes."
     parsed = urllib.parse.urlparse(url)
     if parsed.scheme not in ("http", "https"):
         return f"browser_action only opens http:// and https:// URLs, not '{parsed.scheme or url}'."
@@ -11103,10 +11229,10 @@ def _rereads_runs(state: dict) -> bool:
 
 def stop_zerochat_server(server: ThreadingHTTPServer):
     """Detiene limpiamente el servidor y todos los subsistemas evitando reentradas."""
-    if _SERVER_SHUTTING_DOWN.is_set():
-        return
-    _SERVER_SHUTTING_DOWN.set()
     with _SHUTDOWN_LOCK:
+        if _SERVER_SHUTTING_DOWN.is_set():
+            return
+        _SERVER_SHUTTING_DOWN.set()
         for listener in list(_SHUTDOWN_LISTENERS):
             listener.set()
     HEARTBEAT_WATCHDOG_STOP.set()
@@ -11315,8 +11441,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
                 proc_done.set()
                 wake.set()
             threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
-        deadline = None if session.timeout_seconds is None else session.started_at / 1000 + session.timeout_seconds
-        woken = wake.wait(None if deadline is None else max(0.0, deadline - time.time()))
+        deadline = None if session.timeout_seconds is None else session.started_monotonic + session.timeout_seconds
+        woken = wake.wait(None if deadline is None else max(0.0, deadline - time.monotonic()))
         # El latido o una señal ya detienen el servidor: el resultado queda vacío y el runner no sigue por su cuenta.
         if _SERVER_SHUTTING_DOWN.is_set():
             if runner_proc is not None:
@@ -11374,7 +11500,8 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
     # En desarrollo los módulos cambian sin subir la versión: se descargan siempre.
     cache_policy = RUNNER_CACHE_ALWAYS_DOWNLOAD if get_dev_root() is not None else RUNNER_CACHE_BY_VERSION
     cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
-           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url, cache_policy]
+           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), cache_policy]
+    env = {**os.environ, RUNNER_URL_ENV: url}
     try:
         stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
         proc = subprocess.Popen(
@@ -11382,6 +11509,7 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
             stdin=subprocess.PIPE,  # Nunca se escribe: al cerrarse porque este proceso muere, el runner termina.
             stdout=subprocess.DEVNULL,
             stderr=stderr_log,
+            env=env,
             start_new_session=True,
         )
         return proc, stderr_log
@@ -11408,7 +11536,7 @@ LOCAL_TOOLS_DEFINITIONS = [
     },
     {
         "name": "read_file",
-        "description": "Read a text file, whole or by line range, or only its last lines with tail_lines (like tail -n): use tail_lines for logs that keep growing.",
+        "description": "Read a text file (whole, by line range, or last lines with tail_lines) or a raster image (PNG, JPEG, WebP, GIF up to 6 MB, delivered as visual evidence).",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -11569,21 +11697,46 @@ LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "browser_fill_secret",
         "description": (
-            "Fill a saved project secret into Playwright MCP without exposing its value to the model or chat history. "
-            "Use mode='input' with ref (for text/password inputs via browser_type) or mode='keypad' with keypad_map "
-            "mapping each character (e.g. '0'..'9') to its button ref or [x, y] coordinates for virtual keypads."
+            "Fill a saved project secret into a text/password input in Playwright MCP via browser_type "
+            "using its snapshot element ref, without exposing the secret value to the model or chat history."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "secret": {"type": "string", "maxLength": 64, "description": "Name of the saved project secret"},
-                "mode": {"type": "string", "enum": list(BROWSER_SECRET_MODES), "maxLength": 16, "description": "Target mode: 'input' or 'keypad'"},
-                "ref": {"type": "string", "maxLength": 128, "description": "Playwright snapshot element ref for mode='input'"},
+                "ref": {"type": "string", "maxLength": 128, "description": "Playwright snapshot element ref for the input field"},
                 "element": {"type": "string", "maxLength": 256, "description": "Human-readable description of the input element"},
-                "submit": {"type": "boolean", "description": "Press Enter after typing in mode='input'", "default": False},
-                "keypad_map": {"type": "object", "description": "Map of character -> button ref string or [x, y] coordinates for mode='keypad'"}
+                "submit": {"type": "boolean", "description": "Press Enter after typing", "default": False},
             },
-            "required": ["secret", "mode"]
+            "required": ["secret", "ref"]
+        }
+    },
+    {
+        "name": "browser_save_state",
+        "description": (
+            "Save the current Playwright browser session state (cookies and localStorage) under a name scoped to this project "
+            "so later runs can reuse an authenticated session without repeating 2FA."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "maxLength": 64, "description": "State name (letters, digits, '-' or '_')"}
+            },
+            "required": ["name"]
+        }
+    },
+    {
+        "name": "browser_load_state",
+        "description": (
+            "Restore a previously saved Playwright browser session state (cookies and localStorage) for this project. "
+            "Clears current cookies and localStorage before restoring."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "maxLength": 64, "description": "Name of the saved browser state to restore"}
+            },
+            "required": ["name"]
         }
     }
 ]
@@ -11693,6 +11846,8 @@ LOCAL_TOOL_HANDLERS = {
     "get_diagnostics": get_diagnostics,
     "browser_action": browser_action,
     "browser_fill_secret": browser_fill_secret,
+    "browser_save_state": browser_save_state,
+    "browser_load_state": browser_load_state,
     AGENTS_TOOL: check_agents,
     LAUNCH_AGENT_TOOL: launch_agent,
     STOP_AGENT_TOOL: stop_agent,
@@ -11739,9 +11894,6 @@ def validate_local_tool_arguments(tool_name: str, arguments: dict) -> str | None
     if tool_name == "browser_action":
         if arguments.get("action") not in BROWSER_ACTIONS:
             return f"Acción de navegador no permitida: {arguments.get('action')}"
-    if tool_name == "browser_fill_secret":
-        if arguments.get("mode") not in BROWSER_SECRET_MODES:
-            return f"Modalidad no permitida: {arguments.get('mode')}"
 
     return None
 
@@ -11771,7 +11923,7 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
     if origin == "local":
         if tool_name == "browser_action":
             browser = tool_name
-        elif tool_name == "browser_fill_secret":
+        elif tool_name in PLAYWRIGHT_LOCAL_TOOLS:
             browser = PLAYWRIGHT_SERVER_ID
         else:
             browser = None
@@ -11911,6 +12063,16 @@ def call_tool(params: dict, ctx: SecurityContext) -> tuple[dict | None, dict | N
         origin = "external"
     else:
         return None, {"code": -32601, "message": f"Herramienta local '{tool_name}' no encontrada."}, ""
+    session = current_run_session()
+    if session is not None and session.disabled_tools:
+        disabled = set(session.disabled_tools)
+        server_id = GLOBAL_MCP_MANAGER.server_of(tool_name) if origin == "external" else None
+        if (tool_name in disabled or (server_id and server_id in disabled)
+                or (origin == "local" and tool_name in PLAYWRIGHT_LOCAL_TOOLS and PLAYWRIGHT_SERVER_ID in disabled)):
+            return {
+                "content": [{"type": "text", "text": _tool_error(f"Herramienta '{tool_name}' desactivada en esta ejecución.")}],
+                "isError": True,
+            }, None, ""
     raw_args = params.get("arguments")
     args = dict(raw_args) if isinstance(raw_args, dict) else {}
     meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
@@ -12233,13 +12395,13 @@ def static_file_target(root: Path, rel_path: str) -> Path | None:
     salvo ficheros ocultos (.git, .env, .zerochat) y rutas que al resolverse salen de ella (enlaces simbólicos).
     """
     clean_rel = rel_path.split("?", 1)[0].lstrip("/")
-    if not clean_rel:
+    if not clean_rel or "\x00" in clean_rel:
         return None
     base = root.resolve()
-    target = (base / clean_rel).resolve()
     try:
+        target = (base / clean_rel).resolve()
         parts = target.relative_to(base).parts
-    except ValueError:
+    except (OSError, ValueError):
         return None
     if any(part.startswith(".") for part in parts) or not target.is_file():
         return None
@@ -12840,8 +13002,9 @@ def run_session_from_args(parser: ZeroChatArgumentParser, args) -> RunSession | 
     launch = None
     if args.run_file is not None and request.get("agent"):
         launch = {"profile": profile_name, **{key: request[key] for key in RUN_LAUNCH_KEYS if key in request}}
-    subagents = (args.run_file is None and not (conv and conv.get("agent"))
-                 and os.environ.get(ZEROCHAT_RUN_SUBAGENTS_ENV) == "1")
+    subagents_env = os.environ.pop(ZEROCHAT_RUN_SUBAGENTS_ENV, None)
+    subagents = (args.run_file is None and conversation_id is not None and not (conv and conv.get("agent"))
+                 and subagents_env == "1")
     return RunSession(prompt, profile_name, export_path, conversation_id=conversation_id, profile_data=profile_data,
                       new_conversation_id=new_conversation_id, system_data_prompt=options.get("systemDataPrompt"),
                       max_steps=options.get("maxSteps"), timeout_seconds=options.get("timeout"),

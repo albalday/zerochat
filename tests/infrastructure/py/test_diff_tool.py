@@ -229,7 +229,7 @@ class GuiFileDiffCommandTest(unittest.TestCase):
             if "difftool" not in cmd:
                 return real_popen(cmd, **kwargs)
             launched.append(cmd[cmd.index("--gui") + 1:])
-            return type("Proc", (), {"pid": 1})()
+            return type("Proc", (), {"pid": 1, "wait": lambda self: 0})()
 
         with patch.object(zerochat.subprocess, "Popen", fake_popen):
             self.assertEqual(zerochat.open_file_diff(str(target), ctx, gui=True)["mode"], "working_tree")
@@ -245,3 +245,5 @@ class GuiFileDiffCommandTest(unittest.TestCase):
             [zerochat.GIT_EMPTY_TREE, commit["commit"], "--", str(target)],
             ["HEAD", "--", str(target)],
         ])
+        # Un diff histórico fallido no cae al fichero actual del árbol de trabajo (M98-T26).
+        self.assertIsNone(zerochat._full_file_bytes("git", repo, target, "inexistente.txt", commit["commit"]))

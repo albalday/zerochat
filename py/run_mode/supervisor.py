@@ -15,7 +15,12 @@ from auth.tokens import revoke_token
 from core.environment import get_data_dir, get_dev_root
 from core.logging import log_event
 from core.process import _kill_process_tree
-from run_mode.runner_loader import RUNNER_CACHE_ALWAYS_DOWNLOAD, RUNNER_CACHE_BY_VERSION, RUNNER_LOADER_SCRIPT
+from run_mode.runner_loader import (
+    RUNNER_CACHE_ALWAYS_DOWNLOAD,
+    RUNNER_CACHE_BY_VERSION,
+    RUNNER_LOADER_SCRIPT,
+    RUNNER_URL_ENV,
+)
 from run_mode.state import (
     NODE_REQUIRED_MESSAGE,
     RunSession,
@@ -65,8 +70,8 @@ def run_supervisor(server: ThreadingHTTPServer, session: RunSession, runner_proc
                 proc_done.set()
                 wake.set()
             threading.Thread(target=_watch_proc, name="run-proc-wait", daemon=True).start()
-        deadline = None if session.timeout_seconds is None else session.started_at / 1000 + session.timeout_seconds
-        woken = wake.wait(None if deadline is None else max(0.0, deadline - time.time()))
+        deadline = None if session.timeout_seconds is None else session.started_monotonic + session.timeout_seconds
+        woken = wake.wait(None if deadline is None else max(0.0, deadline - time.monotonic()))
         # El latido o una señal ya detienen el servidor: el resultado queda vacío y el runner no sigue por su cuenta.
         if _SERVER_SHUTTING_DOWN.is_set():
             if runner_proc is not None:
@@ -124,7 +129,8 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
     # En desarrollo los módulos cambian sin subir la versión: se descargan siempre.
     cache_policy = RUNNER_CACHE_ALWAYS_DOWNLOAD if get_dev_root() is not None else RUNNER_CACHE_BY_VERSION
     cmd = [node, "--permission", f"--allow-fs-read={cache_dir}", f"--allow-fs-write={cache_dir}",
-           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), url, cache_policy]
+           "-e", RUNNER_LOADER_SCRIPT, str(cache_file), cache_policy]
+    env = {**os.environ, RUNNER_URL_ENV: url}
     try:
         stderr_log = tempfile.TemporaryFile()  # noqa: SIM115 - vive lo que la ejecución; se cierra al salir
         proc = subprocess.Popen(
@@ -132,6 +138,7 @@ def launch_node_runner(url: str) -> tuple[subprocess.Popen, IO[bytes]] | None:
             stdin=subprocess.PIPE,  # Nunca se escribe: al cerrarse porque este proceso muere, el runner termina.
             stdout=subprocess.DEVNULL,
             stderr=stderr_log,
+            env=env,
             start_new_session=True,
         )
         return proc, stderr_log

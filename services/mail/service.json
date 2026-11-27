@@ -81,7 +81,6 @@
     "args": [
       "${serviceDir}/mail_mcp_server.py"
     ],
-    "cwd": "${serviceDir}",
     "env": {
       "MAIL_IMAP_HOST": "${option:MAIL_IMAP_HOST}",
       "MAIL_USER": "${option:MAIL_USER}",

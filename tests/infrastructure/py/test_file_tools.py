@@ -167,6 +167,28 @@ class ReadFileTest(unittest.TestCase):
         self.assertLess(capped["lines_returned"], 11)
         self.assertEqual(capped["end_line"], 3000)
 
+    def test_read_file_lee_imagenes_raster_en_base64_y_acota_en_n_y_n_mas_1(self):
+        img_dir = use_data_dir(self)
+        png = img_dir / "teclado.png"
+        png.write_bytes(b"\x89PNG\r\n\x1a\n1234")
+        res = json.loads(zerochat.read_file(str(png), ctx=CTX))
+        self.assertTrue(res["success"])
+        self.assertEqual((res["mime_type"], res["size_bytes"]), ("image/png", 12))
+        self.assertTrue(res["image_base64"])
+
+        empty = img_dir / "vacia.jpg"
+        empty.write_bytes(b"")
+        self.assertFalse(json.loads(zerochat.read_file(str(empty), ctx=CTX))["success"])
+
+        limit = zerochat.READ_FILE_IMAGE_MAX_BYTES
+        at_limit = img_dir / "borde.webp"
+        at_limit.write_bytes(b"A" * limit)
+        self.assertTrue(json.loads(zerochat.read_file(str(at_limit), ctx=CTX))["success"])
+        at_limit.write_bytes(b"A" * (limit + 1))
+        over = json.loads(zerochat.read_file(str(at_limit), ctx=CTX))
+        self.assertFalse(over["success"])
+        self.assertIn(str(limit), over["error"])
+
 
 class EditFileTest(unittest.TestCase):
     def setUp(self):

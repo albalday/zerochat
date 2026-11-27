@@ -21,7 +21,6 @@
   "launch": {
     "executable": "${pythonExecutable}",
     "args": ["${serviceDir}/ejemplo_mcp_server.py"],
-    "cwd": "${serviceDir}",
     "env": {},
     "handshakeTimeoutSeconds": 10
   }

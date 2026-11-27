@@ -107,6 +107,16 @@ test('Service Worker - el handler de fetch intercepta las peticiones GET del mis
     false,
     'Debe ignorar peticiones POST'
   );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/v1/models'),
+    false,
+    'No debe interceptar endpoints API del mismo origen'
+  );
+  assert.equal(
+    simulateFetch(localWorker, 'http://127.0.0.1:8000/api/tags'),
+    false,
+    'No debe interceptar rutas dinámicas fuera de la lista de estáticos'
+  );
 });
 
 test('Service Worker - una librería bajo demanda se guarda al primer uso y se sirve sin red', async () => {
@@ -133,14 +143,25 @@ test('Service Worker - una librería bajo demanda se guarda al primer uso y se s
   vm.createContext(context);
   vm.runInContext(swCode, context);
 
-  const request = (url) => {
+  const request = async (url) => {
     let responsePromise = null;
-    listeners.fetch({ request: { url, method: 'GET' }, respondWith: promise => { responsePromise = promise; }, waitUntil: () => {} });
-    return responsePromise;
+    const waited = [];
+    let dispatchFinished = false;
+    listeners.fetch({
+      request: { url, method: 'GET' },
+      respondWith: promise => { responsePromise = promise; },
+      waitUntil: promise => {
+        assert.equal(dispatchFinished, false, 'event.waitUntil debe registrarse síncronamente en el evento fetch');
+        waited.push(promise);
+      }
+    });
+    dispatchFinished = true;
+    const response = await responsePromise;
+    await Promise.all(waited);
+    return response;
   };
   const url = 'https://example.test/zerochat/js/vendor/mammoth.browser.js';
   assert.equal((await request(url)).body, `bundle:${url}`);
-  await new Promise(resolve => setImmediate(resolve));
   assert.ok(stored.has(url), 'La primera descarga debe quedar en caché');
   online = false;
   assert.equal((await request(url)).body, `bundle:${url}`, 'Sin red debe servirse desde la caché');
@@ -149,7 +170,6 @@ test('Service Worker - una librería bajo demanda se guarda al primer uso y se s
   online = true;
   const page = 'https://example.test/zerochat/files.html';
   await request(`${page}?project=%2Fhome%2Fu%2Frepo&path=src`);
-  await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual([...stored.keys()].filter(key => key.includes('files.html')), [page]);
   online = false;
   assert.equal((await request(`${page}?project=%2Fotro`)).body, `bundle:${page}?project=%2Fhome%2Fu%2Frepo&path=src`);

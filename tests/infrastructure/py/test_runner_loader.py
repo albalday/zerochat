@@ -71,12 +71,13 @@ class RunnerLoaderTest(unittest.TestCase):
     def run_loader(self, policy=None):
         node = zerochat.find_node_executable()
         cmd = [node, "--permission", f"--allow-fs-read={self.cache_dir}", f"--allow-fs-write={self.cache_dir}",
-               "-e", zerochat.RUNNER_LOADER_SCRIPT, str(self.cache_dir / "modules.json"), self.url,
+               "-e", zerochat.RUNNER_LOADER_SCRIPT, str(self.cache_dir / "modules.json"),
                policy or zerochat.RUNNER_CACHE_BY_VERSION]
+        env = {**os.environ, zerochat.RUNNER_URL_ENV: self.url}
         RecordingSite.requests.clear()
         # Con su stdin abierto mientras corre, como lo lanza launch_node_runner: cerrarlo es que murió quien lo lanzó.
         with tempfile.TemporaryFile("w+", encoding="utf-8") as out, tempfile.TemporaryFile("w+", encoding="utf-8") as err:
-            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=out, stderr=err)
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=out, stderr=err, env=env)
             try:
                 proc.wait(timeout=30)
             finally:

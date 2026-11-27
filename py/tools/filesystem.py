@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import fnmatch
 import itertools
 import json
@@ -188,17 +189,47 @@ def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tu
 
 # Tope por defecto de read_file: alineado con los 60.000 chars de web/MCP, por debajo de los 64.000 de ChatContextManager.
 READ_FILE_DEFAULT_MAX_BYTES = 60000
+# Formatos de imagen ráster admitidos por read_file (alineados con SAFE_IMAGE_MIME_TYPES en js/utils.js).
+# 6 MiB binarios producen exactamente 8 MiB en base64 (MAX_IMAGE_BASE64_LENGTH en js/mcp-results.js).
+READ_FILE_IMAGE_MIME_BY_EXT = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+}
+READ_FILE_IMAGE_MAX_BYTES = 6 * 1024 * 1024
+
+
+def _read_image_file(target: Path, path: str, mime_type: str) -> str:
+    with open(target, "rb") as handle:
+        raw = handle.read(READ_FILE_IMAGE_MAX_BYTES + 1)
+    if not raw:
+        return _tool_error(f"Image '{path}' is empty.")
+    if len(raw) > READ_FILE_IMAGE_MAX_BYTES:
+        return _tool_error(f"Image '{path}' exceeds the maximum size of {READ_FILE_IMAGE_MAX_BYTES} bytes.")
+    return json.dumps({
+        "success": True,
+        "path": str(target),
+        "size_bytes": len(raw),
+        "mime_type": mime_type,
+        "image_base64": base64.b64encode(raw).decode("ascii"),
+    }, ensure_ascii=False, indent=2)
 
 
 def read_file(path: str, start_line: int = 1, end_line: int = None, max_lines: int = 500, max_bytes: int = READ_FILE_DEFAULT_MAX_BYTES,
               tail_lines: int | None = None, *, ctx: SecurityContext) -> str:
-    """Read text content from a local file in streaming mode with safe ranges and bounds, or its last lines."""
+    """Read text content from a local file in streaming mode with safe ranges and bounds, its last lines, or a raster image."""
     try:
         target = ctx.absolute(path)
         if not target.exists():
             return _tool_error(f"File '{path}' does not exist.")
         if not target.is_file():
             return _tool_error(f"Path '{path}' is not a regular file.")
+
+        image_mime = READ_FILE_IMAGE_MIME_BY_EXT.get(target.suffix.lower())
+        if image_mime:
+            return _read_image_file(target, path, image_mime)
 
         file_size = target.stat().st_size
         safe_max_bytes = max(1024, min(int(max_bytes), 2000000))
@@ -421,11 +452,12 @@ def validate_deletable_project_dir(ctx: SecurityContext) -> Path:
     no_project = get_no_project_dir().resolve()
     data_dir = get_data_dir().resolve()
     home = Path.home().resolve()
-    if target == target.parent or target == home or target == no_project:
+    if target == target.parent or target == home or target in home.parents or target == no_project:
         raise ValueError("No se puede borrar la carpeta general, la carpeta personal ni una raíz del sistema.")
     if target == data_dir or target in data_dir.parents:
         raise ValueError("No se puede borrar la carpeta de datos de ZeroChat.")
-    if target == project_context().workspace_dir:
+    startup = project_context().workspace_dir.resolve()
+    if target == startup or target in startup.parents:
         raise ValueError("Es la carpeta con la que arrancó ZeroChat: arráncalo desde otra para borrarla.")
     return target
 

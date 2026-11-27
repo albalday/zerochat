@@ -245,19 +245,26 @@ test('xlsx hostil: una hoja citada muchas veces se lee una vez y las comillas si
   assert.ok(elapsed < 1000, `el análisis tardó ${elapsed.toFixed(0)} ms`);
 });
 
-test('unzipPackage cuenta el tamaño guardado de una entrada sin comprimir aunque declare 0 (N pasa, N+1 se omite)', () => {
+test('unzipPackage aplica los topes de multimedia (10 MiB, incluso declarando 0) y XML (50 MiB) en N y N+1', () => {
   const fflate = require('fflate');
-  const max = 10 * 1024 * 1024;
-  for (const [size, kept] of [[max, true], [max + 1, false]]) {
-    const zip = fflate.zipSync({ 'xl/media/a.png': [new Uint8Array(size), { level: 0 }] });
-    const view = new DataView(zip.buffer);
-    // Tamaño declarado (descomprimido) a 0 en la cabecera local y en el directorio central.
+  const patchDeclaredSize = (zip, declared) => {
+    const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
     for (let i = 0; i < zip.length - 4; i++) {
-      const signature = view.getUint32(i, true);
-      if (signature === 0x04034b50) view.setUint32(i + 22, 0, true);
-      if (signature === 0x02014b50) view.setUint32(i + 24, 0, true);
+      const sig = view.getUint32(i, true);
+      if (sig === 0x04034b50) view.setUint32(i + 22, declared, true);
+      if (sig === 0x02014b50) view.setUint32(i + 24, declared, true);
     }
+    return zip;
+  };
+  const maxMedia = 10 * 1024 * 1024;
+  for (const [size, kept] of [[maxMedia, true], [maxMedia + 1, false]]) {
+    const zip = patchDeclaredSize(fflate.zipSync({ 'xl/media/a.png': [new Uint8Array(size), { level: 0 }] }), 0);
     assert.equal(Object.hasOwn(OfficeParser.unzipPackage(fflate, zip.buffer), 'xl/media/a.png'), kept, String(size));
+  }
+  const maxXml = 50 * 1024 * 1024;
+  for (const [declared, kept] of [[maxXml, true], [maxXml + 1, false]]) {
+    const zip = patchDeclaredSize(fflate.zipSync({ 'xl/worksheets/sheet1.xml': new Uint8Array(16) }), declared);
+    assert.equal(Object.hasOwn(OfficeParser.unzipPackage(fflate, zip.buffer), 'xl/worksheets/sheet1.xml'), kept, String(declared));
   }
 });
 
