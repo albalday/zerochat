@@ -89,12 +89,20 @@
 }
 
 /* Aviso de conversaciones de cualquier proyecto que esperan al usuario o fallaron */
-.attention-notice .ui-icon {
+.attention-notice > .ui-icon {
   color: var(--warning);
 }
 
-.attention-notice.has-error .ui-icon {
+.attention-notice.has-error > .ui-icon {
   color: var(--danger);
+}
+
+.attention-notice-dismiss {
+  margin-left: auto;
+}
+
+.attention-notice-dismiss .ui-icon {
+  color: inherit;
 }
 
 .file-chip {

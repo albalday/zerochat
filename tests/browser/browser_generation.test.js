@@ -289,12 +289,19 @@ describe('Browser UI - generación, estado y paneles auxiliares', { concurrency:
       assert.deepEqual(await page.$eval('#attention-notice', notice => [notice.hidden, notice.textContent.trim()]),
         [false, await tr('attention_notice', { groups: chatsDetail })]);
       assert.equal(await page.title(), `(1) ${baseTitle}`);
+      // Cerrarlo oculta solo la tarjeta, hasta que aparezca algo que no estaba.
+      await page.click('#btn-dismiss-attention');
+      assert.equal(await page.isHidden('#attention-notice'), true);
+      assert.equal(await page.title(), `(1) ${baseTitle}`);
+      await setRuns([{ ...waiting }]);
+      assert.equal(await page.isHidden('#attention-notice'), true);
       const danger = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--danger').trim());
       assert.ok(!decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes(`fill="${danger}"`));
 
       await setHidden(true);
       await setRuns([waiting, { conversationId: 'at2', runId: 'r2', status: 'error' }]);
       assert.ok(decodeURIComponent(await page.getAttribute('#app-favicon', 'href')).includes(`fill="${danger}"`));
+      assert.equal(await page.isHidden('#attention-notice'), false, 'Una conversación nueva vuelve a mostrar la tarjeta cerrada');
       const agentsDetail = await tr('attention_notice_agents', { detail: await tr('attention_notice_error', { count: 1 }) });
       assert.equal(await page.textContent('#attention-notice-text'), await tr('attention_notice', { groups: `${agentsDetail} · ${chatsDetail}` }));
       await page.waitForFunction(expected => document.title === expected, await tr('tab_alert_attention', { count: 2, title: baseTitle }));

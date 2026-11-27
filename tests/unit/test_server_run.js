@@ -24,8 +24,25 @@ test('ServerRun.attentionCounts cuenta por historial las conversaciones que espe
     { conversationId: 'quieta', status: 'limit' },
     { conversationId: 'sin-guardar', status: 'error' }
   ];
-  assert.deepEqual(ServerRun.attentionCounts(sessions, runs), { agentsNeedsInput: 2, agentsError: 0, chatsNeedsInput: 1, chatsError: 1 });
-  assert.deepEqual(ServerRun.attentionCounts(sessions, []), { agentsNeedsInput: 0, agentsError: 0, chatsNeedsInput: 0, chatsError: 0 });
+  assert.deepEqual(ServerRun.attentionCounts(sessions, runs), {
+    agentsNeedsInput: 2, agentsError: 0, chatsNeedsInput: 1, chatsError: 1,
+    key: 'agent2:needs_input\nagent:needs_input\nchat2:error\nchat:needs_input'
+  });
+  assert.deepEqual(ServerRun.attentionCounts(sessions, []), { agentsNeedsInput: 0, agentsError: 0, chatsNeedsInput: 0, chatsError: 0, key: '' });
+});
+
+test('ServerRun.keepDismissedAttention deja cerrado el aviso hasta que aparece una conversación o estado que no estaba', () => {
+  const keep = ServerRun.keepDismissedAttention;
+  const dismissed = 'a:needs_input\nb:error';
+  // Resolverse una no lo reabre: sigue cerrado (el resultado es igual a lo que hay) y la resuelta sale de lo cerrado.
+  assert.equal(keep(dismissed, 'b:error'), 'b:error');
+  // Con los mismos números, otra conversación o un cambio de estado sí son nuevos.
+  assert.equal(keep(dismissed, 'a:needs_input\nc:error'), 'a:needs_input');
+  assert.equal(keep(dismissed, 'a:error\nb:error'), 'b:error');
+  // Una que salió y vuelve a pedir atención ya es nueva.
+  assert.equal(keep(keep(dismissed, 'b:error'), 'a:needs_input\nb:error'), 'b:error');
+  assert.equal(keep(dismissed, ''), '');
+  assert.equal(keep('', 'a:needs_input'), '');
 });
 
 test('ServerRun - la ejecución con error de la conversación activa se muestra sin bloquear el compositor', t => {

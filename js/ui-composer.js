@@ -20,6 +20,11 @@
   const getFileParser = () => resolveDep('ChatFileParser', './file-parser.js');
   const getDialogs = () => resolveDep('ChatDialogs', './ui-dialogs.js');
   const getGenerationStatus = () => resolveDep('ChatUIGenerationStatus', './ui-generation-status.js');
+  const getServerRun = () => resolveDep('ChatServerRun', './server-run.js');
+
+  // Aviso de atención: firmas conversación:estado que se ven (`shown`) y las que había al cerrarlo (`dismissed`).
+  // Solo en memoria de la pestaña: al recargar o abrir otra vuelve a verse.
+  const attentionKeys = { shown: '', dismissed: '' };
 
   const listeners = Utils.createListenerGroup();
   const { listen } = listeners;
@@ -169,6 +174,10 @@
       if (removeButton) removeAttachedFile(elements, Number(removeButton.dataset.index));
     });
     listen(elements.btnStopStream, 'click', () => onStopGeneration());
+    listen(elements.btnDismissAttention, 'click', () => {
+      attentionKeys.dismissed = attentionKeys.shown;
+      elements.attentionNotice.hidden = true;
+    });
     listen(elements.btnAttachFile, 'click', () => elements.fileInput.click());
     listen(elements.fileInput, 'change', event => {
       if (event.target.files.length) processFiles(elements, Array.from(event.target.files));
@@ -177,7 +186,8 @@
 
   /**
    * Aviso pasivo sobre el compositor con las conversaciones que necesitan atención (ServerRun.attentionCounts):
-   * por historial, cuántas esperan y cuántas fallaron, sin las partes a cero. Oculto si no hay ninguna.
+   * por historial, cuántas esperan y cuántas fallaron, sin las partes a cero. Oculto si no hay ninguna o si se cerró
+   * y desde entonces no ha aparecido ninguna conversación o estado nuevo.
    */
   function renderAttentionNotice(elements, counts) {
     const detail = (waiting, error) => [
@@ -188,7 +198,9 @@
       ['attention_notice_agents', detail(counts.agentsNeedsInput, counts.agentsError)],
       ['attention_notice_chats', detail(counts.chatsNeedsInput, counts.chatsError)]
     ].filter(([, text]) => text).map(([key, text]) => t(key, { detail: text }));
-    elements.attentionNotice.hidden = groups.length === 0;
+    attentionKeys.shown = counts.key;
+    attentionKeys.dismissed = getServerRun().keepDismissedAttention(attentionKeys.dismissed, counts.key);
+    elements.attentionNotice.hidden = !counts.key || attentionKeys.dismissed === counts.key;
     elements.attentionNotice.classList.toggle('has-error', counts.agentsError + counts.chatsError > 0);
     elements.attentionNoticeText.textContent = groups.length ? t('attention_notice', { groups: groups.join(' · ') }) : '';
   }

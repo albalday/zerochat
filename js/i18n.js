@@ -269,6 +269,7 @@
       attention_notice_chats: 'Chats: {detail}',
       attention_notice_waiting: '{count} esperando',
       attention_notice_error: '{count} con error',
+      attention_notice_dismiss: 'Ocultar aviso',
       btn_stop_title: 'Detener la generación de respuesta',
       btn_send_title: 'Enviar mensaje',
 
@@ -1249,6 +1250,7 @@
       attention_notice_chats: 'Chats: {detail}',
       attention_notice_waiting: '{count} waiting',
       attention_notice_error: '{count} failed',
+      attention_notice_dismiss: 'Hide notice',
       btn_stop_title: 'Stop response generation',
       btn_send_title: 'Send message',
 

@@ -121,6 +121,7 @@
     agentSupervisionText: 'agent-supervision-text',
     attentionNotice: 'attention-notice',
     attentionNoticeText: 'attention-notice-text',
+    btnDismissAttention: 'btn-dismiss-attention',
     fileInput: 'file-input',
     attachmentsContainer: 'attachments-container',
     // Razonamiento y modo proyecto

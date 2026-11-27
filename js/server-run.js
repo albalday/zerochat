@@ -68,18 +68,31 @@
 
   /**
    * Conversaciones de `sessions` (todos los proyectos) que necesitan atención según `runs`, por historial (agentes o
-   * chats) y estado. Plano para que un selector de ChatState lo compare sin cambios. Una ejecución cuya conversación
-   * aún no está en la lista no cuenta hasta que la lista la trae.
+   * chats) y estado, y `key`, sus firmas conversación:estado ordenadas y unidas por saltos de línea. Plano para que un
+   * selector de ChatState lo compare sin cambios. Una ejecución cuya conversación aún no está en la lista no cuenta
+   * hasta que la lista la trae.
    */
   function attentionCounts(sessions, runs) {
     const counts = { agentsNeedsInput: 0, agentsError: 0, chatsNeedsInput: 0, chatsError: 0 };
+    const entries = [];
     for (const run of runs) {
       if (!needsAttention(run.status)) continue;
       const session = sessions.find(item => item.id === run.conversationId);
       if (!session) continue;
       counts[`${session.agent ? 'agents' : 'chats'}${run.status === 'error' ? 'Error' : 'NeedsInput'}`] += 1;
+      entries.push(`${run.conversationId}:${run.status}`);
     }
-    return counts;
+    return { ...counts, key: entries.sort().join('\n') };
+  }
+
+  /**
+   * De las firmas que había al cerrar el aviso de atención (`dismissedKey`), las que siguen en `key`, en su orden: una
+   * conversación que se resuelve sale, y si vuelve a pedir atención ya es nueva. El aviso sigue cerrado mientras el
+   * resultado sea igual a `key`, es decir, mientras no aparezca ninguna conversación o estado que no estaba.
+   */
+  function keepDismissedAttention(dismissedKey, key) {
+    const dismissed = new Set(dismissedKey.split('\n'));
+    return key.split('\n').filter(entry => entry && dismissed.has(entry)).join('\n');
   }
 
   /** Arranca la ejecución con la política de herramientas vigente y, al reanudar, la decisión del usuario. */
@@ -129,6 +142,7 @@
     finishedRunIds,
     needsAttention,
     attentionCounts,
+    keepDismissedAttention,
     start,
     cancelActive,
     refreshLiveState,
