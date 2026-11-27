@@ -171,6 +171,10 @@ test('WebLLM - reutiliza el motor ya cargado entre turnos del mismo modelo', asy
     await drain(second.body);
     assert.equal(createdEngines, 1);
     assert.deepEqual(completionPayloads.map(payload => payload.messages[0].content), ['first conversation', 'second conversation']);
+    // Cambiar el tamaño de contexto del perfil recarga el motor con los nuevos overrides.
+    const resized = await adapter.createStreamResponse({ payload: { model: 'test-model', webllmConfig: { context_window_size: 8192 }, messages: [{ role: 'user', content: 'third' }] } });
+    await drain(resized.body);
+    assert.equal(createdEngines, 2);
   } finally {
     await adapter.disposeActiveEngine();
   }

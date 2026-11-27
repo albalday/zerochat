@@ -74,21 +74,28 @@ test('Browser UI - Internal notices queue safely above modals and restore focus'
       ChatDialogs.prompt('Name <img src=x>', 'Initial').then(value => window.promptResults.push(value));
     });
     assert.equal(await page.locator('#notice-input').inputValue(), 'Initial');
+    assert.equal(await page.locator('#notice-input').getAttribute('type'), 'text');
     assert.equal(await page.evaluate(() => document.activeElement.id), 'notice-input');
     await page.locator('#notice-input').fill('New name');
     await page.keyboard.press('Enter');
     assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name']);
+    await page.evaluate(() => { ChatDialogs.prompt('Secret', '', { inputType: 'password' }).then(value => window.promptResults.push(value)); });
+    assert.equal(await page.locator('#notice-input').getAttribute('type'), 'password', 'un secreto se escribe oculto');
+    await page.locator('#notice-input').fill('s3cret');
+    await page.keyboard.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', 's3cret']);
     await page.evaluate(() => { ChatDialogs.prompt('Name').then(value => window.promptResults.push(value)); });
+    assert.equal(await page.locator('#notice-input').getAttribute('type'), 'text');
     await page.locator('#notice-accept').click();
-    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', '']);
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', 's3cret', '']);
     await page.evaluate(() => { ChatDialogs.prompt('Name', 'Discard').then(value => window.promptResults.push(value)); });
     await page.keyboard.press('Escape');
-    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', '', null]);
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', 's3cret', '', null]);
     await page.evaluate(() => {
       ChatDialogs.prompt('Name', 'Stale').then(value => window.promptResults.push(value));
       ChatState.replaceConversation({ sessionId: 'cancel-prompt', messages: [] });
     });
-    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', '', null, null]);
+    assert.deepEqual(await page.evaluate(() => window.promptResults), ['New name', 's3cret', '', null, null]);
     assert.equal(await page.locator('#notice-input').inputValue(), '');
 
     // Cerrar cualquier modal abierto antes de proceder

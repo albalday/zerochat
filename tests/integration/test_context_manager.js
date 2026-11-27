@@ -561,8 +561,8 @@ test('ContextManager - truncateToolContent preserva todos los fragmentos en sali
 
   const truncated = ChatContextManager.truncateToolContent(multiChunkOutput, maxBudget, 'read_knowledge_chunk');
 
-  // 1. Debe respetar el presupuesto máximo (con margen mínimo por separadores)
-  assert.ok(truncated.length <= maxBudget + 500, `Debe respetar el límite de caracteres (actual: ${truncated.length})`);
+  // 1. Debe respetar el presupuesto máximo
+  assert.ok(truncated.length <= maxBudget, `Debe respetar el límite de caracteres (actual: ${truncated.length})`);
 
   // 2. Todos los fragmentos deben estar presentes (ningún chunk del medio eliminado por completo)
   assert.ok(truncated.includes('chunk:36'), 'Debe conservar el primer fragmento (TOC)');
@@ -573,6 +573,17 @@ test('ContextManager - truncateToolContent preserva todos los fragmentos en sali
   // 3. Cada fragmento debe conservar su cabecera descriptiva
   assert.ok(truncated.includes('### WALMART_2020_10K.pdf · Income Statement'));
   assert.ok(truncated.includes('### WALMART_2020_10K.pdf · Cash Flows'));
+
+  // 4. Muchas secciones cortas no amplían el tope: se recorta el conjunto con su aviso (N y N+1)
+  const manySections = Array.from({ length: 500 }, (_, i) => `${i}:` + 'x'.repeat(200)).join('\n\n---\n\n');
+  const exact = manySections.slice(0, 4000);
+  assert.equal(ChatContextManager.truncateToolContent(exact, 4000, 'read_file'), exact);
+  const capped = ChatContextManager.truncateToolContent(manySections.slice(0, 4001), 4000, 'read_file');
+  assert.ok(capped.length <= 4000, `actual: ${capped.length}`);
+  assert.match(capped, /Truncated/);
+  const attack = ChatContextManager.truncateToolContent(manySections, 4000, 'read_file');
+  assert.ok(attack.length <= 4000, `actual: ${attack.length}`);
+  assert.match(attack, /characters omitted from the read_file output/);
 });
 
 test('ContextManager - formatHistoryTranscript genera una transcripción neutral y segura del historial', () => {

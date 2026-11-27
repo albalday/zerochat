@@ -40,13 +40,17 @@
       listen(window.visualViewport, 'scroll', triggerChange);
     }
     listen(window, 'resize', triggerChange);
+    // Un solo par de temporizadores de orientación y uno de foco vivos: cada evento sustituye a los anteriores.
+    let orientationTimers = [];
     listen(window, 'orientationchange', () => {
-      const timers = [setTimeout(triggerChange, 100), setTimeout(triggerChange, 300)];
-      onDispose(() => timers.forEach(clearTimeout));
+      orientationTimers.forEach(clearTimeout);
+      orientationTimers = [setTimeout(triggerChange, 100), setTimeout(triggerChange, 300)];
     });
+    onDispose(() => orientationTimers.forEach(clearTimeout));
 
     let focusTimeout = null;
     listen(elements.userInput, 'focus', () => {
+      clearTimeout(focusTimeout);
       focusTimeout = setTimeout(() => {
         triggerChange();
         elements.userInput.scrollIntoView({ block: 'nearest', behavior: 'smooth' });

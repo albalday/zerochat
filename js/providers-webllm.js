@@ -308,10 +308,12 @@
       return createWorkerEngine(webllm, modelId, appConfig, onProgress, signal, chatOpts);
     }
 
+    /** Reutiliza el motor solo con el mismo modelo y los mismos overrides (extractOverrides los da en orden fijo). */
     async acquire(webllm, modelId, appConfig, onProgress, signal, chatOpts = {}) {
-      if (this.active?.modelId === modelId) return { handle: this.active.handle, reused: true };
+      const key = `${modelId}\u0000${JSON.stringify(chatOpts)}`;
+      if (this.active?.key === key) return { handle: this.active.handle, reused: true };
       if (this.pending) {
-        if (this.pending.modelId !== modelId) throw new Error('Another WebLLM model is still being prepared.');
+        if (this.pending.key !== key) throw new Error('Another WebLLM model is still being prepared.');
         return { handle: await this.pending.promise, reused: false };
       }
       if (this.active) await this.dispose();
@@ -321,10 +323,10 @@
       const abort = () => controller.abort(signal?.reason);
       signal?.addEventListener('abort', abort, { once: true });
       if (signal?.aborted) abort();
-      const pending = { modelId, promise: null, controller };
+      const pending = { modelId, key, promise: null, controller };
       pending.promise = this.createEngine(webllm, modelId, appConfig, onProgress, controller.signal, chatOpts)
         .then(handle => {
-          this.active = { modelId, handle };
+          this.active = { modelId, key, handle };
           return handle;
         })
         .finally(() => {
@@ -464,7 +466,8 @@
       const webllm = await loadWebLLM();
       const appConfig = getAppConfig(webllm);
       try {
-        await this.engines.acquire(webllm, modelId, appConfig, onProgress);
+        // Un motor ya cargado de este modelo, con cualquier tamaño de contexto, prueba que está descargado.
+        if (this.engines.active?.modelId !== modelId) await this.engines.acquire(webllm, modelId, appConfig, onProgress);
         const cached = await webllm.hasModelInCache?.(modelId, appConfig);
         if (cached !== true) {
           throw new Error('WebLLM finished preparing, but the browser could not store the model in Cache Storage.');

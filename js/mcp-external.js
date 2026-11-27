@@ -162,7 +162,8 @@
     let didAutoOpenOAuth = false;
     const reportStartWait = (attempt, total, status = 'starting', serverData = null) => {
       const oauthUrl = serverData?.oauthUrl || null;
-      if (oauthUrl && !didAutoOpenOAuth && /^https?:\/\//i.test(oauthUrl)) {
+      // El runner de Node también arranca servicios: allí no hay ventana que abrir.
+      if (oauthUrl && !didAutoOpenOAuth && typeof window !== 'undefined' && /^https?:\/\//i.test(oauthUrl)) {
         didAutoOpenOAuth = true;
         window.open(oauthUrl, '_blank', 'noopener,noreferrer');
       }

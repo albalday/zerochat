@@ -161,3 +161,13 @@ test('Markdown - negrita y cursiva no se aplican dentro de las URL de enlaces e 
   assert.ok(table.includes(`<td>${href}x</a> <img`));
   assert.ok(table.includes('src="https://e.com/*x*.png"'));
 });
+
+test('Markdown - los enlaces conservan la consulta y descartan esquemas ocultos con controles', () => {
+  assert.equal(Markdown.parseMarkdown('[a](https://e.com/?a=1&b=2)'), '<p><a href="https://e.com/?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">a</a></p>');
+  assert.equal(Markdown.parseMarkdown('[x](\x03javascript:void%280%29)'), '<p>x</p>');
+});
+
+test('Markdown - las citas se reconocen sobre el texto escapado y el código con sustitutos sueltos no rompe el análisis', () => {
+  assert.equal(Markdown.parseMarkdown('> hola <b>'), '<blockquote>hola &lt;b&gt;</blockquote>');
+  assert.match(Markdown.parseMarkdown('```js\nconst s = "\uD800";\n```'), /data-code="[^"]*%EF%BF%BD/);
+});

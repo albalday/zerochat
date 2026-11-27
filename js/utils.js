@@ -30,13 +30,22 @@
       .replace(/'/g, '&#39;');
   }
 
+  /**
+   * Valida una URL no confiable para un href y la devuelve sin escapar, o '' si no es apta. Quita antes los
+   * controles C0 y DEL, que el navegador descarta al leer el esquema (`java\tscript:`, `\x01javascript:`).
+   */
+  function validateLinkUrl(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    const cleaned = rawUrl.replace(/[\u0000-\u001F\u007F]/g, '').trim();
+    if (/^(?:https?:\/\/|mailto:|tel:)/i.test(cleaned)) return cleaned;
+    if (cleaned && !/^[a-z][a-z0-9+.-]*:/i.test(cleaned) && !/^[\\/]{2}/.test(cleaned)) return cleaned;
+    return '';
+  }
+
   /** Normaliza una URL no confiable para usarla en un atributo href. */
   function sanitizeUrl(rawUrl) {
-    if (!rawUrl || typeof rawUrl !== 'string') return '#';
-    const trimmed = rawUrl.trim();
-    if (/^(?:https?:\/\/|mailto:|tel:)/i.test(trimmed)) return escapeHtml(trimmed);
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^[\\/]{2}/.test(trimmed)) return escapeHtml(trimmed);
-    return '#';
+    const url = validateLinkUrl(rawUrl);
+    return url ? escapeHtml(url) : '#';
   }
 
   /**
@@ -758,6 +767,7 @@
   const api = {
     escapeHtml,
     sanitizeUrl,
+    validateLinkUrl,
     sanitizeImageUrl,
     IMAGE_MIME_TYPES,
     SAFE_IMAGE_MIME_TYPES,

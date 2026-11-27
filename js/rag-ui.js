@@ -701,7 +701,7 @@
     });
     workspace.addEventListener('change', event => {
       if (event.target.id !== 'rag-file-input') return;
-      ingestFiles(Array.from(event.target.files), dropzoneOf(event).dataset.branchId);
+      ingestFiles(Array.from(event.target.files), dropzoneOf(event).dataset.branchId).catch(reportError);
       event.target.value = '';
     });
     workspace.addEventListener('dragover', event => {
@@ -716,7 +716,7 @@
       if (!dropzone) return;
       event.preventDefault();
       dropzone.classList.remove('drag-over');
-      ingestFiles(Array.from(event.dataTransfer.files), dropzone.dataset.branchId);
+      ingestFiles(Array.from(event.dataTransfer.files), dropzone.dataset.branchId).catch(reportError);
     });
   }
 

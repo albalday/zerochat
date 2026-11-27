@@ -728,6 +728,18 @@ test('ChatMCP - runExternalServerAction: el plazo de espera agotado deja el serv
   assert.match(server.error, /OAuth/);
 });
 
+test('ChatMCP - runExternalServerAction: sin ventana (runner de Node) la URL de OAuth no se abre ni rompe el arranque', async t => {
+  const previousMcp = ChatState.get('mcp');
+  ChatState.set('mcp', { ...previousMcp, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
+  t.after(() => ChatState.set('mcp', previousMcp));
+  assert.equal(typeof window, 'undefined');
+  t.mock.method(MCP.manager, 'startExternalServer', async (id, onWait) => {
+    onWait(1, 10, 'starting', { oauthUrl: 'https://example.com/oauth' });
+  });
+  assert.equal(await MCP.manager.runExternalServerAction('ejemplo', 'start'), true);
+  assert.equal(ChatState.get('mcp').externalServers[0].oauthUrl, 'https://example.com/oauth');
+});
+
 test('MCP - cabecera de proyecto, disponibilidad por carpeta, caída de carpeta y carrera con setProjectDirectory', async () => {
   const previousMcp = ChatState.get('mcp');
   const previousSessions = ChatState.get('sessions');

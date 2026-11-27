@@ -353,7 +353,8 @@
     listen(elements.btnCloseSettings, 'click', () => closeSettingsPanelOnly(elements));
     listen(elements.settingsForm, 'submit', event => {
       event.preventDefault();
-      saveCurrentSettings(elements, getRuntimeConfig(), callbacks);
+      saveCurrentSettings(elements, getRuntimeConfig(), callbacks)
+        .catch(error => getDialogs().alert(t('settings_save_error', { err: error?.message || error }), { type: 'error' }));
     });
     listen(dialog, 'input', markFormModified);
     listen(dialog, 'change', markFormModified);

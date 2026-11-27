@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function (Utils, I18n, Icons, McpStatus) {
   'use strict';
 
-  const { resolveDep, escapeHtml, clearElement, appendTextElement, copyToClipboard, setText } = Utils;
+  const { resolveDep, escapeHtml, sanitizeUrl, clearElement, appendTextElement, copyToClipboard, setText } = Utils;
   const { t } = I18n;
   const getState = () => resolveDep('ChatState', './state.js');
   const getMCP = () => resolveDep('ChatMCP', './mcp.js');
@@ -292,7 +292,7 @@
       help ? `<p class="mcp-server-help"><a href="${escapeHtml(help.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(help.label)}</a></p>` : '',
       server.id === 'playwright' ? `<p class="label-hint mcp-server-browser-notice">${escapeHtml(t('mcp_playwright_browser_notice'))}</p>` : '',
       server.error ? `<div class="mcp-server-error"><p>${escapeHtml(server.error)}</p><a href="help/mcp.html" target="_blank" rel="noopener noreferrer">${escapeHtml(t('mcp_external_help'))}</a></div>` : '',
-      server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${escapeHtml(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : '',
+      server.oauthUrl ? `<div class="mcp-server-oauth-banner"><p class="mcp-server-oauth-msg">${escapeHtml(t('mcp_oauth_required_msg'))}</p><a class="btn-secondary btn-mcp-oauth-open" href="${sanitizeUrl(server.oauthUrl)}" target="_blank" rel="noopener noreferrer" data-server-id="${id}">${escapeHtml(t('mcp_btn_oauth_authorize'))}</a></div>` : '',
       renderServerSecrets(server, language),
       renderServerOptions(server, language),
       renderServerToolsSection(server, serverTools, appConfig, toolsOpen)

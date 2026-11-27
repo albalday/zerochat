@@ -329,20 +329,22 @@
    * Trunca de forma equilibrada una salida multisección (como múltiples fragmentos devueltos por read_knowledge_chunk).
    * En lugar de cortar el 70% central de todo el texto (lo que elimina por completo fragmentos enteros del medio),
    * distribuye el presupuesto proporcionalmente entre las secciones para que cada fragmento conserve su cabecera,
-   * contexto y datos numéricos clave.
+   * contexto y datos numéricos clave. Devuelve null si el reparto no cabe en `maxChars` (muchas secciones cortas:
+   * la cuota mínima por sección y sus avisos superarían el tope).
    */
   function truncateMultiSectionToolContent(sections, maxChars, toolName) {
     const separator = '\n\n---\n\n';
-    const totalSeparatorsLength = separator.length * (sections.length - 1);
-    const availableBudget = Math.max(sections.length * 200, maxChars - totalSeparatorsLength);
+    const availableBudget = maxChars - separator.length * (sections.length - 1);
+    if (availableBudget <= 0) return null;
 
     const { limits, hasOversized } = allocateProportionalLimits(sections.map(s => s.length), availableBudget, { minShare: 150 });
     if (!hasOversized) return sections.join(separator);
 
-    return sections.map((sec, idx) => (sec.length <= limits[idx]
+    const result = sections.map((sec, idx) => (sec.length <= limits[idx]
       ? sec
       : truncateMiddle(sec, limits[idx], omitted => `[... Truncated fragment ${idx + 1}: ${omitted} characters omitted from ${toolName} ...]`)
     )).join(separator);
+    return result.length <= maxChars ? result : null;
   }
 
   /**
@@ -357,7 +359,7 @@
 
   /**
    * Trunca de forma segura el contenido de un resultado de herramienta; una salida en secciones `---` (fragmentos de
-   * read_knowledge_chunk) reparte el tope entre ellas para no perder fragmentos enteros.
+   * read_knowledge_chunk) reparte el tope entre ellas para no perder fragmentos enteros si el reparto cabe en el tope.
    */
   function truncateToolContent(content, maxChars = DEFAULT_MAX_ACTIVE_TOOL_CHARS, toolName = 'tool') {
     const str = serializeContent(content);
@@ -368,9 +370,8 @@
     // Si el contenido contiene múltiples secciones separadas por '---' (típico de read_knowledge_chunk)
     if (str.includes('\n\n---\n\n')) {
       const sections = str.split('\n\n---\n\n');
-      if (sections.length > 1) {
-        return truncateMultiSectionToolContent(sections, maxChars, toolName);
-      }
+      const balanced = sections.length > 1 ? truncateMultiSectionToolContent(sections, maxChars, toolName) : null;
+      if (balanced !== null) return balanced;
     }
 
     return truncateMiddle(str, maxChars, omitted => `[... Truncated by ChatContextManager: ${omitted} characters omitted from the ${toolName} output ...]`);

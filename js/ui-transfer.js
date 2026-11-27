@@ -43,6 +43,7 @@
       return { session, history: options.getHistory() };
     }
     const conversation = await options.getSession(id);
+    if (!conversation) throw new Error(t('chat_export_missing'));
     return { session: conversation, history: conversation.history || conversation.messages || [] };
   }
 
@@ -63,11 +64,15 @@
   }
 
   async function downloadConversation(format) {
-    const exported = await buildConversationExport(format, targetSessionId());
-    if (!exported) return;
-    const { title, content, extension, mimeType } = exported;
-    Utils.downloadFile(content, `${fileBaseName(title)}.${extension}`, mimeType);
-    closeExportModal();
+    try {
+      const exported = await buildConversationExport(format, targetSessionId());
+      if (!exported) return;
+      const { title, content, extension, mimeType } = exported;
+      Utils.downloadFile(content, `${fileBaseName(title)}.${extension}`, mimeType);
+      closeExportModal();
+    } catch (error) {
+      await getDialogs().alert(t('chat_export_err', { err: error?.message || error }), { type: 'error' });
+    }
   }
 
   /** Imprime la conversación: si no es la activa, cambia antes a ella. */

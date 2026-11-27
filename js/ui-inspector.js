@@ -184,7 +184,6 @@
         progressBar.removeAttribute('value');
         return {
           isCurrent: () => getWebLLMState().operation?.id === operationId && getEditorContextKey(elements) === contextKey,
-          isSameEditor: () => getEditorContextKey(elements) === contextKey,
           finish: () => { if (getWebLLMState().operation?.id === operationId) setWebLLMState({ operation: null }); }
         };
       };
@@ -193,6 +192,13 @@
         setWebLLMState({ operation: null });
         refreshSelectableModels(elements, catalog);
         renderWebLLMModels(elements, catalog);
+      };
+      /** Vuelve a pintar la lista con el estado del modelo (reactiva todas sus acciones) y el error en su fila. */
+      const applyError = (webllmCache, errorMsg) => {
+        applyStatus(webllmCache);
+        const currentRow = [...elements.serverQueryStatus.querySelectorAll('.webllm-model-row')]
+          .find(item => item.querySelector('span').textContent.startsWith(`${id} ·`));
+        if (currentRow) currentRow.querySelector('span').textContent = stateLabel(errorMsg);
       };
 
       const downloadModel = async event => {
@@ -225,12 +231,7 @@
           const errorMsg = formatWebLLMErrorMessage(error, 'webllm_model_incomplete');
           addDebugLog('error', `[WebLLM] Could not prepare model ${id}: ${errorMsg}`);
           console.error(`[WebLLM] Could not prepare model ${id}:`, error);
-          if (op.isCurrent()) {
-            applyStatus('incomplete');
-            const currentRow = [...elements.serverQueryStatus.querySelectorAll('.webllm-model-row')]
-              .find(item => item.querySelector('span').textContent.startsWith(`${id} ·`));
-            if (currentRow) currentRow.querySelector('span').textContent = stateLabel(errorMsg);
-          }
+          if (op.isCurrent()) applyError('incomplete', errorMsg);
         } finally {
           op.finish();
         }
@@ -252,12 +253,8 @@
           const errorMsg = formatWebLLMErrorMessage(error, 'webllm_delete_failed');
           addDebugLog('error', `[WebLLM] Could not delete model ${id}: ${errorMsg}`);
           console.error(`[WebLLM] Could not delete model ${id}:`, error);
-          if (op.isSameEditor()) {
-            label.textContent = stateLabel(errorMsg);
-            progressBar.hidden = true;
-            button.disabled = false;
-            delete button.dataset.loading;
-          }
+          // Sigue en la caché: la lista vuelve a su estado con el resto de acciones activas.
+          if (op.isCurrent()) applyError(state, errorMsg);
         } finally {
           op.finish();
         }

@@ -18,6 +18,11 @@ test('ChatHtmlDocument - etiquetas con comilla sin cerrar se analizan en tiempo 
   assert.ok(doc.body.textContent.length > 0);
 });
 
+test('ChatHtmlDocument - etiquetas con nombre de propiedad de Object no rompen el análisis', () => {
+  const doc = HtmlDocument.parseHtml('<div><constructor>x</constructor><toString>y</toString></div>');
+  assert.equal(doc.body.textContent, 'xy');
+});
+
 test('ChatHtmlDocument - tope de profundidad en el borde exacto N y N+1 con recorridos iterativos', () => {
   const N = HtmlDocument.MAX_DEPTH;
 

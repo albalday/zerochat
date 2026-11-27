@@ -485,6 +485,7 @@
       const id = (state.ui.noticeSequence || 0) + 1;
       const item = { id, message: notice.message, title: notice.title, type: notice.type, mode: notice.mode };
       if (notice.mode === 'prompt') item.value = String(notice.value ?? '').slice(0, 10000);
+      if (notice.mode === 'prompt' && notice.inputType === 'password') item.inputType = 'password';
       if (notice.acceptText) item.acceptText = String(notice.acceptText).slice(0, 100);
       if (notice.cancelText) item.cancelText = String(notice.cancelText).slice(0, 100);
       if (notice.checkbox) item.checkbox = String(notice.checkbox).slice(0, 500);

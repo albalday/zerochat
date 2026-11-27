@@ -493,6 +493,7 @@
     banner.innerHTML = `<summary class="branch-summary-header"><span class="branch-summary-title">${Icons.get('git-branch', { size: 14 })}<span>${escapeHtml(t('chat_branch_summary_title'))}</span></span></summary>
       <div class="branch-summary-body">${getMarkdown().parseMarkdown(summaryBlock.content)}</div>`;
     container.appendChild(banner);
+    getMarkdown().attachContentListeners(banner);
     return banner;
   }
 

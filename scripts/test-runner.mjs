@@ -185,8 +185,8 @@ export function resolveChangedFiles() {
   const changed = getChangedFiles();
   if (changed.length === 0) return [];
 
-  // Excepción AGENTS.md: cambios exclusivos de documentación/ayuda no disparan tests
-  const isDocOnly = changed.every(f => f.startsWith('help/') || f.startsWith('docs/') || f.endsWith('.md') || f === 'LICENSE');
+  // Excepción AGENTS.md: cambios exclusivos de documentación no disparan tests (help/ solo su prueba de páginas)
+  const isDocOnly = changed.every(f => f.startsWith('docs/') || f.startsWith('.zerochat/') || f.endsWith('.md') || f === 'LICENSE');
   if (isDocOnly) return [];
 
   const levelsToRun = new Set();
@@ -205,19 +205,31 @@ export function resolveChangedFiles() {
       continue;
     }
 
-    if (f === 'zerochat.py' || f.startsWith('py/')) {
+    if (f.startsWith('help/')) {
+      directTestFiles.add('tests/architecture/test_help_pages.js');
+    }
+    if (f === 'zerochat.py' || f.startsWith('py/') || f.startsWith('services/')) {
       levelsToRun.add('infrastructure');
     }
-    if (f.startsWith('css/') || f === 'zerochat.html' || f === 'manifest.webmanifest' || f.startsWith('js/ui-') || f === 'js/icons.js' || f === 'sw.js') {
+    if (f === 'zerochat.py' || f.startsWith('py/')) {
+      levelsToRun.add('architecture');
+    }
+    if (f.startsWith('templates/')) {
+      levelsToRun.add('unit');
+      levelsToRun.add('integration');
+      levelsToRun.add('infrastructure');
+    }
+    if (f.startsWith('css/') || f === 'zerochat.html' || f === 'files.html' || f === 'manifest.webmanifest' || f.startsWith('js/ui-') || f === 'js/files-page.js' || f === 'js/icons.js' || f === 'sw.js') {
       levelsToRun.add('browser');
       levelsToRun.add('architecture');
     }
-    if (f.startsWith('js/engine/') || f.startsWith('js/providers') || f.startsWith('js/tools/') || f.startsWith('js/mcp')) {
+    if (f.startsWith('js/providers') || f.startsWith('js/tools/') || f.startsWith('js/mcp')) {
       levelsToRun.add('integration');
       levelsToRun.add('unit');
     }
     if (f.startsWith('js/')) {
       levelsToRun.add('unit');
+      levelsToRun.add('architecture');
     }
     if (f === 'package.json' || f === 'package-lock.json' || f.startsWith('scripts/')) {
       levelsToRun.add('unit');
@@ -392,7 +404,8 @@ export async function run() {
       console.error(`Error al invocar ${command}:`, err);
       reject(err);
     });
-    child.on('close', code => resolve({ code: code ?? 0, output }));
+    // Un proceso muerto por señal (SIGKILL, SIGSEGV, OOM) llega con code null: es un fallo, no un éxito.
+    child.on('close', (code, signal) => resolve({ code: code ?? (signal ? 1 : 0), output }));
   });
 
   // Python corre a la vez que node --test y sus informes se escriben, en el orden

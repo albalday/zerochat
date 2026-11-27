@@ -12,6 +12,10 @@ test('ChatUtils - escapa HTML y sanea URLs y orígenes de imagen no confiables',
   assert.equal(ChatUtils.sanitizeUrl('https://example.test/" onclick="alert(1)'), 'https://example.test/&quot; onclick=&quot;alert(1)');
   assert.equal(ChatUtils.sanitizeUrl('javascript:alert(1)'), '#');
   assert.equal(ChatUtils.sanitizeUrl('//evil.test/path'), '#');
+  for (const hidden of ['\x01javascript:alert(1)', 'java\tscript:alert(1)', 'java\nscript:alert(1)', ' \x00javascript:alert(1)', 'javascript\x7f:alert(1)', '\x03//evil.test']) {
+    assert.equal(ChatUtils.sanitizeUrl(hidden), '#', JSON.stringify(hidden));
+  }
+  assert.equal(ChatUtils.sanitizeUrl('https://e.test/\ta'), 'https://e.test/a');
   assert.equal(ChatUtils.sanitizeImageUrl('https://example.test/a.png'), 'https://example.test/a.png');
   assert.equal(ChatUtils.sanitizeImageUrl('data:text/html,<script>alert(1)</script>'), '');
   assert.equal(ChatUtils.sanitizeImageUrl('javascript:alert(1)'), '');

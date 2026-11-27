@@ -18,9 +18,9 @@
   const resolvedRagImagesCache = new Map();
   const RAG_IMG_PLACEHOLDER = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"%3E%3C/svg%3E';
 
-  const { escapeHtml, sanitizeUrl, sanitizeImageUrl, resolveDep } = Utils;
-  // Las URL de imagen se validan sobre texto ya escapado (parseTextMarkdown), así que
-  // el valor de sanitizeImageUrl puede interpolarse en atributos sin escaparlo de nuevo.
+  const { escapeHtml, sanitizeUrl, validateLinkUrl, sanitizeImageUrl, resolveDep } = Utils;
+  // Las URL de enlaces e imágenes se validan sobre texto ya escapado (parseTextMarkdown), así que
+  // el valor de validateLinkUrl y sanitizeImageUrl puede interpolarse en atributos sin escaparlo de nuevo.
 
   // El código en línea se aparta antes de las tablas y las demás reglas para que |, *, _,
   // enlaces o imágenes dentro de él se muestren literales; se restaura al terminar.
@@ -75,8 +75,8 @@
     p = p.replace(/!\[([^\]]*)\]\(([^)]+)\)/gi, (match, altText, url) => keep(renderImage(altText, url, inlineImages)));
     // Enlaces: [texto](url); el texto del enlace sí recibe negrita y cursiva.
     p = p.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (match, linkText, url) => {
-      const safeHref = sanitizeUrl(url);
-      if (safeHref === '#') return linkText;
+      const safeHref = validateLinkUrl(url);
+      if (!safeHref) return linkText;
       return `${keep(`<a href="${safeHref}" target="_blank" rel="noopener noreferrer">`)}${linkText}</a>`;
     });
     // Negrita y cursiva
@@ -513,7 +513,8 @@
     p = p.replace(/^# (.*$)/gm, '<h1>$1</h1>');
 
     // 5. Citas / Blockquotes (> texto)
-    p = p.replace(/^> (.*$)/gm, '<blockquote>$1</blockquote>');
+    // El texto ya está escapado (parseTextMarkdown): el > de la cita llega como &gt;.
+    p = p.replace(/^&gt; (.*$)/gm, '<blockquote>$1</blockquote>');
 
     // 6. Listas no ordenadas (- item o * item)
     p = p.replace(/(?:^[ \t]*[*-][ \t]+.+(?:\n|$))+/gm, function (match) {
@@ -590,7 +591,8 @@
       const rawCode = codeLines.join('\n');
       const safeLang = escapeHtml(codeLang || 'javascript');
       const safeCode = escapeHtml(rawCode);
-      const rawCodeAttr = encodeURIComponent(rawCode);
+      // toWellFormed: un sustituto UTF-16 suelto haría lanzar URIError a encodeURIComponent.
+      const rawCodeAttr = encodeURIComponent(rawCode.toWellFormed());
 
       const trimmedLang = (codeLang || '').trim().toLowerCase();
       const isPreviewable = Utils.isPreviewable(trimmedLang);

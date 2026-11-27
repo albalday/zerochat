@@ -45,6 +45,8 @@
     const maxVal = Math.max(...allValues, 1);
     const minVal = Math.min(0, ...allValues);
     const valRange = maxVal - minVal;
+    // Coordenada Y de un valor en la misma escala que las marcas del eje (de minVal a maxVal).
+    const yOf = value => padding.top + chartHeight - ((value - minVal) / valRange) * chartHeight;
 
     // Ejes y cuadrícula horizontal
     const numTicks = 5;
@@ -79,9 +81,10 @@
 
       datasets.forEach((ds, dsIdx) => {
         const val = (ds.data && ds.data[groupIdx] !== undefined) ? ds.data[groupIdx] : 0;
-        const barH = (val / (maxVal || 1)) * chartHeight;
+        // La barra va de la línea del cero al valor, hacia abajo si es negativo.
+        const barH = Math.abs(yOf(0) - yOf(val));
         const barX = groupX + dsIdx * singleBarWidth;
-        const barY = padding.top + chartHeight - barH;
+        const barY = Math.min(yOf(0), yOf(val));
         const color = ds.color || COLOR_PALETTE[dsIdx % COLOR_PALETTE.length];
 
         bars += `
@@ -118,6 +121,7 @@
     const maxVal = Math.max(...allValues, 1);
     const minVal = Math.min(0, ...allValues);
     const valRange = maxVal - minVal;
+    const yOf = value => padding.top + chartHeight - ((value - minVal) / valRange) * chartHeight;
 
     let gridLines = '';
     const numTicks = 5;
@@ -149,7 +153,7 @@
       const color = ds.color || COLOR_PALETTE[dsIdx % COLOR_PALETTE.length];
       const points = (ds.data || []).map((val, idx) => {
         const x = labels.length > 1 ? padding.left + idx * stepX : padding.left + chartWidth / 2;
-        const y = padding.top + chartHeight - (val / (maxVal || 1)) * chartHeight;
+        const y = yOf(val);
         return { x, y, val, label: labels[idx] };
       });
 
@@ -261,7 +265,7 @@
    * Renderiza el contenedor completo de la tarjeta de gráfico interactivo.
    */
   function renderChartCard(config) {
-    const type = (config.type || 'bar').toLowerCase();
+    const type = String(config.type || 'bar').toLowerCase();
     const title = config.title || t('chart_default_title');
     const description = config.description || '';
     // Los argumentos llegan del modelo sin validar: los valores se interpolan en atributos SVG.

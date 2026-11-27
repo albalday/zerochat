@@ -313,6 +313,16 @@ test('RagService - diversifica corpus entre documentos y aplica maxPerDocument d
   assert.equal(explicitRes.maxChunksPerDocument, 3);
   assert.ok(explicitRes.matches.filter(m => m.documentId === dominant.id).length === 3);
 
+  // Un maxPerDocument enorme termina al agotarse los resultados de cada documento.
+  const hugeRes = await RagService.searchKnowledgeBase(skewBranch.id, {
+    query: 'battery specification',
+    scope: 'corpus',
+    maxPerDocument: Number.MAX_SAFE_INTEGER,
+    limit: 1000,
+    tolerance: 0
+  });
+  assert.equal(hugeRes.matches.length, 31);
+
   // En scope auto con un solo documento candidato amplía la profundidad.
   const autoBranch = await RagStorage.createBranch('FinancialBench_Auto');
   await RagStorage.saveDocument({

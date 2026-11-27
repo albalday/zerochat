@@ -394,7 +394,7 @@
           const paragraph = findOpen(['p'], ['button', 'table']);
           if (paragraph > 0) closeUntil(paragraph);
         }
-        const implied = IMPLIED_END[name];
+        const implied = Object.prototype.hasOwnProperty.call(IMPLIED_END, name) ? IMPLIED_END[name] : null;
         if (implied) {
           const index = findOpen(implied.closes, implied.scope);
           if (index > 0) closeUntil(index);

@@ -182,11 +182,14 @@
       const groups = result.groups.map(group => Array.isArray(group.result) ? group.result : []);
       const groupedHits = [];
       const maxPerDocument = Number(options.maxPerDocument) > 0 ? Number(options.maxPerDocument) : 2;
+      // Una ronda toma el resultado `round` de cada documento; sin ninguno, los grupos están agotados.
       for (let round = 0; round < maxPerDocument && groupedHits.length < limit; round += 1) {
+        const before = groupedHits.length;
         for (const group of groups) {
           if (group[round]) groupedHits.push(group[round]);
           if (groupedHits.length >= limit) break;
         }
+        if (groupedHits.length === before) break;
       }
       rawHits = groupedHits;
     }
