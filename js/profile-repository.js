@@ -370,8 +370,14 @@
 
     const pushLocal = async local => {
       const saved = await saveRemote(await buildRemoteUploadPayload(local));
+      // Una clave guardada que no se abre es un fallo del almacenamiento del navegador: se olvida (sin subirla vacía, el
+      // servidor conserva la suya) y manda lo que dice el servidor. Si tiene clave, la siguiente sincronización la trae.
+      const unreadable = Boolean(local.settings.apiKey) && !(await readableApiKey(local.settings.apiKey));
+      const kept = unreadable
+        ? { ...local, hasApiKey: Boolean(saved?.hasApiKey), settings: { ...local.settings, apiKey: null } }
+        : local;
       nextProfiles.push(normalizeRecord({
-        ...local,
+        ...kept,
         version: Math.max(local.version, Number(saved?.version) || 1),
         updatedAt: validTimestamp(saved?.updatedAt, local.updatedAt),
         synced: true
