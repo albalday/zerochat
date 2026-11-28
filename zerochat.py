@@ -4747,11 +4747,15 @@ def _npm_install_needed(marker: Path, package_dir: Path, package: str, version: 
     return installation.get("package") != package or installation.get("version") != version
 
 
-def _install_playwright_browser(service_dir: Path, browser: str, node: str):
+# Lo más que espera una instalación (npm install, playwright install) antes de darla por fallida.
+MCP_INSTALL_TIMEOUT_SECONDS = 600
+
+
+def _install_playwright_browser(service_dir: Path, browser: str, node: str, run):
     playwright_cli = service_dir / "node_modules" / "playwright" / "cli.js"
     if not playwright_cli.is_file():
         raise RuntimeError("No se encontró Playwright después de instalar el servicio MCP")
-    result = subprocess.run([node, str(playwright_cli), "install", browser], cwd=service_dir, capture_output=True, text=True, timeout=600)
+    result = run([node, str(playwright_cli), "install", browser], service_dir)
     if result.returncode != 0:
         raise RuntimeError(f"Fallo instalando el navegador {browser} de Playwright: {result.stderr or result.stdout}")
 
@@ -4768,7 +4772,11 @@ class McpServiceManager:
         self._lock = threading.Lock()
         self._state_changed = threading.Condition()
         self._state_rev = 0
-        self._starting: set[str] = set()
+        # Arranques pedidos con start_async y aún sin terminar, con la marca de cada uno: stop, configure y
+        # set_secret la retiran, y el hilo que aún esperaba _lock ya no arranca el servicio.
+        self._starting: dict[str, object] = {}
+        # Instalaciones en curso (npm, playwright install): close() las termina sin esperar a _lock.
+        self._installs: set[subprocess.Popen] = set()
         self._catalog_stop = threading.Event()
         self._services: dict[str, dict] | None = None
         # Huella de los service.json con la que se leyó _services en list_servers (ver _service_files_signature).
@@ -4935,16 +4943,34 @@ class McpServiceManager:
         manifest = service_dir / "package.json"
         manifest.write_text(json.dumps({"private": True, "dependencies": {package: version}}, indent=2), encoding="utf-8")
         npm = shutil.which("npm") or "npm"
-        res = subprocess.run([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=service_dir, capture_output=True, text=True, timeout=600)
+        res = self._run_install([npm, "install", "--ignore-scripts", "--no-audit", "--no-fund"], service_dir)
         if res.returncode != 0:
             raise RuntimeError(f"Fallo instalando dependencias npm: {res.stderr or res.stdout}")
         self._trace(server_id, f"npm package installed: {package}@{version}")
         installation = {"type": "npm", "package": package, "version": version, "nodeExecutable": node}
         browser = product.get("browser")
         if browser:
-            _install_playwright_browser(service_dir, browser, node)
+            _install_playwright_browser(service_dir, browser, node, self._run_install)
             installation["browser"] = browser
         marker.write_text(json.dumps(installation, indent=2), encoding="utf-8")
+
+    def _run_install(self, cmd: list[str], cwd: Path) -> subprocess.CompletedProcess:
+        """Como subprocess.run con capture_output, pero en _installs mientras dura: close() puede terminarlo (con
+        su grupo, también los node que lanza npm) en vez de esperar hasta MCP_INSTALL_TIMEOUT_SECONDS."""
+        proc = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                start_new_session=DETECTED_OS != "windows")
+        with self._state_changed:
+            self._installs.add(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=MCP_INSTALL_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(proc)
+            proc.communicate()
+            raise
+        finally:
+            with self._state_changed:
+                self._installs.discard(proc)
+        return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
     def _check_node_requirement(self, server_id: str, installer: dict, node: str):
         """Comprueba la versión mínima de Node.js que declara el instalador."""
@@ -4969,16 +4995,29 @@ class McpServiceManager:
         if int(version_match.group(1)) < required_node_major:
             raise RuntimeError(f"{server_id} requiere Node.js {required_node_major}+; se detectó {detected}")
 
-    def start(self, server_id: str) -> list[dict]:
-        """Arranca un servicio MCP externo y devuelve la lista actualizada de servicios."""
+    def start(self, server_id: str, _start_mark: object | None = None) -> list[dict]:
+        """Arranca un servicio MCP externo y devuelve la lista actualizada de servicios. Con _start_mark (el hilo de
+        start_async), no lo arranca si mientras esperaba _lock otra operación retiró su marca."""
         try:
             with self._lock:
+                if _start_mark is not None:
+                    with self._state_changed:
+                        cancelled = self._starting.get(server_id) is not _start_mark
+                    if cancelled:
+                        return self.list_servers()
                 self.services = self._load_services()
                 self._start_locked(server_id)
                 return self.list_servers()
         finally:
             with self._state_changed:
-                self._starting.discard(server_id)
+                if _start_mark is None or self._starting.get(server_id) is _start_mark:
+                    self._starting.pop(server_id, None)
+                self._state_changed.notify_all()
+
+    def _cancel_pending_start(self, server_id: str) -> None:
+        """Retira el arranque encolado del servicio, si lo hay: quien lo detiene o lo cambia ya no lo quiere en marcha."""
+        with self._state_changed:
+            if self._starting.pop(server_id, None) is not None:
                 self._state_changed.notify_all()
 
     def start_async(self, server_id: str) -> int:
@@ -4992,15 +5031,16 @@ class McpServiceManager:
             if record.client and record.client.running():
                 return self._state_rev
             should_launch = server_id not in self._starting
+            start_mark = object()
             if should_launch:
-                self._starting.add(server_id)
+                self._starting[server_id] = start_mark
                 record.phase, record.error = "starting", None
                 self._state_rev += 1
                 self._state_changed.notify_all()
             rev = self._state_rev
         if should_launch:
             notify_live_change()
-            threading.Thread(target=self.start, args=(server_id,), name=f"mcp-start-{server_id}", daemon=True).start()
+            threading.Thread(target=self.start, args=(server_id, start_mark), name=f"mcp-start-{server_id}", daemon=True).start()
         return rev
 
     def wait_server(self, server_id: str, wait_ms: int, since_rev: int | None = None) -> dict:
@@ -5121,6 +5161,7 @@ class McpServiceManager:
             else:
                 save_secret(key, value)
             self._trace(server_id, f"secret {name} {'deleted' if value is None else 'saved'}")
+            self._cancel_pending_start(server_id)
             record = self.records.pop(server_id, None)
             if record and record.client:
                 record.client.stop()
@@ -5130,6 +5171,7 @@ class McpServiceManager:
     def stop(self, server_id: str) -> list[dict]:
         with self._lock:
             self.services = self._load_services()
+            self._cancel_pending_start(server_id)
             record = self.records.pop(server_id, McpServiceRecord())
             if server_id not in self.services and not record.client:
                 raise KeyError(f"Servidor MCP desconocido: {server_id}")
@@ -5175,6 +5217,7 @@ class McpServiceManager:
                         changed = True
             self._save_preferences()
             if changed:
+                self._cancel_pending_start(server_id)
                 record = self.records.pop(server_id, None)
                 if record and record.client:
                     record.client.stop()
@@ -5301,6 +5344,17 @@ class McpServiceManager:
 
     def close(self):
         self._catalog_stop.set()
+        # Antes de esperar a _lock, que un arranque retiene mientras instala (hasta MCP_INSTALL_TIMEOUT_SECONDS por
+        # paso) o espera un OAuth: se terminan las instalaciones y los clientes que arrancan, ese arranque falla
+        # enseguida y suelta _lock.
+        with self._state_changed:
+            installs = list(self._installs)
+            self._starting.clear()
+        for proc in installs:
+            _kill_process_tree(proc)
+        for record in list(self.records.values()):
+            if record.client and record.phase in ("installing", "starting"):
+                record.client.stop()
         with self._lock:
             for record in self.records.values():
                 if record.client:
