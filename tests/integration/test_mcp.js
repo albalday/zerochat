@@ -712,32 +712,21 @@ test('ChatMCP - start: sigue fases por long-poll con oauthUrl y respeta su presu
   req2.mock.restore();
 });
 
-test('ChatMCP - runExternalServerAction: el plazo de espera agotado deja el servicio en starting con el aviso de OAuth', async t => {
+test('ChatMCP - runExternalServerAction: guarda oauthUrl sin ventana (Node) y el plazo agotado deja starting con aviso', async t => {
   const previousMcp = ChatState.get('mcp');
   ChatState.set('mcp', { ...previousMcp, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
   t.after(() => ChatState.set('mcp', previousMcp));
   const manager = MCP.manager;
   t.mock.method(manager, 'startExternalServer', async (id, onWait) => {
-    onWait(3, 10);
+    onWait(3, 10, 'starting', { oauthUrl: 'https://example.com/oauth' });
     assert.deepEqual(ChatState.get('mcp').externalServers[0].startWait, { attempt: 3, total: 10 });
+    assert.equal(ChatState.get('mcp').externalServers[0].oauthUrl, 'https://example.com/oauth');
     throw Object.assign(new Error('Wait expired'), { code: 'EXTERNAL_START_WAIT_TIMEOUT', externalServer: { id: 'ejemplo', status: 'starting' } });
   });
   assert.equal(await manager.runExternalServerAction('ejemplo', 'start'), false);
   const [server] = ChatState.get('mcp').externalServers;
   assert.deepEqual({ status: server.status, startWait: server.startWait }, { status: 'starting', startWait: null });
   assert.match(server.error, /OAuth/);
-});
-
-test('ChatMCP - runExternalServerAction: sin ventana (runner de Node) la URL de OAuth no se abre ni rompe el arranque', async t => {
-  const previousMcp = ChatState.get('mcp');
-  ChatState.set('mcp', { ...previousMcp, externalServers: [{ id: 'ejemplo', status: 'stopped' }] });
-  t.after(() => ChatState.set('mcp', previousMcp));
-  assert.equal(typeof window, 'undefined');
-  t.mock.method(MCP.manager, 'startExternalServer', async (id, onWait) => {
-    onWait(1, 10, 'starting', { oauthUrl: 'https://example.com/oauth' });
-  });
-  assert.equal(await MCP.manager.runExternalServerAction('ejemplo', 'start'), true);
-  assert.equal(ChatState.get('mcp').externalServers[0].oauthUrl, 'https://example.com/oauth');
 });
 
 test('MCP - cabecera de proyecto, disponibilidad por carpeta, caída de carpeta y carrera con setProjectDirectory', async () => {

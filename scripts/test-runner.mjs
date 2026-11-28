@@ -202,7 +202,7 @@ export function resolveChangedFiles() {
         for (const lvl of ['unit', 'integration', 'browser', 'architecture']) levelsToRun.add(lvl);
         continue;
       }
-      if (isTestFile(path.basename(f)) && fs.existsSync(path.join(rootDir, f))) {
+      if (isTestFile(path.basename(f)) && fs.existsSync(path.join(ROOT_DIR, f))) {
         directTestFiles.add(f);
       }
       for (const lvl of VALID_LEVELS) {

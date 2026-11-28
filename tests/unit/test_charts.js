@@ -17,6 +17,9 @@ test('ChatCharts - un tipo que no es texto no rompe la tarjeta y los valores neg
   ys.forEach((y, idx) => assert.ok(y >= 0 && y + heights[idx] <= height, `barra ${idx}: y=${y} alto=${heights[idx]}`));
   assert.equal(heights[0], heights[1], '10 y -10 miden lo mismo desde el cero');
   assert.equal(ys[1], ys[0] + heights[0], 'la barra negativa empieza en la línea del cero');
+  const labelYs = numbers(bar, /<g class="chart-bar-group">[\s\S]*?<text [^>]*y="([^"]+)"/g);
+  assert.ok(labelYs[0] < ys[0], 'la etiqueta positiva va sobre la barra');
+  assert.ok(labelYs[1] > ys[1] + heights[1], 'la etiqueta negativa va debajo de la barra');
 
   const line = ChatCharts.renderChartCard({ ...spec, type: 'line' });
   const points = numbers(line, /<circle [^>]*cy="([^"]+)"/g);

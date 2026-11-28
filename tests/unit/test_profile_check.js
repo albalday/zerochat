@@ -52,6 +52,9 @@ test('ProfileCheck - servidor caído, clave rechazada, error del servidor o mode
     assert.deepEqual(checkState(), { status: 'error', reason, message }, reason);
     assert.equal(limit(), null, reason);
   }
+  t.mock.method(require('../../js/context-manager.js'), 'findModelInCatalog', () => { throw new Error('catalog broke'); });
+  await checkWith(t, OPENAI, { success: true, models: [{ id: 'gemma' }] });
+  assert.deepEqual(checkState(), { status: 'error', reason: 'unreachable', message: 'catalog broke' });
 });
 
 test('ProfileCheck - la respuesta de una comprobación relevada por otra posterior se descarta', async t => {
@@ -78,12 +81,6 @@ test('ProfileCheck - WebLLM usa su ventana de contexto, Espejo quedan sin compro
   t.mock.method(Profiles, 'load', async () => { throw new Error('the local server did not answer'); });
   const unloadable = await checkWith(t, OPENAI, null);
   assert.deepEqual([checkState(), unloadable.length], [{ status: 'error', reason: 'unreachable', message: 'the local server did not answer' }, 0]);
-});
-
-test('ProfileCheck - un fallo inesperado de la comprobación se publica como error en vez de quedar comprobando', async t => {
-  t.mock.method(require('../../js/context-manager.js'), 'findModelInCatalog', () => { throw new Error('catalog broke'); });
-  await checkWith(t, OPENAI, { success: true, models: [{ id: 'gemma' }] });
-  assert.deepEqual(checkState(), { status: 'error', reason: 'unreachable', message: 'catalog broke' });
 });
 
 test('ProfileCheck - recheck vuelve a consultar el perfil activo sin que cambie y publica el nuevo resultado', async t => {

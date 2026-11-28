@@ -10681,6 +10681,16 @@ def _failure(error: str, elapsed_ms: int) -> dict:
     return {"success": False, "result": "", "logs": [], "executionTimeMs": elapsed_ms, "error": error}
 
 
+def _write_and_close(stream, data: bytes) -> None:
+    """Escribe el payload en stdin y cierra el flujo aunque el hijo haya terminado antes."""
+    try:
+        with contextlib.suppress(OSError):
+            stream.write(data)
+    finally:
+        with contextlib.suppress(OSError):
+            stream.close()
+
+
 def _run_child(node_path: str, payload: str, timeout_s: float) -> tuple[str, bytes, bytes, int | None]:
     """
     Lanza el hijo de Node, le pasa `payload` por stdin y lee stdout y stderr hasta NODE_SANDBOX_MAX_OUTPUT_BYTES
@@ -10702,31 +10712,28 @@ def _run_child(node_path: str, payload: str, timeout_s: float) -> tuple[str, byt
             overflow.set()
             _kill_process_tree(proc, grace_seconds=0.05)
 
+    writer = threading.Thread(target=_write_and_close, args=(proc.stdin, payload.encode("utf-8")), daemon=True)
     readers = [threading.Thread(target=read_bounded, args=(name, stream), daemon=True)
                for name, stream in (("stdout", proc.stdout), ("stderr", proc.stderr))]
+    writer.start()
     for reader in readers:
         reader.start()
     status = "done"
     try:
         try:
-            proc.stdin.write(payload.encode("utf-8"))
-            proc.stdin.close()
-        except OSError:
-            pass  # El hijo ya terminó: su salida explica por qué.
-        try:
             proc.wait(timeout=timeout_s)
         except subprocess.TimeoutExpired:
             status = "timeout"
             _kill_process_tree(proc, grace_seconds=0.05)
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired):
                 proc.wait(timeout=1.0)
-            except subprocess.TimeoutExpired:
-                pass
     finally:
+        writer.join(timeout=1.0)
         for reader in readers:
             reader.join(timeout=1.0)
-        for stream in (proc.stdout, proc.stderr):
-            stream.close()
+        for stream in (proc.stdin, proc.stdout, proc.stderr):
+            with contextlib.suppress(OSError):
+                stream.close()
     if status == "done" and overflow.is_set():
         status = "overflow"
     return status, outputs.get("stdout", b""), outputs.get("stderr", b""), proc.returncode

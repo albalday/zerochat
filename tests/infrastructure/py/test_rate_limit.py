@@ -1,44 +1,47 @@
 import threading
-import time
 import unittest
+from unittest.mock import patch
 
 from backend import zerochat
 
 
-def timed(limiter, key, policy, **kwargs):
-    """Segundos que tarda en obtener el turno."""
-    started = time.monotonic()
-    with limiter.slot(key, policy, **kwargs):
-        return time.monotonic() - started
-
-
 class RateLimiterTest(unittest.TestCase):
     def test_la_separacion_cuenta_desde_la_respuesta_anterior_y_falla_enseguida_si_supera_max_wait(self):
-        limiter = zerochat.RateLimiter()
-        # Separación holgada frente a lo que tarde la máquina entre dos instrucciones (la CI es lenta).
-        policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.5)
-        # Si la espera necesaria supera max_wait_s, falla enseguida sin esperar en vano.
-        started = time.monotonic()
-        with self.assertRaisesRegex(zerochat.RateLimitBusy, "web está ocupado"), limiter.slot("web", policy, max_wait_s=0.2):
-            pass
-        self.assertLess(time.monotonic() - started, 0.2)
-        # La primera tras crear el limitador (el arranque del proceso) espera la separación.
-        self.assertGreaterEqual(timed(limiter, "web", policy, max_wait_s=2), 0.3)
-        with limiter.slot("web", policy):
-            time.sleep(0.1)
-        # Se cuenta desde que terminó la anterior, no desde que empezó.
-        self.assertGreaterEqual(timed(limiter, "web", policy), 0.3)
-        # Cada recurso lleva su cuenta: uno sin separación no espera a los demás, pero si está ocupado agota max_wait_s.
-        self.assertLess(timed(limiter, "otro", zerochat.RatePolicy(concurrency=1)), 0.25)
-        with limiter.slot("lleno", zerochat.RatePolicy()), self.assertRaises(zerochat.RateLimitBusy):
-            with limiter.slot("lleno", zerochat.RatePolicy(), max_wait_s=0.1):
-                pass
+        clock = [100.0]
+
+        def advance(timeout=None):
+            clock[0] += timeout or 0.0
+            return False
+
+        with patch.object(zerochat.time, "monotonic", side_effect=lambda: clock[0]):
+            limiter = zerochat.RateLimiter()
+            policy = zerochat.RatePolicy(concurrency=1, min_interval_s=0.5)
+            with patch.object(limiter._condition, "wait", side_effect=advance):
+                # Si la espera necesaria supera max_wait_s, falla enseguida sin avanzar el reloj.
+                with self.assertRaisesRegex(zerochat.RateLimitBusy, "web está ocupado"), limiter.slot("web", policy, max_wait_s=0.2):
+                    pass
+                self.assertEqual(clock[0], 100.0)
+                # La primera tras crear el limitador (el arranque del proceso) espera la separación.
+                with limiter.slot("web", policy, max_wait_s=2) as waited:
+                    self.assertAlmostEqual(waited, 0.5)
+                # Se cuenta desde que terminó la anterior, no desde que empezó.
+                with limiter.slot("web", policy):
+                    clock[0] += 0.1
+                with limiter.slot("web", policy) as waited:
+                    self.assertAlmostEqual(waited, 0.5)
+                # Cada recurso lleva su cuenta: uno sin separación no espera a los demás, pero si está ocupado agota max_wait_s.
+                with limiter.slot("otro", zerochat.RatePolicy(concurrency=1)) as waited:
+                    self.assertEqual(waited, 0.0)
+                with limiter.slot("lleno", zerochat.RatePolicy()), self.assertRaises(zerochat.RateLimitBusy):
+                    with limiter.slot("lleno", zerochat.RatePolicy(), max_wait_s=0.1):
+                        pass
 
     def test_solo_entran_a_la_vez_las_llamadas_que_admite_y_las_demas_esperan_su_turno(self):
         for concurrency in (1, 2):
             with self.subTest(concurrency=concurrency):
                 limiter = zerochat.RateLimiter()
                 policy = zerochat.RatePolicy(concurrency=concurrency)
+                barrier = threading.Barrier(concurrency, timeout=2.0)
                 inside, peak, lock = [0], [0], threading.Lock()
 
                 def call():
@@ -46,7 +49,7 @@ class RateLimiterTest(unittest.TestCase):
                         with lock:
                             inside[0] += 1
                             peak[0] = max(peak[0], inside[0])
-                        time.sleep(0.05)
+                        barrier.wait()
                         with lock:
                             inside[0] -= 1
 

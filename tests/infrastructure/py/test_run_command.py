@@ -42,7 +42,9 @@ class ScriptedJob:
         end = min(start + max_bytes, start + self.chunk, self.total)
         return self.output[start:end], end
 
-    def wait_change(self, _pos, remaining, _cancel):
+    def wait_change(self, pos, remaining, _cancel):
+        if pos is not None and pos < self.total:
+            return
         time.sleep(min(remaining, 0.01))
 
 
@@ -132,9 +134,26 @@ class RunCommandTest(unittest.TestCase):
 
     def test_un_comando_que_agota_su_plazo_pasa_a_segundo_plano_y_detenerlo_mata_a_sus_descendientes(self):
         pid_file = self.data_dir / "descendiente.pid"
-        started = time.monotonic()
-        result = run(f"sh -c 'echo $$ > {pid_file}; exec sleep 100' & echo antes; sleep 100", timeout_seconds=1)
-        self.assertLess(time.monotonic() - started, 6)
+        ready_fifo = self.data_dir / "ready.fifo"
+        os.mkfifo(ready_fifo)
+        real_start = zerochat.JOBS.start
+
+        def start_with_instant_timeout(*args, **kwargs):
+            job = real_start(*args, **kwargs)
+            real_wait = job.done.wait
+            def wait_until_output_then_expire(_timeout=None):
+                while job.total < len("antes\n") and not job.done.is_set():
+                    job.wait_change(job.total, 5.0, threading.Event())
+                job.done.wait = real_wait  # type: ignore[method-assign]
+                return False
+            job.done.wait = wait_until_output_then_expire  # type: ignore[method-assign]
+            return job
+
+        with patch.object(zerochat.JOBS, "start", side_effect=start_with_instant_timeout):
+            result = run(
+                f"(sh -c 'echo $$ > {pid_file}; echo ok > {ready_fifo}; exec sleep 100' &); read _ < {ready_fifo}; echo antes; sleep 100",
+                timeout_seconds=1,
+            )
         self.assertEqual((result["success"], result["status"], result["output"]), (True, "running", "antes\n"))
         self.assertIn("moved to the background", result["note"])
         self.assertIn(f"check_command(job_id={result['job_id']}", result["note"])
@@ -249,20 +268,37 @@ class BackgroundCommandTest(unittest.TestCase):
         # del mismo tope (TOOL_WAIT_MAX_SECONDS) se pidan los segundos que se pidan, con o sin ejecución desatendida.
         self.assertLess(zerochat.TOOL_WAIT_MAX_SECONDS, 300)
         self.assertEqual((zerochat.COMMAND_MAX_TIMEOUT, zerochat.COMMAND_MAX_WAIT, zerochat.AGENT_MAX_WAIT), (zerochat.TOOL_WAIT_MAX_SECONDS,) * 3)
+        real_start = zerochat.JOBS.start
         for run_session in (None, zerochat.RunSession("Hola")):
             with self.subTest(run_mode=run_session is not None):
                 gate = self._gate(f"gate-tope-{run_session is not None}")
+                seen_timeouts, seen_waits = [], []
+
+                def start_recording_timeout(*args, **kwargs):
+                    job = real_start(*args, **kwargs)
+                    real_wait = job.done.wait
+                    def record_and_expire(timeout=None):
+                        seen_timeouts.append(timeout)
+                        job.done.wait = real_wait  # type: ignore[method-assign]
+                        return False
+                    job.done.wait = record_and_expire  # type: ignore[method-assign]
+                    return job
+
+                def fake_wait_job(_job, wait, _terms, _cancel):
+                    seen_waits.append(wait)
+                    return "wait_elapsed", None
+
                 with patch.object(zerochat, "COMMAND_MAX_TIMEOUT", 1), patch.object(zerochat, "COMMAND_MAX_WAIT", 1), \
-                        patch.object(zerochat, "RUN_SESSION", run_session):
-                    started = time.monotonic()
+                        patch.object(zerochat, "RUN_SESSION", run_session), \
+                        patch.object(zerochat.JOBS, "start", side_effect=start_recording_timeout), \
+                        patch.object(zerochat, "_wait_job", side_effect=fake_wait_job):
                     moved = run(f"read _ < '{gate}'", timeout_seconds=600)
-                    self.assertLess(time.monotonic() - started, 10)
+                    self.assertEqual(seen_timeouts, [1])
                     self.assertEqual(moved["status"], "running")
                     self.assertIn("Still running after 1 s", moved["note"])
                     self.assertIn("wait_seconds=1)", moved["note"])
-                    started = time.monotonic()
                     waited = check(moved["job_id"], wait_seconds=600)
-                    self.assertLess(time.monotonic() - started, 10)
+                    self.assertEqual(seen_waits, [1])
                     self.assertEqual((waited["returned_because"], waited["status"]), ("wait_elapsed", "running"))
                 self._open_gate(gate)
                 self.assertEqual(check(moved["job_id"], wait_seconds=10)["returned_because"], "command_finished")
@@ -280,9 +316,7 @@ class BackgroundCommandTest(unittest.TestCase):
                          ("running", "pattern_matched", "Server listening(8080)"))
         self.assertEqual(matched["new_output"], "a" * 40 + "!\nServer listening(8080)\n")
         # Solo cuenta la salida nueva: la línea ya vista no vuelve a coincidir.
-        started = time.monotonic()
-        again = check(server["job_id"], wait_seconds=1, pattern="listening")
-        self.assertGreaterEqual(time.monotonic() - started, 0.9)
+        again = check(server["job_id"], wait_seconds=0, pattern="listening")
         self.assertEqual((again["returned_because"], again["new_output"]), ("wait_elapsed", ""))
         self.assertNotIn("matched_line", again)
         self.assertIn("No new output while waiting", again["note"])

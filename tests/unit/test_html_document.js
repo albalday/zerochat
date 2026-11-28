@@ -8,7 +8,7 @@ function nestDivs(depth, innerText) {
   return `${'<div>'.repeat(depth)}${innerText}${'</div>'.repeat(depth)}`;
 }
 
-test('ChatHtmlDocument - etiquetas con comilla sin cerrar se analizan en tiempo lineal acotado', () => {
+test('ChatHtmlDocument - etiquetas con comilla sin cerrar se analizan en tiempo lineal acotado y toleran nombres de Object', () => {
   const hostile = '<a title="sin cerrar '.repeat(12000); // ~240 KiB
   const start = performance.now();
   const doc = HtmlDocument.parseHtml(hostile);
@@ -16,11 +16,7 @@ test('ChatHtmlDocument - etiquetas con comilla sin cerrar se analizan en tiempo 
 
   assert.ok(elapsedMs < 500, `el análisis tardó ${elapsedMs.toFixed(1)} ms`);
   assert.ok(doc.body.textContent.length > 0);
-});
-
-test('ChatHtmlDocument - etiquetas con nombre de propiedad de Object no rompen el análisis', () => {
-  const doc = HtmlDocument.parseHtml('<div><constructor>x</constructor><toString>y</toString></div>');
-  assert.equal(doc.body.textContent, 'xy');
+  assert.equal(HtmlDocument.parseHtml('<div><constructor>x</constructor><toString>y</toString></div>').body.textContent, 'xy');
 });
 
 test('ChatHtmlDocument - tope de profundidad en el borde exacto N y N+1 con recorridos iterativos', () => {

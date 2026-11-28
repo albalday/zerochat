@@ -33,6 +33,16 @@
   const { escapeHtml, formatShortValue } = Utils;
   const { t } = I18n;
 
+  /** Calcula el rango vertical y la coordenada Y para gráficos de barras y líneas. */
+  function createYScale(datasets, padding, chartHeight) {
+    const allValues = datasets.flatMap(d => d.data || []);
+    const maxVal = Math.max(...allValues, 1);
+    const minVal = Math.min(0, ...allValues);
+    const valRange = maxVal - minVal;
+    const yOf = value => padding.top + chartHeight - ((value - minVal) / valRange) * chartHeight;
+    return { minVal, valRange, yOf };
+  }
+
   /**
    * Genera un gráfico de barras verticales en SVG.
    */
@@ -40,13 +50,7 @@
     const padding = { top: 40, right: 30, bottom: 60, left: 60 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
-
-    const allValues = datasets.flatMap(d => d.data || []);
-    const maxVal = Math.max(...allValues, 1);
-    const minVal = Math.min(0, ...allValues);
-    const valRange = maxVal - minVal;
-    // Coordenada Y de un valor en la misma escala que las marcas del eje (de minVal a maxVal).
-    const yOf = value => padding.top + chartHeight - ((value - minVal) / valRange) * chartHeight;
+    const { minVal, valRange, yOf } = createYScale(datasets, padding, chartHeight);
 
     // Ejes y cuadrícula horizontal
     const numTicks = 5;
@@ -85,6 +89,7 @@
         const barH = Math.abs(yOf(0) - yOf(val));
         const barX = groupX + dsIdx * singleBarWidth;
         const barY = Math.min(yOf(0), yOf(val));
+        const labelY = val < 0 ? barY + Math.max(barH, 2) + 12 : barY - 5;
         const color = ds.color || COLOR_PALETTE[dsIdx % COLOR_PALETTE.length];
 
         bars += `
@@ -92,7 +97,7 @@
             <rect x="${barX}" y="${barY}" width="${Math.max(singleBarWidth - 2, 2)}" height="${Math.max(barH, 2)}" fill="${color}" rx="3">
               <title>${escapeHtml(label)} (${escapeHtml(ds.label || t('chart_default_series_value'))}): ${val.toLocaleString()}</title>
             </rect>
-            <text x="${barX + singleBarWidth / 2}" y="${barY - 5}" font-size="10" font-weight="600" text-anchor="middle" fill="${color}">
+            <text x="${barX + singleBarWidth / 2}" y="${labelY}" font-size="10" font-weight="600" text-anchor="middle" fill="${color}">
               ${formatShortValue(val)}
             </text>
           </g>
@@ -116,12 +121,7 @@
     const padding = { top: 40, right: 30, bottom: 60, left: 60 };
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
-
-    const allValues = datasets.flatMap(d => d.data || []);
-    const maxVal = Math.max(...allValues, 1);
-    const minVal = Math.min(0, ...allValues);
-    const valRange = maxVal - minVal;
-    const yOf = value => padding.top + chartHeight - ((value - minVal) / valRange) * chartHeight;
+    const { minVal, valRange, yOf } = createYScale(datasets, padding, chartHeight);
 
     let gridLines = '';
     const numTicks = 5;

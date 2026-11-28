@@ -128,8 +128,11 @@ class PersistentBrowserSessionTest(unittest.TestCase):
             def __init__(self, cmd, **kwargs):
                 super().__init__([sys.executable, "-c", script] if cmd[:1] == ["node"] else cmd, **kwargs)
 
+            def wait(self, timeout=None):
+                return super().wait(timeout=min(timeout, 0.05) if timeout is not None else None)
+
         patches = (patch.object(zerochat.shutil, "which", return_value="node"), patch.object(zerochat.subprocess, "Popen", FakeNode),
-                   patch.object(zerochat, "BROWSER_ACTION_TIMEOUT_SECONDS", 0.5))
+                   patch.object(zerochat, "BROWSER_ACTION_TIMEOUT_SECONDS", 0.05))
         for patcher in patches:
             patcher.start()
             self.addCleanup(patcher.stop)

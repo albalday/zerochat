@@ -43,6 +43,8 @@ test('Markdown - escapa HTML y renderiza tablas, código, pensamiento y reglas h
     assert.ok(html.includes('<hr>'), 'Debe convertir --- a <hr>');
     assert.ok(html.includes('Sección 1'));
     assert.ok(html.includes('Sección 2'));
+    assert.equal(Markdown.parseMarkdown('> hola <b>'), '<blockquote>hola &lt;b&gt;</blockquote>');
+    assert.match(Markdown.parseMarkdown('```js\nconst s = "\uD800";\n```'), /data-code="[^"]*%EF%BF%BD/);
   }
 });
 
@@ -154,22 +156,14 @@ test('Markdown - solo los bloques de código HTML y SVG incluyen botón de vista
 });
 
 
-test('Markdown - negrita y cursiva no se aplican dentro de las URL de enlaces e imágenes', () => {
+test('Markdown - enlaces e imágenes: conservan URL/consulta, no aplican formato interno y descartan esquemas ocultos', () => {
   const href = '<a href="https://e.com/a__b__c" target="_blank" rel="noopener noreferrer">';
   assert.equal(Markdown.parseMarkdown('ver [**doc**](https://e.com/a__b__c) ya'), `<p>ver ${href}<strong>doc</strong></a> ya</p>`);
   const table = Markdown.parseMarkdown('| a |\n|---|\n| [x](https://e.com/a__b__c) ![i](https://e.com/*x*.png) |');
   assert.ok(table.includes(`<td>${href}x</a> <img`));
   assert.ok(table.includes('src="https://e.com/*x*.png"'));
-});
-
-test('Markdown - los enlaces conservan la consulta y descartan esquemas ocultos con controles', () => {
   assert.equal(Markdown.parseMarkdown('[a](https://e.com/?a=1&b=2)'), '<p><a href="https://e.com/?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">a</a></p>');
   assert.equal(Markdown.parseMarkdown('[x](\x03javascript:void%280%29)'), '<p>x</p>');
-});
-
-test('Markdown - las citas se reconocen sobre el texto escapado y el código con sustitutos sueltos no rompe el análisis', () => {
-  assert.equal(Markdown.parseMarkdown('> hola <b>'), '<blockquote>hola &lt;b&gt;</blockquote>');
-  assert.match(Markdown.parseMarkdown('```js\nconst s = "\uD800";\n```'), /data-code="[^"]*%EF%BF%BD/);
 });
 
 test('Markdown - resolvedRagImagesCache respeta el tope N/N+1 y clearRagImagesCache invalida por documento o todo', async t => {

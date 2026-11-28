@@ -70,18 +70,24 @@
     return result.error || I18n.t('tool_no_output');
   }
 
+  /** Normaliza un bloque MCP `{ type: 'image', data, mimeType }` y valida si es una imagen segura. */
+  function parseMcpImageItem(item) {
+    if (item?.type !== 'image' || typeof item.data !== 'string') return null;
+    const embedded = parseDataUrl(item.data);
+    const mimeType = String(embedded?.mimeType || item.mimeType || item.mime_type || 'image/png').toLowerCase();
+    const imageBase64 = embedded?.base64 || item.data.replace(/\s+/g, '');
+    return { imageBase64, mimeType, valid: Boolean(toSafeImageDataUrl(imageBase64, mimeType)) };
+  }
+
   /**
    * Extrae la primera imagen segura de un bloque MCP estándar `{ type: 'image', data, mimeType }`.
    */
   function extractImageFromMcpContent(content) {
     if (!Array.isArray(content)) return null;
     for (const item of content) {
-      if (item?.type !== 'image' || typeof item.data !== 'string') continue;
-      const embedded = parseDataUrl(item.data);
-      const mimeType = String(embedded?.mimeType || item.mimeType || item.mime_type || 'image/png').toLowerCase();
-      const imageBase64 = embedded?.base64 || item.data.replace(/\s+/g, '');
-      if (toSafeImageDataUrl(imageBase64, mimeType)) {
-        return { imageBase64, mimeType, item };
+      const parsed = parseMcpImageItem(item);
+      if (parsed?.valid) {
+        return { imageBase64: parsed.imageBase64, mimeType: parsed.mimeType, item };
       }
     }
     return null;
@@ -99,9 +105,15 @@
         if (!item || typeof item !== 'object') return JSON.stringify(item) ?? '';
         if (item.type === 'text') return item.text || '';
         if (item.type === 'image') {
-          return item === embeddedImage?.item
-            ? `[Embedded image: ${embeddedImage.mimeType} - attached as visual evidence]`
-            : `[Embedded image: ${item.mimeType || 'image/png'} (omitted: unsupported format or exceeds size limit)]`;
+          if (item === embeddedImage?.item) {
+            return `[Embedded image: ${embeddedImage.mimeType} - attached as visual evidence]`;
+          }
+          const parsed = parseMcpImageItem(item);
+          const mimeType = parsed?.mimeType || item.mimeType || item.mime_type || 'image/png';
+          const reason = parsed?.valid
+            ? 'only one image is attached per tool result'
+            : 'unsupported format or exceeds size limit';
+          return `[Embedded image: ${mimeType} (omitted: ${reason})]`;
         }
         if (item.type === 'resource') return `[Resource: ${item.resource?.uri || 'URI'}]\n${item.resource?.text || ''}`;
         return JSON.stringify(item);

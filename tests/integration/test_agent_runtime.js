@@ -33,29 +33,30 @@ test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanen
   } finally { security.manager.setToolPolicy = previous; }
 });
 
-test('AgentRuntime - un resultado MCP con elementos que no son objetos se muestra sin romper la tarjeta', () => {
+test('AgentRuntime - formatToolCallResult tolera elementos no objeto, adjunta la primera imagen válida y respeta MIME y tope N/N+1', () => {
   const McpResults = require('../../js/mcp-results.js');
-  const result = McpResults.formatToolCallResult({ content: [null, { type: 'text', text: 'hola' }, 7], isError: false });
-  assert.equal(result.content, 'null\n\nhola\n\n7');
-});
+  assert.equal(McpResults.formatToolCallResult({ content: [null, { type: 'text', text: 'hola' }, 7], isError: false }).content, 'null\n\nhola\n\n7');
 
-test('AgentRuntime - los bloques MCP type:image válidos llegan como evidencia visual y respetan MIME y tope N/N+1', () => {
-  const McpResults = require('../../js/mcp-results.js');
   const b64 = Buffer.from('png-bytes').toString('base64');
   const ok = McpResults.formatToolCallResult({
-    content: [{ type: 'text', text: 'Captura lista' }, { type: 'image', data: b64, mimeType: 'image/png' }],
+    content: [
+      { type: 'text', text: 'Captura lista' },
+      { type: 'image', data: b64, mimeType: 'image/png' },
+      { type: 'image', data: b64, mime_type: 'image/jpeg' }
+    ],
     isError: false
   });
   assert.equal(ok.image_base64, b64);
   assert.equal(ok.mime_type, 'image/png');
   assert.match(ok.content, /attached as visual evidence/);
+  assert.match(ok.content, /image\/jpeg \(omitted: only one image is attached per tool result\)/);
 
   const svg = McpResults.formatToolCallResult({
     content: [{ type: 'image', data: b64, mimeType: 'image/svg+xml' }],
     isError: false
   });
   assert.equal(svg.image_base64, undefined);
-  assert.match(svg.content, /omitted/);
+  assert.match(svg.content, /omitted: unsupported format or exceeds size limit/);
 
   const maxLen = 8 * 1024 * 1024;
   const atLimit = McpResults.formatToolCallResult({

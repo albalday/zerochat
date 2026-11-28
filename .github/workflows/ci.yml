@@ -75,9 +75,28 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 22
+      # Solo suites con comportamiento propio de plataforma (procesos, señales, shell, rutas, permisos, Node).
+      # Las de lógica pura ya se ejecutan en el job validate (Ubuntu).
       # -v deja en el log qué prueba corre; si se cuelga, faulthandler vuelca las pilas (tests/infrastructure/py/backend.py).
-      - run: python -m unittest discover -v -s tests/infrastructure/py -t tests/infrastructure/py
+      - run: >-
+          python -m unittest -v
+          test_browser
+          test_browser_config
+          test_environment
+          test_file_tools
+          test_login
+          test_mail_mcp
+          test_mcp_services
+          test_project_directories
+          test_run_command
+          test_runner_loader
+          test_sandbox
+          test_security
+          test_server_runs
+          test_storage
+          test_token
         env:
+          PYTHONPATH: tests/infrastructure/py
           ZEROCHAT_TEST_HANG_SECONDS: "480"
 
   browser:

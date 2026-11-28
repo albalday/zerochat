@@ -149,7 +149,7 @@ describe('Browser UI - navegador de ficheros', { concurrency: 2 }, () => {
       const slowAnswered = page.waitForResponse(response => response.request().postData()?.includes('"lenta"'));
       releaseSlow();
       await slowAnswered;
-      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)));
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       assert.equal(await page.locator('#files-list .files-entry-name').first().textContent(), 'de-rapida.txt');
       assert.deepEqual(files.errors, []);
     } finally {
