@@ -1,4 +1,4 @@
-"""Herramientas locales complementarias de Playwright MCP: secretos y estado de sesión (cookies/storage) por proyecto."""
+"""Herramientas locales complementarias de Playwright MCP: secretos y estado de sesión (cookies/localStorage/IndexedDB) por proyecto."""
 
 from __future__ import annotations
 
@@ -80,11 +80,11 @@ def _chmod_private(path: Path, mode: int) -> None:
 
 
 def browser_save_state(name: str, ctx: SecurityContext | None = None) -> str:
-    """Guarda el estado actual del navegador (cookies y localStorage) bajo el proyecto activo."""
+    """Guarda el estado actual del navegador (cookies, localStorage e IndexedDB) bajo el proyecto activo."""
     if ctx is None:
         return _tool_error("Project context is required to save browser state.")
     try:
-        rel_path, target = _browser_state_location(ctx, name)
+        _, target = _browser_state_location(ctx, name)
     except ValueError as exc:
         return _tool_error(str(exc))
     states_root = target.parent.parent
@@ -97,8 +97,14 @@ def browser_save_state(name: str, ctx: SecurityContext | None = None) -> str:
         existing = sum(1 for item in project_dir.iterdir() if item.is_file() and item.suffix == ".json")
         if existing >= MAX_BROWSER_STATES_PER_PROJECT:
             return _tool_error(f"Project reached the maximum of {MAX_BROWSER_STATES_PER_PROJECT} saved browser states.")
+    save_code = (
+        "async (page) => { "
+        f"await page.context().storageState({{ path: {json.dumps(str(target))}, indexedDB: true }}); "
+        "return true; "
+        "}"
+    )
     try:
-        failed = _mcp_call_failed("browser_storage_state", {"filename": rel_path})
+        failed = _mcp_call_failed("browser_run_code_unsafe", {"code": save_code})
     except Exception:
         return _tool_error("Error running Playwright MCP while saving browser state.")
     if failed or not target.is_file():
@@ -108,7 +114,7 @@ def browser_save_state(name: str, ctx: SecurityContext | None = None) -> str:
 
 
 def browser_load_state(name: str, ctx: SecurityContext | None = None) -> str:
-    """Restaura un estado guardado del navegador (cookies y localStorage) del proyecto activo."""
+    """Restaura un estado guardado del navegador (cookies, localStorage e IndexedDB) del proyecto activo."""
     if ctx is None:
         return _tool_error("Project context is required to load browser state.")
     try:

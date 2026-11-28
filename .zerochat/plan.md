@@ -36,6 +36,7 @@ Done when: Las tareas abiertas de M97 quedan resueltas o evaluadas y descartadas
 - [x] M97-T16 Permitir que las herramientas MCP devuelvan imágenes visibles para el modelo (o añadir lectura de imágenes a read_file como evidencia visual multimodal) (2026-11-27)
 - [x] M97-T17 Añadir browser_save_state y browser_load_state en el backend (sobre --caps=vision,storage de Playwright MCP, ocultando las 17 herramientas crudas de storage) para guardar y restaurar cookies/localStorage por proyecto con permisos 0700/0600 (2026-11-27)
 - [x] M97-T18 Documentar en help/ (ES/EN) los dos usos de agentes como equivalente a skills (agentes reutilizables entre proyectos con --run-file/launch_agent y manuales leídos con read_file) (2026-11-28)
+- [x] M97-T19 browser_save_state guarda siempre IndexedDB (via browser_run_code_unsafe, oculto al modelo) además de cookies y localStorage (2026-11-28)
 
 ## M98 Auditoría 10.51.0: closed 2026-11-28
 

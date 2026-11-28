@@ -62,6 +62,7 @@ class BrowserFillSecretTest(unittest.TestCase):
 
     def test_browser_save_y_load_state_aislan_por_proyecto_validan_nombre_permisos_y_tope(self):
         import os
+        import re
         import stat
         from pathlib import Path
 
@@ -71,11 +72,18 @@ class BrowserFillSecretTest(unittest.TestCase):
         other_ctx = zerochat.SecurityContext(other_proj.resolve())
 
         def fake_call(public_name, args):
-            rel = args["filename"]
-            target = services_root / zerochat.PLAYWRIGHT_SERVER_ID / rel
-            if public_name.endswith("browser_storage_state"):
+            if public_name.endswith("browser_run_code_unsafe"):
+                code = args["code"]
+                self.assertIn("indexedDB: true", code)
+                match = re.search(r"path:\s*(\"(?:[^\"\\]|\\.)*\")", code)
+                self.assertIsNotNone(match, code)
+                target = Path(json.loads(match.group(1)))
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text('{"cookies":[{"name":"sid","value":"secret"}]}', encoding="utf-8")
+                target.write_text('{"cookies":[{"name":"sid","value":"secret"}],"origins":[{"origin":"https://x","localStorage":[],"indexedDB":[]}]}', encoding="utf-8")
+            elif public_name.endswith("browser_set_storage_state"):
+                self.assertIn("filename", args)
+            else:
+                self.fail(f"Unexpected MCP call: {public_name}")
             return {"content": [{"type": "text", "text": "ok"}], "isError": False}
 
         with patch.object(zerochat.GLOBAL_MCP_MANAGER, "services_root", services_root), \
@@ -86,11 +94,13 @@ class BrowserFillSecretTest(unittest.TestCase):
                 self.assertFalse(json.loads(zerochat.browser_load_state(bad, ctx=self.ctx))["success"], bad)
             call_mock.assert_not_called()
 
-            # Guardar y restaurar en el mismo proyecto
+            # Guardar (siempre con indexedDB: true) y restaurar en el mismo proyecto
             saved = json.loads(zerochat.browser_save_state("kutxabank", ctx=self.ctx))
             self.assertEqual(saved, {"success": True, "name": "kutxabank", "saved": True})
-            rel_saved = call_mock.call_args_list[-1].args[1]["filename"]
-            saved_file = Path(services_root / zerochat.PLAYWRIGHT_SERVER_ID / rel_saved)
+            save_call = call_mock.call_args_list[-1]
+            self.assertTrue(save_call.args[0].endswith("browser_run_code_unsafe"))
+            self.assertIn("indexedDB: true", save_call.args[1]["code"])
+            saved_file = Path(json.loads(re.search(r"path:\s*(\"(?:[^\"\\]|\\.)*\")", save_call.args[1]["code"]).group(1)))
             self.assertTrue(saved_file.is_file())
             if os.name != "nt":
                 self.assertEqual(stat.S_IMODE(saved_file.stat().st_mode), 0o600)
@@ -98,6 +108,12 @@ class BrowserFillSecretTest(unittest.TestCase):
 
             loaded = json.loads(zerochat.browser_load_state("kutxabank", ctx=self.ctx))
             self.assertEqual(loaded, {"success": True, "name": "kutxabank", "loaded": True})
+            load_call = call_mock.call_args_list[-1]
+            self.assertTrue(load_call.args[0].endswith("browser_set_storage_state"))
+            self.assertEqual(
+                services_root / zerochat.PLAYWRIGHT_SERVER_ID / load_call.args[1]["filename"],
+                saved_file,
+            )
             # Aislamiento: otro proyecto no ve el estado guardado de bancos
             self.assertFalse(json.loads(zerochat.browser_load_state("kutxabank", ctx=other_ctx))["success"])
 

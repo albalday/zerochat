@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "playwright",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "displayName": {
     "es": "Playwright MCP",
     "en": "Playwright MCP"
@@ -34,6 +34,7 @@
     "browser_sessionstorage_get": { "enabledByDefault": false },
     "browser_sessionstorage_list": { "enabledByDefault": false },
     "browser_sessionstorage_set": { "enabledByDefault": false },
+    "browser_run_code_unsafe": { "enabledByDefault": false },
     "browser_storage_state": { "enabledByDefault": false },
     "browser_set_storage_state": { "enabledByDefault": false }
   }

@@ -40,10 +40,10 @@
       }
     },
     "playwright": {
-      "version": "1.2.0",
+      "version": "1.2.1",
       "files": {
         "installer.json": "18860def7ac85efa743ddc2a5cc2c4906cf35e0c9965e433420f8b90a5df2e1f",
-        "service.json": "5c2837281c943763288982b28aa1eb525112664155f1f7cd3ef22ff263b4b545"
+        "service.json": "1f9581cfdf6b86c75599fe3aaa1716ace23d1d1c3dffdb91c299404f040bb25a"
       }
     }
   }

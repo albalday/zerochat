@@ -226,7 +226,7 @@ LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "browser_save_state",
         "description": (
-            "Save the current Playwright browser session state (cookies and localStorage) under a name scoped to this project "
+            "Save the current Playwright browser session state (cookies, localStorage and IndexedDB) under a name scoped to this project "
             "so later runs can reuse an authenticated session without repeating 2FA."
         ),
         "inputSchema": {
@@ -240,8 +240,8 @@ LOCAL_TOOLS_DEFINITIONS = [
     {
         "name": "browser_load_state",
         "description": (
-            "Restore a previously saved Playwright browser session state (cookies and localStorage) for this project. "
-            "Clears current cookies and localStorage before restoring."
+            "Restore a previously saved Playwright browser session state (cookies, localStorage and IndexedDB) for this project. "
+            "Clears current cookies, localStorage and IndexedDB before restoring."
         ),
         "inputSchema": {
             "type": "object",
