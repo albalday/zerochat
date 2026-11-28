@@ -538,8 +538,10 @@
 
   /** Conversaciones de cualquier proyecto que necesitan atención: aviso sobre el compositor y en la pestaña. */
   const getAttentionCounts = (sessions = State.get('sessions'), mcp = State.get('mcp')) => ServerRun.attentionCounts(sessions.list, mcp.serverRuns);
+  // La lista de ejecuciones es la del servidor solo tras su primer estado vivo (LIVE_RESET la vacía al desconectar).
+  const attentionLiveLoaded = () => Boolean(State.get('mcp').conversationsRev);
   function syncAttention(counts) {
-    UIComposer.renderAttentionNotice(elements, counts);
+    UIComposer.renderAttentionNotice(elements, counts, { liveLoaded: attentionLiveLoaded() });
     TabAlert.setAttention({
       needsInput: counts.agentsNeedsInput + counts.chatsNeedsInput,
       error: counts.agentsError + counts.chatsError
@@ -552,7 +554,7 @@
     UIReasoning.syncProjectIndicator(elements, getRuntimeConfig(), State.get('project'));
     UIProject.syncProjectFilesLink(elements);
     syncLiveServerRun();
-    UIComposer.renderAttentionNotice(elements, getAttentionCounts());
+    UIComposer.renderAttentionNotice(elements, getAttentionCounts(), { liveLoaded: attentionLiveLoaded() });
   }
 
   function updateUIFromConfig() {

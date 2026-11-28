@@ -68,7 +68,8 @@
 
   /**
    * Conversaciones de `sessions` (todos los proyectos) que necesitan atención según `runs`, por historial (agentes o
-   * chats) y estado, y `key`, sus firmas conversación:estado ordenadas y unidas por saltos de línea. Plano para que un
+   * chats) y estado, y `key`, sus firmas conversación:estado:runId ordenadas y unidas por saltos de línea (con el runId,
+   * una ejecución nueva que vuelve a fallar es un aviso nuevo aunque no se viera en marcha entre medias). Plano para que un
    * selector de ChatState lo compare sin cambios. Una ejecución cuya conversación aún no está en la lista no cuenta
    * hasta que la lista la trae.
    */
@@ -80,7 +81,7 @@
       const session = sessions.find(item => item.id === run.conversationId);
       if (!session) continue;
       counts[`${session.agent ? 'agents' : 'chats'}${run.status === 'error' ? 'Error' : 'NeedsInput'}`] += 1;
-      entries.push(`${run.conversationId}:${run.status}`);
+      entries.push(`${run.conversationId}:${run.status}${run.runId ? `:${run.runId}` : ''}`);
     }
     return { ...counts, key: entries.sort().join('\n') };
   }

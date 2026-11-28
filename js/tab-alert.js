@@ -58,9 +58,14 @@
     return total > 0 ? `(${total}) ${title}` : title;
   }
 
+  // Solo lo que cambia: el parpadeo alterna el título, y reasignar el mismo favicon lo vuelve a decodificar. Se compara
+  // con lo que hay en el documento, no con lo último escrito aquí: I18n también fija el título al cambiar de idioma.
   function render() {
-    document.title = buildTitle();
-    document.getElementById('app-favicon').href = buildFaviconHref();
+    const title = buildTitle();
+    if (document.title !== title) document.title = title;
+    const favicon = document.getElementById('app-favicon');
+    const href = buildFaviconHref();
+    if (favicon.getAttribute('href') !== href) favicon.setAttribute('href', href);
   }
 
   function stopBlink() {

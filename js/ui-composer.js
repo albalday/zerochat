@@ -177,6 +177,8 @@
     listen(elements.btnDismissAttention, 'click', () => {
       attentionKeys.dismissed = attentionKeys.shown;
       elements.attentionNotice.hidden = true;
+      // El botón desaparece con el aviso: el foco vuelve al cuadro de mensaje en vez de perderse en el documento.
+      userInput.focus();
     });
     listen(elements.btnAttachFile, 'click', () => elements.fileInput.click());
     listen(elements.fileInput, 'change', event => {
@@ -187,9 +189,10 @@
   /**
    * Aviso pasivo sobre el compositor con las conversaciones que necesitan atención (ServerRun.attentionCounts):
    * por historial, cuántas esperan y cuántas fallaron, sin las partes a cero. Oculto si no hay ninguna o si se cerró
-   * y desde entonces no ha aparecido ninguna conversación o estado nuevo.
+   * y desde entonces no ha aparecido ninguna conversación o estado nuevo. Sin la lista viva del servidor (liveLoaded
+   * falso: desconectado o reconectando) no se olvida lo cerrado, para que un corte breve no vuelva a abrir el aviso.
    */
-  function renderAttentionNotice(elements, counts) {
+  function renderAttentionNotice(elements, counts, { liveLoaded = true } = {}) {
     const detail = (waiting, error) => [
       waiting > 0 ? t('attention_notice_waiting', { count: waiting }) : '',
       error > 0 ? t('attention_notice_error', { count: error }) : ''
@@ -199,7 +202,7 @@
       ['attention_notice_chats', detail(counts.chatsNeedsInput, counts.chatsError)]
     ].filter(([, text]) => text).map(([key, text]) => t(key, { detail: text }));
     attentionKeys.shown = counts.key;
-    attentionKeys.dismissed = getServerRun().keepDismissedAttention(attentionKeys.dismissed, counts.key);
+    if (liveLoaded) attentionKeys.dismissed = getServerRun().keepDismissedAttention(attentionKeys.dismissed, counts.key);
     elements.attentionNotice.hidden = !counts.key || attentionKeys.dismissed === counts.key;
     elements.attentionNotice.classList.toggle('has-error', counts.agentsError + counts.chatsError > 0);
     elements.attentionNoticeText.textContent = groups.length ? t('attention_notice', { groups: groups.join(' · ') }) : '';
