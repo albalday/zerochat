@@ -37,22 +37,36 @@
    */
   function runCode({ code, maxOutputLength, maxLogEntries, blockedGlobals }) {
     const logs = [];
+    const logLimitNotice = '... [console output limit reached: further logs dropped]';
+    let logChars = 0;
+    let logsDropped = false;
     const formatValue = value => {
       if (value === null) return 'null';
       if (value === undefined) return 'undefined';
       if (typeof value === 'bigint') return value.toString();
       if (typeof value !== 'object') return String(value);
       try {
-        return JSON.stringify(value, (_key, item) => (typeof item === 'bigint' ? item.toString() : item), 2);
+        // Un toJSON que devuelve undefined deja a JSON.stringify sin texto.
+        const text = JSON.stringify(value, (_key, item) => (typeof item === 'bigint' ? item.toString() : item), 2);
+        return text === undefined ? 'undefined' : text;
       } catch (_) {
         return String(value);
       }
     };
-    const truncate = text => (text.length > maxOutputLength ? `${text.slice(0, maxOutputLength)}... [output truncated]` : text);
+    const truncate = (text, limit = maxOutputLength) => (text.length > limit ? `${text.slice(0, limit)}... [output truncated]` : text);
+    // La consola entera cabe en maxLogEntries entradas y en maxOutputLength caracteres contando el salto de línea
+    // que las une: la primera que no cabe deja un aviso y las siguientes se descartan.
     const addLog = (prefix, args) => {
-      if (logs.length >= maxLogEntries) return;
+      if (logsDropped) return;
+      if (logs.length >= maxLogEntries || logChars >= maxOutputLength) {
+        logsDropped = true;
+        logs.push(logLimitNotice);
+        return;
+      }
       const text = args.map(formatValue).join(' ');
-      logs.push(truncate(prefix ? `[${prefix}] ${text}` : text));
+      const entry = truncate(prefix ? `[${prefix}] ${text}` : text, maxOutputLength - logChars);
+      logChars += entry.length + 1;
+      logs.push(entry);
     };
     const customConsole = {
       log: (...args) => addLog('', args),
@@ -60,7 +74,7 @@
       warn: (...args) => addLog('WARN', args),
       error: (...args) => addLog('ERROR', args)
     };
-    const failure = error => ({ success: false, result: '', logs, error: (error && error.message) || String(error) });
+    const failure = error => ({ success: false, result: '', logs, error: truncate(String((error && error.message) || String(error))) });
 
     // Sin Function.prototype.constructor no se escapa con ({}).constructor.constructor('return this')().
     // Se restaura cuando termina el código, también el asíncrono: no al volver la primera vez.
@@ -177,7 +191,7 @@
     }
     const { spawn } = require('node:child_process');
     // El mismo proceso hijo que lanza el servidor (scripts/sandbox-child.js).
-    const { NODE_SANDBOX_ARGS, NODE_SANDBOX_SCRIPT } = resolveDep('ChatSandboxNodeScript', './sandbox-node-script.js');
+    const { NODE_SANDBOX_ARGS, NODE_SANDBOX_MAX_OUTPUT_BYTES, NODE_SANDBOX_SCRIPT } = resolveDep('ChatSandboxNodeScript', './sandbox-node-script.js');
     const env = process.platform === 'win32' && process.env.SYSTEMROOT
       ? { SYSTEMROOT: process.env.SYSTEMROOT }
       : {};
@@ -195,8 +209,21 @@
         settled = true;
         resolve(payload);
       };
-      child.stdout.on('data', chunk => stdoutChunks.push(chunk));
-      child.stderr.on('data', chunk => stderrChunks.push(chunk));
+      // Cada salida se lee hasta NODE_SANDBOX_MAX_OUTPUT_BYTES: al pasarlo el hijo se mata en vez de seguir acumulando.
+      const collect = chunks => {
+        let bytes = 0;
+        return chunk => {
+          bytes += chunk.length;
+          if (bytes > NODE_SANDBOX_MAX_OUTPUT_BYTES) {
+            try { child.kill('SIGKILL'); } catch { /* process already exited */ }
+            finish({ success: false, result: '', logs: [], error: `The sandbox output exceeded ${NODE_SANDBOX_MAX_OUTPUT_BYTES} bytes and was discarded.` });
+            return;
+          }
+          chunks.push(chunk);
+        };
+      };
+      child.stdout.on('data', collect(stdoutChunks));
+      child.stderr.on('data', collect(stderrChunks));
       child.on('error', err => finish({ success: false, result: '', logs: [], error: err?.message || String(err) }));
       child.on('close', exitCode => {
         const raw = Buffer.concat(stdoutChunks).toString('utf8').trim();

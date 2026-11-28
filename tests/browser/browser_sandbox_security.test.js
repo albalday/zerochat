@@ -90,9 +90,22 @@ describe('Browser UI - Sandbox Security & Iframe Isolation', () => {
 
     const logsAtLimit = await run('for (let i = 0; i < 200; i++) console.log("Log " + i);\nreturn "done";');
     assert.equal(logsAtLimit.logs.length, 200);
+    const notice = '... [console output limit reached: further logs dropped]';
+    assert.ok(!logsAtLimit.logs.includes(notice));
     const logsOverLimit = await run('for (let i = 0; i < 201; i++) console.log("Log " + i);\nreturn "done";');
-    assert.equal(logsOverLimit.logs.length, 200);
-    assert.equal(logsOverLimit.logs.at(-1), 'Log 199', 'Las entradas que superan el tope se descartan');
+    assert.equal(logsOverLimit.logs.length, 201);
+    assert.equal(logsOverLimit.logs.at(-2), 'Log 199');
+    assert.equal(logsOverLimit.logs.at(-1), notice, 'Las entradas que superan el tope se descartan con un aviso');
+
+    // Toda la consola junta cabe en 30.000 caracteres contando el salto de línea que une las entradas.
+    const charsAtLimit = await run('console.log("A".repeat(29998)); console.log("B");');
+    assert.deepEqual(charsAtLimit.logs, ['A'.repeat(29998), 'B']);
+    const charsOverLimit = await run('console.log("A".repeat(29998)); console.log("BC"); console.log("D");');
+    assert.deepEqual(charsOverLimit.logs, ['A'.repeat(29998), 'B... [output truncated]', notice]);
+
+    assert.equal((await run('throw "E".repeat(30000);')).error, 'E'.repeat(30000));
+    assert.equal((await run('throw "E".repeat(30001);')).error, `${'E'.repeat(30000)}... [output truncated]`);
+    assert.equal((await run('return { toJSON() { return undefined; } };')).result, 'undefined');
   });
 
   test('Sandbox - un plazo vencido termina la ejecución y retira su iframe; timeoutMs solo admite números finitos positivos', async () => {

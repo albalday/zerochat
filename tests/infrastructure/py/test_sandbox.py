@@ -45,3 +45,20 @@ class SandboxExecutionTest(unittest.TestCase):
         res = zerochat.execute_js_sandbox("while (true) { await Promise.resolve(); }", timeout_ms=150)
         self.assertFalse(res["success"])
         self.assertIn("timed out after 150ms", res["error"])
+
+    def test_lee_del_proceso_hijo_hasta_el_tope_de_bytes_en_el_borde_exacto(self):
+        limit = zerochat.NODE_SANDBOX_MAX_OUTPUT_BYTES
+        start, end = '{"success":true,"result":"', '","logs":[]}'
+
+        def child_writing(size: int) -> str:
+            # Un hijo que escribe un resultado válido de exactamente `size` bytes.
+            return f"process.stdout.write({start!r} + 'x'.repeat({size - len(start) - len(end)}) + {end!r});"
+
+        with mock.patch.object(zerochat, "NODE_SANDBOX_SCRIPT", child_writing(limit)):
+            at_limit = zerochat.execute_js_sandbox("return 1;")
+        self.assertTrue(at_limit["success"], at_limit.get("error"))
+        self.assertEqual(len(at_limit["result"]), limit - len(start) - len(end))
+        with mock.patch.object(zerochat, "NODE_SANDBOX_SCRIPT", child_writing(limit + 1)):
+            over_limit = zerochat.execute_js_sandbox("return 1;")
+        self.assertFalse(over_limit["success"])
+        self.assertEqual(over_limit["error"], f"The sandbox output exceeded {limit} bytes and was discarded.")

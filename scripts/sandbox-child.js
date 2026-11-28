@@ -40,7 +40,10 @@ const prelude = (maxOutputLength, maxLogEntries) => `(() => {
   const slice = Function.prototype.call.bind(String.prototype.slice);
   const maxOut = ${maxOutputLength};
   const maxLogs = ${maxLogEntries};
+  const logLimitNotice = "... [console output limit reached: further logs dropped]";
   const logs = [];
+  let logChars = 0;
+  let logsDropped = false;
   let outcome;
 
   function formatValue(value) {
@@ -49,16 +52,27 @@ const prelude = (maxOutputLength, maxLogEntries) => `(() => {
     if (typeof value === "bigint") return value.toString();
     if (typeof value !== "object") return toText(value);
     try {
-      return stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item), 2);
+      // Un toJSON que devuelve undefined deja a stringify sin texto.
+      const text = stringify(value, (_key, item) => (typeof item === "bigint" ? item.toString() : item), 2);
+      return text === undefined ? "undefined" : text;
     } catch {
       return toText(value);
     }
   }
-  const truncate = text => (text.length > maxOut ? slice(text, 0, maxOut) + "... [output truncated]" : text);
+  const truncate = (text, limit = maxOut) => (text.length > limit ? slice(text, 0, limit) + "... [output truncated]" : text);
+  // La consola entera cabe en maxLogs entradas y en maxOut caracteres contando el salto de línea que las une:
+  // la primera que no cabe deja un aviso y las siguientes se descartan.
   function addLog(prefix, args) {
-    if (logs.length >= maxLogs) return;
+    if (logsDropped) return;
+    if (logs.length >= maxLogs || logChars >= maxOut) {
+      logsDropped = true;
+      push(logs, logLimitNotice);
+      return;
+    }
     const text = join(map(args, formatValue), " ");
-    push(logs, truncate(prefix ? "[" + prefix + "] " + text : text));
+    const entry = truncate(prefix ? "[" + prefix + "] " + text : text, maxOut - logChars);
+    logChars += entry.length + 1;
+    push(logs, entry);
   }
   const finish = value => {
     outcome = stringify({
@@ -74,7 +88,7 @@ const prelude = (maxOutputLength, maxLogEntries) => `(() => {
     } catch {
       message = "Error";
     }
-    outcome = stringify({ success: false, result: "", logs, error: message });
+    outcome = stringify({ success: false, result: "", logs, error: truncate(message) });
   };
 
   globalThis.console = {
@@ -150,7 +164,8 @@ const prelude = (maxOutputLength, maxLogEntries) => `(() => {
       failure('The sandbox returned an unreadable result.');
       return;
     }
-    const logs = Array.isArray(parsed.logs) ? parsed.logs.filter(item => typeof item === 'string').slice(0, maxLogEntries) : [];
+    // maxLogEntries entradas más el aviso de que no caben más.
+    const logs = Array.isArray(parsed.logs) ? parsed.logs.filter(item => typeof item === 'string').slice(0, maxLogEntries + 1) : [];
     if (parsed.success === true) respond({ success: true, result: String(parsed.result ?? ''), logs });
     else respond({ success: false, result: '', logs, error: String(parsed.error ?? 'Error') });
   }, POLL_MS);

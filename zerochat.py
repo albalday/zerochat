@@ -10380,7 +10380,8 @@ def dispatch_files(method: str, params: dict, ctx: SecurityContext) -> tuple[dic
 
 
 NODE_SANDBOX_ARGS = ["--permission","--disallow-code-generation-from-strings"]
-NODE_SANDBOX_SCRIPT = "'use strict';\n// Proceso hijo de execute_javascript en Node: ejecuta el c\u00f3digo del modelo en un contexto de node:vm.\n// Fuente \u00fanica: scripts/build-sandbox-script.mjs genera de aqu\u00ed py/tools/sandbox_script.py y\n// js/sandbox-node-script.js. Se lanza con `node --permission --disallow-code-generation-from-strings -e`.\n//\n// node:vm no es una frontera de seguridad, as\u00ed que hay tres capas:\n//  1. El contexto no recibe ning\u00fan objeto de este proceso: trae sus propios Object, Array, Promise\u2026, y\n//     console y el formato del resultado se definen dentro. Entre los dos lados solo cruzan cadenas, y\n//     el resultado se recoge por sondeo: ni siquiera se espera su promesa, que entregar\u00eda funciones de\n//     este lado a su `then`.\n//  2. Nadie genera c\u00f3digo desde cadenas: ni el contexto (codeGeneration) ni este proceso (el indicador\n//     de arranque). Si un objeto de aqu\u00ed se filtrara (un error de import()), su constructor de funciones\n//     no servir\u00eda para ejecutar nada.\n//  3. Antes de ejecutar el c\u00f3digo, este proceso se queda sin process, require ni module en su global.\nconst vm = require('node:vm');\n\nconst POLL_MS = 5;\nconst stdin = process.stdin;\nconst writeOut = process.stdout.write.bind(process.stdout);\n\nasync function readStdin() {\n  const chunks = [];\n  for await (const chunk of stdin) chunks.push(chunk);\n  return Buffer.concat(chunks).toString('utf8');\n}\n\nconst positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);\n\n// Se ejecuta dentro del contexto: todo lo que crea pertenece al contexto. Guarda las funciones que usa\n// antes de que el c\u00f3digo del modelo pueda cambiarlas.\nconst prelude = (maxOutputLength, maxLogEntries) => `(() => {\n  \"use strict\";\n  const stringify = JSON.stringify;\n  const toText = String;\n  const resolved = Promise.resolve.bind(Promise);\n  const then = Function.prototype.call.bind(Promise.prototype.then);\n  const push = Function.prototype.call.bind(Array.prototype.push);\n  const join = Function.prototype.call.bind(Array.prototype.join);\n  const map = Function.prototype.call.bind(Array.prototype.map);\n  const slice = Function.prototype.call.bind(String.prototype.slice);\n  const maxOut = ${maxOutputLength};\n  const maxLogs = ${maxLogEntries};\n  const logs = [];\n  let outcome;\n\n  function formatValue(value) {\n    if (value === null) return \"null\";\n    if (value === undefined) return \"undefined\";\n    if (typeof value === \"bigint\") return value.toString();\n    if (typeof value !== \"object\") return toText(value);\n    try {\n      return stringify(value, (_key, item) => (typeof item === \"bigint\" ? item.toString() : item), 2);\n    } catch {\n      return toText(value);\n    }\n  }\n  const truncate = text => (text.length > maxOut ? slice(text, 0, maxOut) + \"... [output truncated]\" : text);\n  function addLog(prefix, args) {\n    if (logs.length >= maxLogs) return;\n    const text = join(map(args, formatValue), \" \");\n    push(logs, truncate(prefix ? \"[\" + prefix + \"] \" + text : text));\n  }\n  const finish = value => {\n    outcome = stringify({\n      success: true,\n      result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? join(logs, \"\\\\n\") : \"undefined\"),\n      logs\n    });\n  };\n  const fail = error => {\n    let message;\n    try {\n      message = error && error.message ? toText(error.message) : toText(error);\n    } catch {\n      message = \"Error\";\n    }\n    outcome = stringify({ success: false, result: \"\", logs, error: message });\n  };\n\n  globalThis.console = {\n    log: (...args) => addLog(\"\", args),\n    info: (...args) => addLog(\"INFO\", args),\n    warn: (...args) => addLog(\"WARN\", args),\n    error: (...args) => addLog(\"ERROR\", args)\n  };\n  Object.defineProperty(globalThis, \"__sandbox\", {\n    value: Object.freeze({\n      run(fn) {\n        try {\n          then(resolved(fn()), finish, fail);\n        } catch (error) {\n          fail(error);\n        }\n      },\n      outcome: () => outcome\n    })\n  });\n})();`;\n\n(async () => {\n  const started = Date.now();\n  const payload = JSON.parse(await readStdin());\n  const code = String(payload.code ?? '');\n  const timeoutMs = positiveInt(payload.timeoutMs, 2500);\n  const maxOutputLength = positiveInt(payload.maxOutputLength, 30000);\n  const maxLogEntries = positiveInt(payload.maxLogEntries, 200);\n\n  const respond = result => writeOut(JSON.stringify({ ...result, executionTimeMs: Date.now() - started }));\n  const failure = error => respond({ success: false, result: '', logs: [], error });\n\n  // Capa 3: lo que un c\u00f3digo que alcanzara este global usar\u00eda para abrir una conexi\u00f3n o cargar m\u00f3dulos.\n  for (const key of ['process', 'require', 'module', 'exports', '__filename', '__dirname', 'fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource']) {\n    delete globalThis[key];\n  }\n\n  const trimmed = code.trim();\n  const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed)\n    || trimmed.includes(';') || trimmed.includes('\\n') || trimmed.includes('return');\n  const body = isStatement ? `\"use strict\";\\n${trimmed}` : `\"use strict\"; return (${trimmed});`;\n  const wrapper = `__sandbox.run(${/\\bawait\\b/.test(trimmed) ? 'async ' : ''}function () {\\n${body}\\n});`;\n\n  const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false } });\n  vm.runInContext(prelude(maxOutputLength, maxLogEntries), context);\n  try {\n    new vm.Script(wrapper).runInContext(context, { timeout: timeoutMs });\n  } catch (err) {\n    const timedOut = err && err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';\n    failure(timedOut ? `Execution timed out after ${timeoutMs}ms and was terminated.` : (err && err.message ? String(err.message) : String(err)));\n    return;\n  }\n\n  // El resultado es una cadena que deja el contexto; quien lanza este proceso lo mata al vencer el plazo.\n  const readOutcome = new vm.Script('__sandbox.outcome()');\n  const poll = setInterval(() => {\n    let raw;\n    try {\n      raw = readOutcome.runInContext(context, { timeout: 100 });\n    } catch {\n      return;\n    }\n    if (typeof raw !== 'string') return;\n    clearInterval(poll);\n    let parsed;\n    try {\n      parsed = JSON.parse(raw);\n    } catch {\n      parsed = null;\n    }\n    if (!parsed || typeof parsed !== 'object') {\n      failure('The sandbox returned an unreadable result.');\n      return;\n    }\n    const logs = Array.isArray(parsed.logs) ? parsed.logs.filter(item => typeof item === 'string').slice(0, maxLogEntries) : [];\n    if (parsed.success === true) respond({ success: true, result: String(parsed.result ?? ''), logs });\n    else respond({ success: false, result: '', logs, error: String(parsed.error ?? 'Error') });\n  }, POLL_MS);\n})();"
+NODE_SANDBOX_MAX_OUTPUT_BYTES = 1048576
+NODE_SANDBOX_SCRIPT = "'use strict';\n// Proceso hijo de execute_javascript en Node: ejecuta el c\u00f3digo del modelo en un contexto de node:vm.\n// Fuente \u00fanica: scripts/build-sandbox-script.mjs genera de aqu\u00ed py/tools/sandbox_script.py y\n// js/sandbox-node-script.js. Se lanza con `node --permission --disallow-code-generation-from-strings -e`.\n//\n// node:vm no es una frontera de seguridad, as\u00ed que hay tres capas:\n//  1. El contexto no recibe ning\u00fan objeto de este proceso: trae sus propios Object, Array, Promise\u2026, y\n//     console y el formato del resultado se definen dentro. Entre los dos lados solo cruzan cadenas, y\n//     el resultado se recoge por sondeo: ni siquiera se espera su promesa, que entregar\u00eda funciones de\n//     este lado a su `then`.\n//  2. Nadie genera c\u00f3digo desde cadenas: ni el contexto (codeGeneration) ni este proceso (el indicador\n//     de arranque). Si un objeto de aqu\u00ed se filtrara (un error de import()), su constructor de funciones\n//     no servir\u00eda para ejecutar nada.\n//  3. Antes de ejecutar el c\u00f3digo, este proceso se queda sin process, require ni module en su global.\nconst vm = require('node:vm');\n\nconst POLL_MS = 5;\nconst stdin = process.stdin;\nconst writeOut = process.stdout.write.bind(process.stdout);\n\nasync function readStdin() {\n  const chunks = [];\n  for await (const chunk of stdin) chunks.push(chunk);\n  return Buffer.concat(chunks).toString('utf8');\n}\n\nconst positiveInt = (value, fallback) => (Number.isInteger(value) && value > 0 ? value : fallback);\n\n// Se ejecuta dentro del contexto: todo lo que crea pertenece al contexto. Guarda las funciones que usa\n// antes de que el c\u00f3digo del modelo pueda cambiarlas.\nconst prelude = (maxOutputLength, maxLogEntries) => `(() => {\n  \"use strict\";\n  const stringify = JSON.stringify;\n  const toText = String;\n  const resolved = Promise.resolve.bind(Promise);\n  const then = Function.prototype.call.bind(Promise.prototype.then);\n  const push = Function.prototype.call.bind(Array.prototype.push);\n  const join = Function.prototype.call.bind(Array.prototype.join);\n  const map = Function.prototype.call.bind(Array.prototype.map);\n  const slice = Function.prototype.call.bind(String.prototype.slice);\n  const maxOut = ${maxOutputLength};\n  const maxLogs = ${maxLogEntries};\n  const logLimitNotice = \"... [console output limit reached: further logs dropped]\";\n  const logs = [];\n  let logChars = 0;\n  let logsDropped = false;\n  let outcome;\n\n  function formatValue(value) {\n    if (value === null) return \"null\";\n    if (value === undefined) return \"undefined\";\n    if (typeof value === \"bigint\") return value.toString();\n    if (typeof value !== \"object\") return toText(value);\n    try {\n      // Un toJSON que devuelve undefined deja a stringify sin texto.\n      const text = stringify(value, (_key, item) => (typeof item === \"bigint\" ? item.toString() : item), 2);\n      return text === undefined ? \"undefined\" : text;\n    } catch {\n      return toText(value);\n    }\n  }\n  const truncate = (text, limit = maxOut) => (text.length > limit ? slice(text, 0, limit) + \"... [output truncated]\" : text);\n  // La consola entera cabe en maxLogs entradas y en maxOut caracteres contando el salto de l\u00ednea que las une:\n  // la primera que no cabe deja un aviso y las siguientes se descartan.\n  function addLog(prefix, args) {\n    if (logsDropped) return;\n    if (logs.length >= maxLogs || logChars >= maxOut) {\n      logsDropped = true;\n      push(logs, logLimitNotice);\n      return;\n    }\n    const text = join(map(args, formatValue), \" \");\n    const entry = truncate(prefix ? \"[\" + prefix + \"] \" + text : text, maxOut - logChars);\n    logChars += entry.length + 1;\n    push(logs, entry);\n  }\n  const finish = value => {\n    outcome = stringify({\n      success: true,\n      result: value !== undefined ? truncate(formatValue(value)) : (logs.length > 0 ? join(logs, \"\\\\n\") : \"undefined\"),\n      logs\n    });\n  };\n  const fail = error => {\n    let message;\n    try {\n      message = error && error.message ? toText(error.message) : toText(error);\n    } catch {\n      message = \"Error\";\n    }\n    outcome = stringify({ success: false, result: \"\", logs, error: truncate(message) });\n  };\n\n  globalThis.console = {\n    log: (...args) => addLog(\"\", args),\n    info: (...args) => addLog(\"INFO\", args),\n    warn: (...args) => addLog(\"WARN\", args),\n    error: (...args) => addLog(\"ERROR\", args)\n  };\n  Object.defineProperty(globalThis, \"__sandbox\", {\n    value: Object.freeze({\n      run(fn) {\n        try {\n          then(resolved(fn()), finish, fail);\n        } catch (error) {\n          fail(error);\n        }\n      },\n      outcome: () => outcome\n    })\n  });\n})();`;\n\n(async () => {\n  const started = Date.now();\n  const payload = JSON.parse(await readStdin());\n  const code = String(payload.code ?? '');\n  const timeoutMs = positiveInt(payload.timeoutMs, 2500);\n  const maxOutputLength = positiveInt(payload.maxOutputLength, 30000);\n  const maxLogEntries = positiveInt(payload.maxLogEntries, 200);\n\n  const respond = result => writeOut(JSON.stringify({ ...result, executionTimeMs: Date.now() - started }));\n  const failure = error => respond({ success: false, result: '', logs: [], error });\n\n  // Capa 3: lo que un c\u00f3digo que alcanzara este global usar\u00eda para abrir una conexi\u00f3n o cargar m\u00f3dulos.\n  for (const key of ['process', 'require', 'module', 'exports', '__filename', '__dirname', 'fetch', 'WebSocket', 'XMLHttpRequest', 'EventSource']) {\n    delete globalThis[key];\n  }\n\n  const trimmed = code.trim();\n  const isStatement = /^(?:while|for|if|let|const|var|function|class|try|throw|switch|do)\\b/.test(trimmed)\n    || trimmed.includes(';') || trimmed.includes('\\n') || trimmed.includes('return');\n  const body = isStatement ? `\"use strict\";\\n${trimmed}` : `\"use strict\"; return (${trimmed});`;\n  const wrapper = `__sandbox.run(${/\\bawait\\b/.test(trimmed) ? 'async ' : ''}function () {\\n${body}\\n});`;\n\n  const context = vm.createContext(Object.create(null), { codeGeneration: { strings: false, wasm: false } });\n  vm.runInContext(prelude(maxOutputLength, maxLogEntries), context);\n  try {\n    new vm.Script(wrapper).runInContext(context, { timeout: timeoutMs });\n  } catch (err) {\n    const timedOut = err && err.code === 'ERR_SCRIPT_EXECUTION_TIMEOUT';\n    failure(timedOut ? `Execution timed out after ${timeoutMs}ms and was terminated.` : (err && err.message ? String(err.message) : String(err)));\n    return;\n  }\n\n  // El resultado es una cadena que deja el contexto; quien lanza este proceso lo mata al vencer el plazo.\n  const readOutcome = new vm.Script('__sandbox.outcome()');\n  const poll = setInterval(() => {\n    let raw;\n    try {\n      raw = readOutcome.runInContext(context, { timeout: 100 });\n    } catch {\n      return;\n    }\n    if (typeof raw !== 'string') return;\n    clearInterval(poll);\n    let parsed;\n    try {\n      parsed = JSON.parse(raw);\n    } catch {\n      parsed = null;\n    }\n    if (!parsed || typeof parsed !== 'object') {\n      failure('The sandbox returned an unreadable result.');\n      return;\n    }\n    // maxLogEntries entradas m\u00e1s el aviso de que no caben m\u00e1s.\n    const logs = Array.isArray(parsed.logs) ? parsed.logs.filter(item => typeof item === 'string').slice(0, maxLogEntries + 1) : [];\n    if (parsed.success === true) respond({ success: true, result: String(parsed.result ?? ''), logs });\n    else respond({ success: false, result: '', logs, error: String(parsed.error ?? 'Error') });\n  }, POLL_MS);\n})();"
 
 # --- tools.sandbox ---
 """Ejecución aislada de JavaScript en un subproceso Node sin credenciales ni permisos."""
@@ -10403,16 +10404,65 @@ def _normalize_timeout_ms(timeout_ms: int | float | None) -> int:
     return min(int(timeout_ms), MAX_SANDBOX_TIMEOUT_MS)
 
 
+def _failure(error: str, elapsed_ms: int) -> dict:
+    return {"success": False, "result": "", "logs": [], "executionTimeMs": elapsed_ms, "error": error}
+
+
+def _run_child(node_path: str, payload: str, timeout_s: float) -> tuple[str, bytes, bytes, int | None]:
+    """
+    Lanza el hijo de Node, le pasa `payload` por stdin y lee stdout y stderr hasta NODE_SANDBOX_MAX_OUTPUT_BYTES
+    cada uno. Devuelve (estado, stdout, stderr, código): estado "done", "timeout" o "overflow"; al vencer el plazo
+    o pasar el tope el hijo se mata en vez de seguir leyendo.
+    """
+    popen_kwargs: dict = {"stdin": subprocess.PIPE, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+                          "env": minimal_child_env()}
+    if DETECTED_OS != "windows":
+        popen_kwargs["start_new_session"] = True
+    proc = subprocess.Popen([node_path, *NODE_SANDBOX_ARGS, "-e", NODE_SANDBOX_SCRIPT], **popen_kwargs)
+    outputs: dict[str, bytes] = {}
+    overflow = threading.Event()
+
+    def read_bounded(name: str, stream) -> None:
+        data = stream.read(NODE_SANDBOX_MAX_OUTPUT_BYTES + 1)
+        outputs[name] = data
+        if len(data) > NODE_SANDBOX_MAX_OUTPUT_BYTES:
+            overflow.set()
+            _kill_process_tree(proc, grace_seconds=0.05)
+
+    readers = [threading.Thread(target=read_bounded, args=(name, stream), daemon=True)
+               for name, stream in (("stdout", proc.stdout), ("stderr", proc.stderr))]
+    for reader in readers:
+        reader.start()
+    status = "done"
+    try:
+        try:
+            proc.stdin.write(payload.encode("utf-8"))
+            proc.stdin.close()
+        except OSError:
+            pass  # El hijo ya terminó: su salida explica por qué.
+        try:
+            proc.wait(timeout=timeout_s)
+        except subprocess.TimeoutExpired:
+            status = "timeout"
+            _kill_process_tree(proc, grace_seconds=0.05)
+            try:
+                proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                pass
+    finally:
+        for reader in readers:
+            reader.join(timeout=1.0)
+        for stream in (proc.stdout, proc.stderr):
+            stream.close()
+    if status == "done" and overflow.is_set():
+        status = "overflow"
+    return status, outputs.get("stdout", b""), outputs.get("stderr", b""), proc.returncode
+
+
 def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict:
     """Ejecuta código JavaScript en un subproceso de Node sin entorno, con el script y los indicadores de tools.sandbox_script."""
     if not isinstance(code, str) or not code.strip():
-        return {
-            "success": False,
-            "result": "",
-            "logs": [],
-            "executionTimeMs": 0,
-            "error": "No code provided to execute.",
-        }
+        return _failure("No code provided to execute.", 0)
     resolved_timeout = _normalize_timeout_ms(timeout_ms)
     node_path = find_node_executable()
     if not node_path:
@@ -10425,36 +10475,13 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
         "maxLogEntries": MAX_SANDBOX_LOG_ENTRIES,
     })
     started = time.monotonic()
-    popen_kwargs = {
-        "stdin": subprocess.PIPE,
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        "env": minimal_child_env(),
-    }
-    if DETECTED_OS != "windows":
-        popen_kwargs["start_new_session"] = True
-    proc = subprocess.Popen([node_path, *NODE_SANDBOX_ARGS, "-e", NODE_SANDBOX_SCRIPT], **popen_kwargs)
-    try:
-        stdout, stderr = proc.communicate(input=payload, timeout=(resolved_timeout + 250) / 1000.0)
-    except subprocess.TimeoutExpired:
-        _kill_process_tree(proc, grace_seconds=0.05)
-        try:
-            proc.wait(timeout=1.0)
-        except subprocess.TimeoutExpired:
-            pass
-        return {
-            "success": False,
-            "result": "",
-            "logs": [],
-            "executionTimeMs": int((time.monotonic() - started) * 1000),
-            "error": f"Execution timed out after {resolved_timeout}ms and was terminated.",
-        }
-
+    status, stdout, stderr, returncode = _run_child(node_path, payload, (resolved_timeout + 250) / 1000.0)
     elapsed_ms = int((time.monotonic() - started) * 1000)
-    raw = (stdout or "").strip()
+    if status == "timeout":
+        return _failure(f"Execution timed out after {resolved_timeout}ms and was terminated.", elapsed_ms)
+    if status == "overflow":
+        return _failure(f"The sandbox output exceeded {NODE_SANDBOX_MAX_OUTPUT_BYTES} bytes and was discarded.", elapsed_ms)
+    raw = stdout.decode("utf-8", errors="replace").strip()
     if raw:
         try:
             parsed = json.loads(raw)
@@ -10462,14 +10489,8 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
                 return parsed
         except json.JSONDecodeError:
             pass
-    err_detail = (stderr or raw or f"Sandbox exited with code {proc.returncode}").strip()
-    return {
-        "success": False,
-        "result": "",
-        "logs": [],
-        "executionTimeMs": elapsed_ms,
-        "error": err_detail,
-    }
+    err_detail = (stderr.decode("utf-8", errors="replace") or raw or f"Sandbox exited with code {returncode}").strip()
+    return _failure(err_detail, elapsed_ms)
 
 # --- web.fetch ---
 """Transporte web saliente del servidor (zerochat/web/fetch): anti-SSRF en la URL y en cada redirección, cuerpo acotado, cabeceras de navegador y frecuencia por dominio."""

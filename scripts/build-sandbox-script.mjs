@@ -13,6 +13,9 @@ import { fileURLToPath } from 'node:url';
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // --permission quita disco y procesos; el otro indicador impide generar código desde cadenas en el proceso.
 const NODE_ARGS = ['--permission', '--disallow-code-generation-from-strings'];
+// Lo que se lee de stdout y de stderr del hijo. El script ya acota resultado, consola y error a 30 000
+// caracteres cada uno; en JSON un carácter ocupa como mucho 6 bytes (\uXXXX): 3 × 30 000 × 6 < 1 MiB.
+const MAX_OUTPUT_BYTES = 1024 * 1024;
 const NOTICE = 'Generated from scripts/sandbox-child.js by scripts/build-sandbox-script.mjs. Do not edit.';
 
 const outdirFlag = process.argv.indexOf('--outdir');
@@ -27,6 +30,7 @@ const python = `"""Proceso hijo de execute_javascript en Node. ${NOTICE}"""
 from __future__ import annotations
 
 NODE_SANDBOX_ARGS = ${literal(NODE_ARGS)}
+NODE_SANDBOX_MAX_OUTPUT_BYTES = ${MAX_OUTPUT_BYTES}
 NODE_SANDBOX_SCRIPT = ${literal(script)}
 `;
 
@@ -41,6 +45,7 @@ const javascript = `/** Proceso hijo de execute_javascript en Node. ${NOTICE} */
   'use strict';
   return {
     NODE_SANDBOX_ARGS: ${literal(NODE_ARGS)},
+    NODE_SANDBOX_MAX_OUTPUT_BYTES: ${MAX_OUTPUT_BYTES},
     NODE_SANDBOX_SCRIPT: ${literal(script)}
   };
 }));

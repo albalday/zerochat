@@ -2,6 +2,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const ChatSandbox = require('../../js/sandbox.js');
 
+const LOG_LIMIT_NOTICE = '... [console output limit reached: further logs dropped]';
+
 test('Sandbox Node - devuelve resultados de sentencias, expresiones, objetos, promesas y BigInt', async () => {
   const statement = await ChatSandbox.execute('const a = 10; const b = 20; return a + b;');
   assert.equal(statement.success, true);
@@ -58,9 +60,48 @@ test('Sandbox Node - acota la salida a 30.000 caracteres y la consola a 200 entr
   const logsAtLimit = await ChatSandbox.execute('for (let i = 0; i < 200; i++) console.log("Log " + i);\nreturn "done";');
   assert.equal(logsAtLimit.logs.length, 200);
 
+  assert.ok(!logsAtLimit.logs.includes(LOG_LIMIT_NOTICE));
   const logsOverLimit = await ChatSandbox.execute('for (let i = 0; i < 201; i++) console.log("Log " + i);\nreturn "done";');
-  assert.equal(logsOverLimit.logs.length, 200);
-  assert.equal(logsOverLimit.logs.at(-1), 'Log 199');
+  assert.equal(logsOverLimit.logs.length, 201);
+  assert.equal(logsOverLimit.logs.at(-2), 'Log 199');
+  assert.equal(logsOverLimit.logs.at(-1), LOG_LIMIT_NOTICE);
+
+  // Toda la consola junta cabe en 30.000 caracteres contando el salto de línea que une las entradas.
+  const charsAtLimit = await ChatSandbox.execute('console.log("A".repeat(29998)); console.log("B");');
+  assert.deepEqual(charsAtLimit.logs, ['A'.repeat(29998), 'B']);
+  assert.equal(charsAtLimit.result.length, 30000);
+  const charsOverLimit = await ChatSandbox.execute('console.log("A".repeat(29998)); console.log("BC"); console.log("D");');
+  assert.deepEqual(charsOverLimit.logs, ['A'.repeat(29998), 'B... [output truncated]', LOG_LIMIT_NOTICE]);
+
+  const errorAtLimit = await ChatSandbox.execute('throw "E".repeat(30000);');
+  assert.equal(errorAtLimit.error, 'E'.repeat(30000));
+  const errorOverLimit = await ChatSandbox.execute('throw "E".repeat(30001);');
+  assert.equal(errorOverLimit.error, `${'E'.repeat(30000)}... [output truncated]`);
+
+  const toJsonUndefined = await ChatSandbox.execute('return { toJSON() { return undefined; } };');
+  assert.equal(toJsonUndefined.success, true);
+  assert.equal(toJsonUndefined.result, 'undefined');
+});
+
+test('Sandbox Node - lee del proceso hijo hasta NODE_SANDBOX_MAX_OUTPUT_BYTES en el borde exacto', async () => {
+  const nodeScript = require('../../js/sandbox-node-script.js');
+  const original = nodeScript.NODE_SANDBOX_SCRIPT;
+  const limit = nodeScript.NODE_SANDBOX_MAX_OUTPUT_BYTES;
+  // Un hijo que escribe un resultado válido de exactamente `bytes` bytes.
+  const childWriting = bytes => `const end = '","logs":[]}'; const start = '{"success":true,"result":"';
+    process.stdout.write(start + "x".repeat(${bytes} - start.length - end.length) + end);`;
+  try {
+    nodeScript.NODE_SANDBOX_SCRIPT = childWriting(limit);
+    const atLimit = await ChatSandbox.execute('return 1;');
+    assert.equal(atLimit.success, true);
+    assert.equal(atLimit.result.length, limit - '{"success":true,"result":"","logs":[]}'.length);
+    nodeScript.NODE_SANDBOX_SCRIPT = childWriting(limit + 1);
+    const overLimit = await ChatSandbox.execute('return 1;');
+    assert.equal(overLimit.success, false);
+    assert.equal(overLimit.error, `The sandbox output exceeded ${limit} bytes and was discarded.`);
+  } finally {
+    nodeScript.NODE_SANDBOX_SCRIPT = original;
+  }
 });
 
 test('Sandbox Node - un plazo vencido termina la ejecución y devuelve error consistente', async () => {
