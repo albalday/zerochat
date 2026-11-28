@@ -35,6 +35,7 @@ Done when: Las tareas abiertas de M97 quedan resueltas o evaluadas y descartadas
 - [ ] M97-T15 Pendiente de decisión: al marcar «Mostrar la ventana» (headless=False) en Linux con zerochat.py arrancado sin DISPLAY (p. ej. con nohup por SSH), @playwright/mcp cae silenciosamente a --headless sin error ni aviso; decidir si mostrar advertencia en Ajustes › Navegador / log o comprobar DISPLAY antes de arrancar
 - [x] M97-T16 Permitir que las herramientas MCP devuelvan imágenes visibles para el modelo (o añadir lectura de imágenes a read_file como evidencia visual multimodal) (2026-11-27)
 - [x] M97-T17 Añadir browser_save_state y browser_load_state en el backend (sobre --caps=vision,storage de Playwright MCP, ocultando las 17 herramientas crudas de storage) para guardar y restaurar cookies/localStorage por proyecto con permisos 0700/0600 (2026-11-27)
+- [x] M97-T18 Documentar en help/ (ES/EN) los dos usos de agentes como equivalente a skills (agentes reutilizables entre proyectos con --run-file/launch_agent y manuales leídos con read_file) (2026-11-28)
 
 ## M98 Auditoría 10.51.0: closed 2026-11-28
 
@@ -52,5 +53,5 @@ Done when: Las tareas de fallos claros están corregidas con sus pruebas y `npm 
 - [x] M99-T8 Recomendación sincronización de API keys (js/profile-repository.js): curar en una sola sincronización las claves antiguas ilegibles cuando localTime > remoteTime mediante revealRemote y limpiar claves ilegibles en perfiles locales nuevos sin remoto (2026-11-28)
 - [x] M99-T9 Recomendación cobertura de pruebas: probar webllmModuleUrl ante hash inválido o error HTTP (test_webllm.js), RagStorage.readBackupText con rag_import_too_large (test_ingestion_engine.js), recarga al finalizar ejecución en reloadActiveSession (browser_run_mode.test.js) y ampliar test_ui_listeners.js a módulos UI restantes y funciones flecha (2026-11-28)
 - [x] M99-T10 Recomendación documentación y ayuda (js/README.md, py/README.md, docs/architecture.md, help/): sincronizar js/README.md (retirar Cifrado/Agente, excepción WebLLM SHA-384 y Math.max de fflate), corregir 'Ejecución en segundo plano' en help/tools-agent.html ES/EN, reflejar errores en el punto Chats/Agentes y stop_agent/prune_agents/disabledTools en help/ y docs/architecture.md, y retirar menciones residuales a 'master' (2026-11-27)
-- [ ] M99-T11 Revisar y sincronizar documentación y ayuda (docs/, js/README.md, py/README.md, help/ ES/EN) una vez completadas las tareas pendientes de M97, M98 y M99
+- [x] M99-T11 Revisar y sincronizar documentación y ayuda (docs/, js/README.md, py/README.md, help/ ES/EN) una vez completadas las tareas pendientes de M97, M98 y M99 (2026-11-28)
 
