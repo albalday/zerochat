@@ -49,7 +49,8 @@ class ScriptedJob:
 class WaitJobLinesTest(unittest.TestCase):
     def wait(self, output, pattern, finished=True, **kwargs):
         job = ScriptedJob(output, finished, **kwargs)
-        return zerochat._wait_job(job, 0.2, (pattern,), threading.Event())
+        # Plazo holgado: lo terminado vuelve al acabar de leer, y en macOS cada pausa entre tramos dura más.
+        return zerochat._wait_job(job, 5.0, (pattern,), threading.Event())
 
     def test_un_tramo_reescrito_con_retorno_de_carro_cuenta_como_linea(self):
         # La barra sigue en marcha y no ha escrito ningún \n: «100%» ya se ve en la terminal.

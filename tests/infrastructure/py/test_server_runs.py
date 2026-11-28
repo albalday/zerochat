@@ -1302,7 +1302,8 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
 
         # El plazo cuenta desde el arranque: vencido, termina el runner y deja el límite, no un error.
         timed = zerochat.RunSession("Hola", new_conversation_id="session_plazo", timeout_seconds=5)
-        timed.started_at -= 5000
+        # El supervisor cuenta el plazo con el reloj monotónico: es el que se adelanta.
+        timed.started_monotonic -= 5
         runner_gone = threading.Event()
         runner = mock.Mock(wait=mock.Mock(side_effect=lambda: runner_gone.wait(5)))
         with mock.patch.object(zerochat, "stop_zerochat_server"), \
