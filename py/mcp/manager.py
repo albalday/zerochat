@@ -241,7 +241,8 @@ class McpServiceManager:
         for server_id, server in self.services.items():
             record = self.records.get(server_id) or McpServiceRecord()
             client = record.client
-            exit_code = client.process.poll() if client and client.process else None
+            proc = client.process if client else None  # Una sola lectura: stop() lo pone a None desde otro hilo.
+            exit_code = proc.poll() if proc else None
             status, error = service_status(record, bool(client and client.running()), exit_code)
             running = status == "running"
             pref = self.preferences.get(server_id, {})

@@ -54,7 +54,8 @@ El backend opera de forma idéntica provenga del paquete PyPI o de la descarga c
   * Con `SecurityContext`, las herramientas resuelven rutas relativas con `ctx.absolute` (único resolutor que colapsa `..` antes de seguir enlaces simbólicos), `run_command` arranca en `ctx.workspace_dir` y el diff y los permisos usan el mismo contexto.
 * **Préstamo de navegadores (`BrowserLease`):**
   * `browser_action`, `browser_fill_secret` y Playwright MCP los usa una conversación cada vez. La interfaz envía `params._meta.zerochatConversationId` solo en sus llamadas; se reserva al ejecutar (`_execute_tool`, también tras aprobar un reto, que guarda su `conversationId`), no al pedir.
-  * Otra conversación recibe un error de herramienta hasta que pasan `BROWSER_LEASE_IDLE_SECONDS` (1 min) sin uso desde que termina su última acción (cubre lo que el modelo razona entre dos acciones, no la espera a otra petición del usuario). Sin cola, para evitar que dos conversaciones pisen la misma página.
+  * Otra conversación recibe un error de herramienta mientras haya una acción en curso y hasta que pasan `BROWSER_LEASE_IDLE_SECONDS` (1 min) desde que termina la última (cubre lo que el modelo razona entre dos acciones, no la espera a otra petición del usuario). Sin cola, para evitar que dos conversaciones pisen la misma página; el error sugiere ejecutarla en servidor para tener un navegador propio.
+  * Solo reparte entre conversaciones de un mismo proceso (en la práctica, el servidor de la interfaz): cada ejecución y cada agente es un proceso con su navegador (M98-D17). Al pasar a otra conversación, `_reset_browser` lo deja en blanco antes de su primera acción: cierra la sesión de `browser_action` o llama a `browser_close` de Playwright en modo propio (`--isolated`); «Tu navegador» no se toca.
 
 ---
 

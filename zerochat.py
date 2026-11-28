@@ -1486,6 +1486,14 @@ def _positive_seconds(value, default: float) -> float:
     return float(value)
 
 
+def _close_stream(stream) -> None:
+    try:
+        if stream is not None:
+            stream.close()
+    except (OSError, ValueError):
+        pass  # Tubería rota o ya cerrada: no queda nada que cerrar.
+
+
 class StdioMcpClient:
     max_message_chars = MAX_MCP_MESSAGE_CHARS
 
@@ -1510,12 +1518,14 @@ class StdioMcpClient:
         self._on_oauth_url = on_oauth_url
 
     def running(self) -> bool:
-        return self._alive and self.process is not None and self.process.poll() is None
+        # Una sola lectura de self.process: stop() puede ponerlo a None desde otro hilo entre dos.
+        proc = self.process
+        return self._alive and proc is not None and proc.poll() is None
 
     def start(self, handshake_timeout: int = 30):
         cmd = [self.command] + self.args
         self._trace(f"launching: {_mcp_trace_text(' '.join(cmd))}")
-        self.process = subprocess.Popen(
+        proc = self.process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -1530,8 +1540,9 @@ class StdioMcpClient:
             start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
         )
         self._alive = True
-        threading.Thread(target=self._drain_stderr, daemon=True).start()
-        threading.Thread(target=self._read_stdout, daemon=True).start()
+        # Cada lector recibe su proceso: no depende de self.process, que stop() pone a None.
+        threading.Thread(target=self._drain_stderr, args=(proc,), daemon=True).start()
+        threading.Thread(target=self._read_stdout, args=(proc,), daemon=True).start()
 
         self.request("initialize", {
             "protocolVersion": "2024-11-05",
@@ -1549,11 +1560,17 @@ class StdioMcpClient:
     _OAUTH_URL_RE = re.compile(r'https?://\S{20,}', re.IGNORECASE)
     _OAUTH_HINT_RE = re.compile(r'visiting|authorize|authorization', re.IGNORECASE)
 
-    def _drain_stderr(self):
-        if not self.process or not self.process.stderr:
+    def _drain_stderr(self, proc: subprocess.Popen):
+        stderr = proc.stderr
+        if not stderr:
             return
+        try:
+            self._drain_stderr_lines(stderr)
+        finally:
+            _close_stream(stderr)  # El lector es su único usuario: al llegar al final, se cierra.
+
+    def _drain_stderr_lines(self, stderr):
         pending_oauth = False
-        stderr = self.process.stderr
         while True:
             raw_line, _ = _read_bounded_line(stderr, MAX_MCP_STDERR_LINE_CHARS)
             if not raw_line:
@@ -1578,11 +1595,11 @@ class StdioMcpClient:
                     pending_oauth = False
 
 
-    def _read_stdout(self):
+    def _read_stdout(self, proc: subprocess.Popen):
+        stdout = proc.stdout
         try:
-            if not self.process or not self.process.stdout:
+            if not stdout:
                 return
-            stdout = self.process.stdout
             while True:
                 line, tail = _read_bounded_line(stdout, self.max_message_chars)
                 if not line:
@@ -1605,10 +1622,11 @@ class StdioMcpClient:
                         waiter.put(msg)
         finally:
             self._alive = False
-            if self.process:
-                return_code = self.process.poll()
-                if return_code is not None:
-                    self._trace(f"process exited with code {return_code}")
+            if stdout:
+                _close_stream(stdout)
+            return_code = proc.poll()
+            if return_code is not None:
+                self._trace(f"process exited with code {return_code}")
             with self._lock:
                 pending = list(self._pending.values())
                 self._pending.clear()
@@ -1635,9 +1653,12 @@ class StdioMcpClient:
             waiter.put({"error": {"message": message}})
 
     def _write(self, payload: str):
+        proc = self.process
+        if proc is None or proc.stdin is None:
+            raise RuntimeError("MCP process is not running")
         with self._write_lock:
-            self.process.stdin.write(payload)
-            self.process.stdin.flush()
+            proc.stdin.write(payload)
+            proc.stdin.flush()
 
     def request(self, method: str, params: dict, timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS) -> dict:
         if not self.running():
@@ -1672,12 +1693,13 @@ class StdioMcpClient:
             except (OSError, ValueError):
                 self._alive = False
 
-    def _signal_group(self, sig) -> bool:
+    @staticmethod
+    def _signal_group(pid: int, sig) -> bool:
         """Envía la señal al grupo del MCP; devuelve False si no hay grupo propio."""
         if DETECTED_OS == "windows" or not hasattr(os, "killpg"):
             return False
         try:
-            os.killpg(self.process.pid, sig)
+            os.killpg(pid, sig)
         except ProcessLookupError:
             pass
         except OSError:
@@ -1686,32 +1708,33 @@ class StdioMcpClient:
 
     def stop(self):
         self._alive = False
-        if not self.process:
+        proc, self.process = self.process, None
+        self.tools = []
+        if proc is None:
             return
         if DETECTED_OS == "windows":
             # Windows no tiene SIGKILL ni grupos POSIX: se elimina el árbol completo de una vez.
-            _kill_process_tree(self.process)
+            _kill_process_tree(proc)
+        else:
             try:
-                self.process.wait(timeout=2)
+                if not self._signal_group(proc.pid, signal.SIGTERM):
+                    proc.terminate()
+                proc.wait(timeout=2)
             except (OSError, subprocess.TimeoutExpired):
                 pass
-            self.process = None
-            self.tools = []
-            return
+            # Los descendientes que sigan vivos se eliminan aunque el proceso principal ya terminara.
+            if not self._signal_group(proc.pid, signal.SIGKILL):
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+        # Recogerlo tras SIGKILL para que no quede como zombi. stdout y stderr los cierran sus lectores al llegar al
+        # final: cerrarlos aquí podría bloquear si un descendiente escapado aún los tiene abiertos.
         try:
-            if not self._signal_group(signal.SIGTERM):
-                self.process.terminate()
-            self.process.wait(timeout=2)
+            proc.wait(timeout=2)
         except (OSError, subprocess.TimeoutExpired):
             pass
-        # Los descendientes que sigan vivos se eliminan aunque el proceso principal ya terminara.
-        if not self._signal_group(signal.SIGKILL):
-            try:
-                self.process.kill()
-            except OSError:
-                pass
-        self.process = None
-        self.tools = []
+        _close_stream(proc.stdin)
 
 # --- run_mode.runner_loader ---
 """Cargador del runner de Node.js: descarga los módulos de la interfaz como un navegador y los ejecuta.
@@ -4837,7 +4860,8 @@ class McpServiceManager:
         for server_id, server in self.services.items():
             record = self.records.get(server_id) or McpServiceRecord()
             client = record.client
-            exit_code = client.process.poll() if client and client.process else None
+            proc = client.process if client else None  # Una sola lectura: stop() lo pone a None desde otro hilo.
+            exit_code = proc.poll() if proc else None
             status, error = service_status(record, bool(client and client.running()), exit_code)
             running = status == "running"
             pref = self.preferences.get(server_id, {})
@@ -11295,23 +11319,42 @@ BROWSER_LEASE_IDLE_SECONDS = 60.0
 
 class BrowserLease:
     """
-    Reserva de los navegadores (browser_action y Playwright MCP): la conversación que los usa los conserva
-    mientras siga usándolos; otra recibe un error claro hasta que pasen BROWSER_LEASE_IDLE_SECONDS sin uso.
-    Sin cola: compartir la página haría que una conversación actuase sobre la de otra.
+    Reserva de los navegadores (browser_action y Playwright MCP) entre las conversaciones de este proceso: solo el
+    servidor de la interfaz tiene varias, porque cada ejecución y cada agente es un proceso con su navegador (M98-D17).
+    La conversación que lo usa lo conserva mientras tenga una llamada en curso y hasta BROWSER_LEASE_IDLE_SECONDS
+    después de la última; otra recibe un error claro. Sin cola: compartir la página haría que una conversación
+    actuase sobre la de otra. Al pasar a otra conversación, reset lo deja en blanco antes de que lo use.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._holders: dict[str, tuple[str, float]] = {}
+        # recurso -> [conversación, llamadas en curso, final de la última]
+        self._holders: dict[str, list] = {}
 
-    def acquire(self, resource: str, conversation_id: str) -> bool:
+    def acquire(self, resource: str, conversation_id: str, reset: typing.Callable[[], None] | None = None) -> bool:
+        """Reserva el recurso para una llamada de la conversación (hay que soltarla con release); False si es de otra."""
         now = time.monotonic()
         with self._lock:
             holder = self._holders.get(resource)
-            if holder and holder[0] != conversation_id and now - holder[1] < BROWSER_LEASE_IDLE_SECONDS:
+            if holder and holder[0] != conversation_id and (holder[1] > 0 or now - holder[2] < BROWSER_LEASE_IDLE_SECONDS):
                 return False
-            self._holders[resource] = (conversation_id, now)
-            return True
+            handover = holder is not None and holder[0] != conversation_id
+            if handover or holder is None:
+                self._holders[resource] = [conversation_id, 1, now]
+            else:
+                holder[1] += 1
+        if handover and reset is not None:
+            # Con la reserva ya tomada: nadie más entra mientras se limpia lo que dejó la conversación anterior.
+            reset()
+        return True
+
+    def release(self, resource: str, conversation_id: str) -> None:
+        """Termina una llamada: el plazo de inactividad cuenta desde que acaba la última en curso."""
+        with self._lock:
+            holder = self._holders.get(resource)
+            if holder and holder[0] == conversation_id:
+                holder[1] = max(0, holder[1] - 1)
+                holder[2] = time.monotonic()
 
 
 BROWSER_LEASES = BrowserLease()
@@ -12090,6 +12133,8 @@ Autorizar un reto ejecuta la herramienta pendiente, por eso los métodos zerocha
 
 
 
+PLAYWRIGHT_BROWSER_CLOSE = public_tool_name(PLAYWRIGHT_SERVER_ID, "browser_close")
+
 # Un reto que no existe, ya se usó o es de otro proyecto.
 CHALLENGE_NOT_FOUND = -32002
 
@@ -12113,16 +12158,32 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
             browser = None
     else:
         browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
-    if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
-        message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
-                   "seconds without use; tell the user or try again later.")
+    if browser and not BROWSER_LEASES.acquire(browser, conversation_id, reset=lambda: _reset_browser(browser)):
+        message = (f"The browser is in use by another conversation. It is released {int(BROWSER_LEASE_IDLE_SECONDS)} "
+                   "seconds after its last action; tell the user or try again later. To use a browser at the same "
+                   "time as that conversation, run this one on the server: it gets a browser of its own.")
         return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
     try:
         return run_tool(origin, tool_name, args, ctx)
     finally:
         # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
         if browser:
-            BROWSER_LEASES.acquire(browser, conversation_id)
+            BROWSER_LEASES.release(browser, conversation_id)
+
+
+def _reset_browser(browser: str) -> None:
+    """Deja en blanco el navegador que pasa a otra conversación (M98-D17): sin cookies, sesiones ni páginas de la
+    anterior. Playwright con «Tu navegador» es el del usuario y no se toca."""
+    try:
+        if browser == "browser_action":
+            close_browser_session()
+        elif load_browser_config()["mode"] == "own":
+            # Con --isolated, cerrar el navegador tira todo su estado; la siguiente acción abre otro vacío.
+            GLOBAL_MCP_MANAGER.call(PLAYWRIGHT_BROWSER_CLOSE, {})
+    except ValueError:
+        pass  # Playwright MCP detenido: no queda nada de la conversación anterior.
+    except Exception as exc:  # noqa: BLE001 - la conversación nueva sigue; queda en el registro
+        log_event(f"[Browser] Could not reset the {browser} browser for another conversation: {exc}")
 
 
 def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:

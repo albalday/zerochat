@@ -561,8 +561,7 @@ class StdioClientTest(unittest.TestCase):
         url = "https://auth.example.com/authorize?client_id=zc&state=abc123&code_challenge=" + "x" * 1200
         traces, found = Traces(), []
         client = zerochat.StdioMcpClient("node", [], ".", {}, trace=traces.append, on_oauth_url=found.append)
-        client.process = Mock(stderr=io.StringIO(f"Please authorize this client by visiting:\n{url}\n"))
-        client._drain_stderr()
+        client._drain_stderr(Mock(stderr=io.StringIO(f"Please authorize this client by visiting:\n{url}\n")))
         self.assertEqual((client.oauth_url, found), (url, [url]))
         self.assertNotIn("state=abc123", "".join(traces))
 

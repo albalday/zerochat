@@ -6,6 +6,7 @@ import hashlib
 import json
 import threading
 import time
+import typing
 from http.server import ThreadingHTTPServer
 
 from browser.engines import BROWSER_ENGINES
@@ -71,23 +72,42 @@ BROWSER_LEASE_IDLE_SECONDS = 60.0
 
 class BrowserLease:
     """
-    Reserva de los navegadores (browser_action y Playwright MCP): la conversación que los usa los conserva
-    mientras siga usándolos; otra recibe un error claro hasta que pasen BROWSER_LEASE_IDLE_SECONDS sin uso.
-    Sin cola: compartir la página haría que una conversación actuase sobre la de otra.
+    Reserva de los navegadores (browser_action y Playwright MCP) entre las conversaciones de este proceso: solo el
+    servidor de la interfaz tiene varias, porque cada ejecución y cada agente es un proceso con su navegador (M98-D17).
+    La conversación que lo usa lo conserva mientras tenga una llamada en curso y hasta BROWSER_LEASE_IDLE_SECONDS
+    después de la última; otra recibe un error claro. Sin cola: compartir la página haría que una conversación
+    actuase sobre la de otra. Al pasar a otra conversación, reset lo deja en blanco antes de que lo use.
     """
 
     def __init__(self):
         self._lock = threading.Lock()
-        self._holders: dict[str, tuple[str, float]] = {}
+        # recurso -> [conversación, llamadas en curso, final de la última]
+        self._holders: dict[str, list] = {}
 
-    def acquire(self, resource: str, conversation_id: str) -> bool:
+    def acquire(self, resource: str, conversation_id: str, reset: typing.Callable[[], None] | None = None) -> bool:
+        """Reserva el recurso para una llamada de la conversación (hay que soltarla con release); False si es de otra."""
         now = time.monotonic()
         with self._lock:
             holder = self._holders.get(resource)
-            if holder and holder[0] != conversation_id and now - holder[1] < BROWSER_LEASE_IDLE_SECONDS:
+            if holder and holder[0] != conversation_id and (holder[1] > 0 or now - holder[2] < BROWSER_LEASE_IDLE_SECONDS):
                 return False
-            self._holders[resource] = (conversation_id, now)
-            return True
+            handover = holder is not None and holder[0] != conversation_id
+            if handover or holder is None:
+                self._holders[resource] = [conversation_id, 1, now]
+            else:
+                holder[1] += 1
+        if handover and reset is not None:
+            # Con la reserva ya tomada: nadie más entra mientras se limpia lo que dejó la conversación anterior.
+            reset()
+        return True
+
+    def release(self, resource: str, conversation_id: str) -> None:
+        """Termina una llamada: el plazo de inactividad cuenta desde que acaba la última en curso."""
+        with self._lock:
+            holder = self._holders.get(resource)
+            if holder and holder[0] == conversation_id:
+                holder[1] = max(0, holder[1] - 1)
+                holder[2] = time.monotonic()
 
 
 BROWSER_LEASES = BrowserLease()

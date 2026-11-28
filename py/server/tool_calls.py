@@ -8,19 +8,22 @@ from __future__ import annotations
 import inspect
 import json
 
-from browser.config import PLAYWRIGHT_SERVER_ID
+from browser.config import PLAYWRIGHT_SERVER_ID, load_browser_config
 from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
-from mcp.manager import GLOBAL_MCP_MANAGER
+from mcp.manager import GLOBAL_MCP_MANAGER, public_tool_name
 from run_mode.state import current_run_session
 from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from security.rules import COMMAND_TOOL, JOB_CONTROL_TOOL, POLICY_ASK, POLICY_DENY
 from server.state import BROWSER_LEASES, BROWSER_LEASE_IDLE_SECONDS
 from tools.agents import CONTROLLER_TOOLS
+from tools.browser_action import close_browser_session
 from tools.browser_secret import PLAYWRIGHT_LOCAL_TOOLS
 from tools.common import _tool_error
 from tools.registry import LOCAL_TOOL_HANDLERS
+
+PLAYWRIGHT_BROWSER_CLOSE = public_tool_name(PLAYWRIGHT_SERVER_ID, "browser_close")
 
 # Un reto que no existe, ya se usó o es de otro proyecto.
 CHALLENGE_NOT_FOUND = -32002
@@ -45,16 +48,32 @@ def execute_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext,
             browser = None
     else:
         browser = PLAYWRIGHT_SERVER_ID if GLOBAL_MCP_MANAGER.server_of(tool_name) == PLAYWRIGHT_SERVER_ID else None
-    if browser and not BROWSER_LEASES.acquire(browser, conversation_id):
-        message = (f"The browser is in use by another conversation. It is released after {int(BROWSER_LEASE_IDLE_SECONDS)} "
-                   "seconds without use; tell the user or try again later.")
+    if browser and not BROWSER_LEASES.acquire(browser, conversation_id, reset=lambda: _reset_browser(browser)):
+        message = (f"The browser is in use by another conversation. It is released {int(BROWSER_LEASE_IDLE_SECONDS)} "
+                   "seconds after its last action; tell the user or try again later. To use a browser at the same "
+                   "time as that conversation, run this one on the server: it gets a browser of its own.")
         return {"content": [{"type": "text", "text": _tool_error(message)}], "isError": True}, None, message
     try:
         return run_tool(origin, tool_name, args, ctx)
     finally:
         # El plazo cuenta desde que la acción termina: lo que tarde no acorta lo que el modelo puede razonar después.
         if browser:
-            BROWSER_LEASES.acquire(browser, conversation_id)
+            BROWSER_LEASES.release(browser, conversation_id)
+
+
+def _reset_browser(browser: str) -> None:
+    """Deja en blanco el navegador que pasa a otra conversación (M98-D17): sin cookies, sesiones ni páginas de la
+    anterior. Playwright con «Tu navegador» es el del usuario y no se toca."""
+    try:
+        if browser == "browser_action":
+            close_browser_session()
+        elif load_browser_config()["mode"] == "own":
+            # Con --isolated, cerrar el navegador tira todo su estado; la siguiente acción abre otro vacío.
+            GLOBAL_MCP_MANAGER.call(PLAYWRIGHT_BROWSER_CLOSE, {})
+    except ValueError:
+        pass  # Playwright MCP detenido: no queda nada de la conversación anterior.
+    except Exception as exc:  # noqa: BLE001 - la conversación nueva sigue; queda en el registro
+        log_event(f"[Browser] Could not reset the {browser} browser for another conversation: {exc}")
 
 
 def run_tool(origin: str, tool_name: str, args: dict, ctx: SecurityContext) -> tuple[dict | None, dict | None, str]:

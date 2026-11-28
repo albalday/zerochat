@@ -57,6 +57,14 @@ def _positive_seconds(value, default: float) -> float:
     return float(value)
 
 
+def _close_stream(stream) -> None:
+    try:
+        if stream is not None:
+            stream.close()
+    except (OSError, ValueError):
+        pass  # Tubería rota o ya cerrada: no queda nada que cerrar.
+
+
 class StdioMcpClient:
     max_message_chars = MAX_MCP_MESSAGE_CHARS
 
@@ -81,12 +89,14 @@ class StdioMcpClient:
         self._on_oauth_url = on_oauth_url
 
     def running(self) -> bool:
-        return self._alive and self.process is not None and self.process.poll() is None
+        # Una sola lectura de self.process: stop() puede ponerlo a None desde otro hilo entre dos.
+        proc = self.process
+        return self._alive and proc is not None and proc.poll() is None
 
     def start(self, handshake_timeout: int = 30):
         cmd = [self.command] + self.args
         self._trace(f"launching: {_mcp_trace_text(' '.join(cmd))}")
-        self.process = subprocess.Popen(
+        proc = self.process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
@@ -101,8 +111,9 @@ class StdioMcpClient:
             start_new_session=DETECTED_OS != "windows" and hasattr(os, "setsid")
         )
         self._alive = True
-        threading.Thread(target=self._drain_stderr, daemon=True).start()
-        threading.Thread(target=self._read_stdout, daemon=True).start()
+        # Cada lector recibe su proceso: no depende de self.process, que stop() pone a None.
+        threading.Thread(target=self._drain_stderr, args=(proc,), daemon=True).start()
+        threading.Thread(target=self._read_stdout, args=(proc,), daemon=True).start()
 
         self.request("initialize", {
             "protocolVersion": "2024-11-05",
@@ -120,11 +131,17 @@ class StdioMcpClient:
     _OAUTH_URL_RE = re.compile(r'https?://\S{20,}', re.IGNORECASE)
     _OAUTH_HINT_RE = re.compile(r'visiting|authorize|authorization', re.IGNORECASE)
 
-    def _drain_stderr(self):
-        if not self.process or not self.process.stderr:
+    def _drain_stderr(self, proc: subprocess.Popen):
+        stderr = proc.stderr
+        if not stderr:
             return
+        try:
+            self._drain_stderr_lines(stderr)
+        finally:
+            _close_stream(stderr)  # El lector es su único usuario: al llegar al final, se cierra.
+
+    def _drain_stderr_lines(self, stderr):
         pending_oauth = False
-        stderr = self.process.stderr
         while True:
             raw_line, _ = _read_bounded_line(stderr, MAX_MCP_STDERR_LINE_CHARS)
             if not raw_line:
@@ -149,11 +166,11 @@ class StdioMcpClient:
                     pending_oauth = False
 
 
-    def _read_stdout(self):
+    def _read_stdout(self, proc: subprocess.Popen):
+        stdout = proc.stdout
         try:
-            if not self.process or not self.process.stdout:
+            if not stdout:
                 return
-            stdout = self.process.stdout
             while True:
                 line, tail = _read_bounded_line(stdout, self.max_message_chars)
                 if not line:
@@ -176,10 +193,11 @@ class StdioMcpClient:
                         waiter.put(msg)
         finally:
             self._alive = False
-            if self.process:
-                return_code = self.process.poll()
-                if return_code is not None:
-                    self._trace(f"process exited with code {return_code}")
+            if stdout:
+                _close_stream(stdout)
+            return_code = proc.poll()
+            if return_code is not None:
+                self._trace(f"process exited with code {return_code}")
             with self._lock:
                 pending = list(self._pending.values())
                 self._pending.clear()
@@ -206,9 +224,12 @@ class StdioMcpClient:
             waiter.put({"error": {"message": message}})
 
     def _write(self, payload: str):
+        proc = self.process
+        if proc is None or proc.stdin is None:
+            raise RuntimeError("MCP process is not running")
         with self._write_lock:
-            self.process.stdin.write(payload)
-            self.process.stdin.flush()
+            proc.stdin.write(payload)
+            proc.stdin.flush()
 
     def request(self, method: str, params: dict, timeout: float = DEFAULT_MCP_CALL_TIMEOUT_SECONDS) -> dict:
         if not self.running():
@@ -243,12 +264,13 @@ class StdioMcpClient:
             except (OSError, ValueError):
                 self._alive = False
 
-    def _signal_group(self, sig) -> bool:
+    @staticmethod
+    def _signal_group(pid: int, sig) -> bool:
         """Envía la señal al grupo del MCP; devuelve False si no hay grupo propio."""
         if DETECTED_OS == "windows" or not hasattr(os, "killpg"):
             return False
         try:
-            os.killpg(self.process.pid, sig)
+            os.killpg(pid, sig)
         except ProcessLookupError:
             pass
         except OSError:
@@ -257,29 +279,30 @@ class StdioMcpClient:
 
     def stop(self):
         self._alive = False
-        if not self.process:
+        proc, self.process = self.process, None
+        self.tools = []
+        if proc is None:
             return
         if DETECTED_OS == "windows":
             # Windows no tiene SIGKILL ni grupos POSIX: se elimina el árbol completo de una vez.
-            _kill_process_tree(self.process)
+            _kill_process_tree(proc)
+        else:
             try:
-                self.process.wait(timeout=2)
+                if not self._signal_group(proc.pid, signal.SIGTERM):
+                    proc.terminate()
+                proc.wait(timeout=2)
             except (OSError, subprocess.TimeoutExpired):
                 pass
-            self.process = None
-            self.tools = []
-            return
+            # Los descendientes que sigan vivos se eliminan aunque el proceso principal ya terminara.
+            if not self._signal_group(proc.pid, signal.SIGKILL):
+                try:
+                    proc.kill()
+                except OSError:
+                    pass
+        # Recogerlo tras SIGKILL para que no quede como zombi. stdout y stderr los cierran sus lectores al llegar al
+        # final: cerrarlos aquí podría bloquear si un descendiente escapado aún los tiene abiertos.
         try:
-            if not self._signal_group(signal.SIGTERM):
-                self.process.terminate()
-            self.process.wait(timeout=2)
+            proc.wait(timeout=2)
         except (OSError, subprocess.TimeoutExpired):
             pass
-        # Los descendientes que sigan vivos se eliminan aunque el proceso principal ya terminara.
-        if not self._signal_group(signal.SIGKILL):
-            try:
-                self.process.kill()
-            except OSError:
-                pass
-        self.process = None
-        self.tools = []
+        _close_stream(proc.stdin)
