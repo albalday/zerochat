@@ -53,7 +53,7 @@ def _stop(_params: dict, job) -> RpcOutcome:
 PROJECT_JOB_METHODS = {
     "zerochat/jobs/list": lambda _params, project: rpc_result({"jobs": [job.summary() for job in JOBS.list(project)]}),
     "zerochat/jobs/report": _report,
-    "zerochat/jobs/end_wait": lambda params, _project: rpc_result({"ended": WAITS.cancel(params.get("key"))}),
+    "zerochat/jobs/end_wait": lambda params, project: rpc_result({"ended": WAITS.cancel(params.get("key"), project)}),
 }
 # Métodos sobre un comando concreto, que se localiza por su id o por la clave de la invocación.
 SINGLE_JOB_METHODS = {

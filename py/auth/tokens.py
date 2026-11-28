@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import datetime
 import hmac
@@ -111,18 +112,33 @@ ACTIVE_GRANTS: dict[str, TokenGrant] = {}
 SESSION_TOKEN_LOCK = threading.Lock()
 
 
-def _refresh_daily_locked(today: str) -> str:
-    """Renueva el token local al cambiar de día, limpia sesiones remotas caducadas y avisa a los hooks."""
+def _refresh_daily_locked(today: str) -> bool:
+    """Renueva el token local al cambiar de día y limpia sesiones remotas caducadas; True si lo ha renovado."""
     global SESSION_TOKEN, SESSION_TOKEN_DATE
-    if SESSION_TOKEN_DATE != today:
-        SESSION_TOKEN = get_daily_token()
-        SESSION_TOKEN_DATE = today
-        expired = [tok for tok, grant in ACTIVE_GRANTS.items() if grant.kind == "remote" and grant.date != today]
-        for tok in expired:
-            ACTIVE_GRANTS.pop(tok, None)
-        for hook in TOKEN_ROTATION_HOOKS:
-            hook()
-    return SESSION_TOKEN
+    if SESSION_TOKEN_DATE == today:
+        return False
+    SESSION_TOKEN = get_daily_token()
+    SESSION_TOKEN_DATE = today
+    expired = [tok for tok, grant in ACTIVE_GRANTS.items() if grant.kind == "remote" and grant.date != today]
+    for tok in expired:
+        ACTIVE_GRANTS.pop(tok, None)
+    return True
+
+
+@contextlib.contextmanager
+def _daily_session(today: str):
+    """SESSION_TOKEN_LOCK con el token del día ya renovado (lo que da el with). Si se ha renovado, los hooks de
+    rotación se llaman al soltar el cerrojo: hacen su propio trabajo (SQLite, permisos) sin parar la autenticación
+    de las demás peticiones, y un hook que pida un token no se bloquea a sí mismo."""
+    rotated = False
+    try:
+        with SESSION_TOKEN_LOCK:
+            rotated = _refresh_daily_locked(today)
+            yield SESSION_TOKEN
+    finally:
+        if rotated:
+            for hook in TOKEN_ROTATION_HOOKS:
+                hook()
 
 
 def current_session_token() -> str:
@@ -130,15 +146,14 @@ def current_session_token() -> str:
     Token diario vigente para el navegador local: al cambiar el día carga o genera el nuevo.
     """
     today = datetime.date.today().isoformat()
-    with SESSION_TOKEN_LOCK:
-        return _refresh_daily_locked(today)
+    with _daily_session(today) as token:
+        return token
 
 
 def issue_login_token() -> str:
     """Emite una credencial independiente de usuario para una sesión remota autenticada por zerochat/login."""
     today = datetime.date.today().isoformat()
-    with SESSION_TOKEN_LOCK:
-        _refresh_daily_locked(today)
+    with _daily_session(today):
         remote_grants = [g for g in ACTIVE_GRANTS.values() if g.kind == "remote"]
         while len(remote_grants) >= MAX_REMOTE_TOKENS:
             oldest = min(remote_grants, key=lambda g: g.created_at)
@@ -157,8 +172,7 @@ def issue_login_token() -> str:
 def issue_runner_token(run_id: str, conversation_id: str | None, project: str) -> str:
     """Emite una credencial acotada para el proceso runner de Node.js ligada a su ejecución y a su proyecto."""
     today = datetime.date.today().isoformat()
-    with SESSION_TOKEN_LOCK:
-        _refresh_daily_locked(today)
+    with _daily_session(today):
         token = secrets.token_urlsafe(32)
         ACTIVE_GRANTS[token] = TokenGrant(
             token=token,
@@ -186,8 +200,7 @@ def resolve_token(token_candidate: str) -> TokenGrant | None:
         return None
     today = datetime.date.today().isoformat()
     candidate_bytes = token_candidate.encode()
-    with SESSION_TOKEN_LOCK:
-        local_token = _refresh_daily_locked(today)
+    with _daily_session(today) as local_token:
         if local_token and hmac.compare_digest(candidate_bytes, local_token.encode()):
             return TokenGrant(token=local_token, kind="local", date=SESSION_TOKEN_DATE, created_at=0.0)
         matched: TokenGrant | None = None

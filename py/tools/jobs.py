@@ -123,6 +123,9 @@ def cleanup_orphan_jobs() -> int:
                 pgid = int(entry["pgid"])
             except (ValueError, KeyError, TypeError):
                 continue
+            # killpg(0) es el grupo de este mismo proceso y 1 es init: un registro corrupto no los alcanza.
+            if pgid <= 1:
+                continue
             # Mientras el grupo exista, su número no se reasigna; si el líder vive, debe ser el registrado.
             if _pid_alive(pgid) and _process_start_token(pgid) != entry.get("start"):
                 continue
@@ -271,6 +274,9 @@ class CommandJob:
 
     def _append(self, chunk: bytes):
         with self._lock:
+            # Un nieto que escapó del grupo puede seguir escribiendo tras cerrar el log: las posiciones ya no cambian.
+            if self._finalized:
+                return
             self._total += len(chunk)
             room = JOB_LOG_HEAD_BYTES - self._head_len
             if room > 0:
@@ -537,6 +543,9 @@ class JobManager:
         job.start_reader(job.proc.stdout)
         threading.Thread(target=self._watch, args=(job,), daemon=True).start()
         self._write_registry()
+        # Un stop que llegó mientras arrancaba solo pudo dejar su motivo: se cumple ahora que hay proceso.
+        if job.stop_reason is not None:
+            self.stop(job, job.stop_reason)
 
     def _watch(self, job: CommandJob):
         proc = job.proc
@@ -610,6 +619,8 @@ class JobManager:
         if job.stop_reason is None:
             job.stop_reason = reason
         proc = job.proc
+        if proc is None:
+            return job  # Aún arrancando: _launch lo detiene al tener proceso (el motivo ya está puesto).
         if DETECTED_OS == "windows":
             _kill_process_tree(proc)
             job.done.wait(JOB_STOP_GRACE_SECONDS)

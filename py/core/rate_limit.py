@@ -72,8 +72,10 @@ class RateLimiter:
                 if state.active < policy.concurrency and gap <= 0:
                     break
                 # Con hueco libre se sabe cuánto falta; sin él, hasta que termine otra llamada.
-                wait = gap if state.active < policy.concurrency else deadline - now
-                if now + max(wait, 0.0) > deadline or deadline - now <= 0:
+                remaining = deadline - now
+                wait = gap if state.active < policy.concurrency else remaining
+                # Sin sumar a now: now + (deadline - now) puede pasar de deadline por redondeo y fallar sin esperar.
+                if wait > remaining or remaining <= 0:
                     raise RateLimitBusy(key, max_wait_s)
                 self._condition.wait(max(wait, 0.001))
             state.active += 1

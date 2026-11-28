@@ -11,13 +11,15 @@ from tools.common import line_matches
 
 
 class _WakeableJob(typing.Protocol):
-    """Lo que una espera necesita del comando (CommandJob): despertar a quien espera su salida."""
+    """Lo que una espera necesita del comando (CommandJob): su proyecto y despertar a quien espera su salida."""
+
+    project: str
 
     def wake_waiters(self) -> None: ...
 
 
 class CancellableWaits:
-    """Esperas en curso, por la clave de su invocación: zerochat/jobs/end_wait corta la de esa clave."""
+    """Esperas en curso, por la clave de su invocación: zerochat/jobs/end_wait corta la de esa clave en su proyecto."""
 
     def __init__(self):
         self._lock = threading.Lock()
@@ -36,11 +38,11 @@ class CancellableWaits:
             with self._lock:
                 self._waits.pop(key, None)
 
-    def cancel(self, key) -> bool:
-        """Corta la espera con esa clave y despierta al hilo que espera en job._changed."""
+    def cancel(self, key, project: str) -> bool:
+        """Corta la espera con esa clave, si es de un comando de project, y despierta al hilo que espera en job._changed."""
         with self._lock:
             entry = self._waits.get(key) if isinstance(key, str) else None
-        if entry is None:
+        if entry is None or entry[1].project != project:
             return False
         event, job = entry
         event.set()

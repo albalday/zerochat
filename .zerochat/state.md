@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M97 Arreglos pequeños agentes
-- Next task: M98-T25 Tokens y jobs: TOKEN_ROTATION_HOOKS fuera de SESSION_TOKEN_LOCK, RateLimiter compara deadline - now, jobs.py sin proc None publicado, _append tras _finalize_log, pgid > 1 antes de killpg y zerochat/jobs/end_wait acotado al proyecto (F-24, partes 1 a 3, M62-D9)
+- Next task: M98-T33 Red sin tope (II): mail_mcp_server comprueba RFC822.SIZE/BODYSTRUCTURE antes de BODY[] y no decodifica adjuntos solo para medirlos; browser_action acota stdout/stderr, cierra Node/Chromium si falla el arranque y pone plazo al requestAnimationFrame de screenshot (F-18, partes 3 y 4)
 - Last closed: M95 and M96 (2026-11-26)
 - Last updated: 2026-11-28
