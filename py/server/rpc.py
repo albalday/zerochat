@@ -16,7 +16,7 @@ from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, parse_nonneg_in
 from core.version import VERSION
 from mcp.manager import GLOBAL_MCP_MANAGER
 from mcp.rpc import SERVER_CONTROL_METHODS, dispatch_server_control
-from run_mode.state import current_run_session, dispatch_run, run_project_environment
+from run_mode.state import current_run_session, dispatch_run, forget_conversations, run_project_environment
 from security.context import SecurityContext
 from security.controller import ACCESS_CONTROLLER
 from server.state import live_state, wait_live_state
@@ -177,6 +177,7 @@ def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
                 raise ValueError("Existen subproyectos guardados dentro de este directorio: borra primero sus datos.")
         # Primero los datos (atómico y con la comprobación de ejecuciones en marcha); el disco, solo si eso salió bien.
         deleted_ids = delete_project_storage(ctx.key)
+        forget_conversations(deleted_ids)
         ACCESS_CONTROLLER.drop_project_session(ctx.key)
         if target is not None and target.exists():
             shutil.rmtree(target)

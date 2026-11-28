@@ -189,7 +189,15 @@ def _run_request_object(raw: bytes) -> dict:
         if key in data:
             raise ValueError(f"{key} aparece dos veces en la cabecera")
         data[key] = _header_value(key, value)
-    lead, sections, _ = _split_run_sections(lines[end + 1:])
+    data.update(_run_body_sections(lines[end + 1:]))
+    return data
+
+
+def _run_body_sections(lines: list[str]) -> dict:
+    """Las secciones del cuerpo del run-file (systemDataPrompt, prompt): cada una una vez y sin texto suelto junto a
+    <!-- system -->."""
+    data: dict = {}
+    lead, sections, unclosed = _split_run_sections(lines)
     for name, content in sections:
         if RUN_FILE_SECTIONS[name] in data:
             raise ValueError(f"la sección <!-- {name} --> aparece dos veces")
@@ -198,6 +206,11 @@ def _run_request_object(raw: bytes) -> dict:
         if "systemDataPrompt" in data:
             raise ValueError("hay texto antes de las secciones: ponlo dentro de <!-- system --> o de <!-- prompt -->")
         data["systemDataPrompt"] = lead
+    # Como en format_run_request: un bloque sin cerrar en el manual se traga la línea <!-- prompt --> que lo sigue,
+    # y la tarea desaparecería en silencio dentro del manual.
+    if unclosed and "prompt" not in data and any(
+            _RUN_FILE_SECTION.fullmatch(line) for line in str(data.get("systemDataPrompt", "")).split("\n")):
+        raise ValueError("systemDataPrompt no puede dejar un bloque de código sin cerrar")
     return data
 
 
@@ -693,6 +706,21 @@ class ControllerState:
             self.launched_agents.pop(conv_id, None)
             for key in [key for key in self.delivered_results if key[0] == conv_id]:
                 del self.delivered_results[key]
+
+
+# El del servidor de la interfaz, que es de un solo usuario: uno para todas sus conversaciones y pestañas, en memoria
+# hasta que el servidor se cierra, como el de una ejecución.
+INTERFACE_CONTROLLER = ControllerState()
+
+
+def forget_conversations(conversation_ids) -> None:
+    """Olvida en los controladores de este proceso (el de la interfaz y el de su ejecución) conversaciones que se van
+    a borrar: si no, check_agents las seguiría mostrando como lanzadas y sin guardar."""
+    session = current_run_session()
+    controllers = (INTERFACE_CONTROLLER, session) if session is not None else (INTERFACE_CONTROLLER,)
+    for conversation_id in conversation_ids:
+        for controller in controllers:
+            controller.forget(conversation_id)
 
 
 class RunSession(ControllerState):

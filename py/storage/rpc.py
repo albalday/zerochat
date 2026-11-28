@@ -6,7 +6,7 @@ import base64
 
 from core.logging import log_event
 from core.rpc import INTERNAL_ERROR, INVALID_PARAMS, RpcOutcome, dispatch_table, rpc_error, rpc_result
-from run_mode.state import cancel_server_run, check_no_active_run, current_run_session, run_conversation_meta
+from run_mode.state import cancel_server_run, check_no_active_run, current_run_session, forget_conversations, run_conversation_meta
 from storage.db import (
     commit_conversation_upload,
     delete_conversation,
@@ -84,7 +84,8 @@ def dispatch_profiles(method: str, params: dict) -> RpcOutcome:
 
 
 def _cancel_runs(conversation_ids):
-    """Borrar una conversación detiene su ejecución en servidor, si la hay."""
+    """Borrar una conversación detiene su ejecución en servidor, si la hay, y el controlador de este proceso la olvida."""
+    forget_conversations(conversation_ids)
     for conversation_id in conversation_ids:
         try:
             cancel_server_run(conversation_id)

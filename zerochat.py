@@ -5584,7 +5584,15 @@ def _run_request_object(raw: bytes) -> dict:
         if key in data:
             raise ValueError(f"{key} aparece dos veces en la cabecera")
         data[key] = _header_value(key, value)
-    lead, sections, _ = _split_run_sections(lines[end + 1:])
+    data.update(_run_body_sections(lines[end + 1:]))
+    return data
+
+
+def _run_body_sections(lines: list[str]) -> dict:
+    """Las secciones del cuerpo del run-file (systemDataPrompt, prompt): cada una una vez y sin texto suelto junto a
+    <!-- system -->."""
+    data: dict = {}
+    lead, sections, unclosed = _split_run_sections(lines)
     for name, content in sections:
         if RUN_FILE_SECTIONS[name] in data:
             raise ValueError(f"la sección <!-- {name} --> aparece dos veces")
@@ -5593,6 +5601,11 @@ def _run_request_object(raw: bytes) -> dict:
         if "systemDataPrompt" in data:
             raise ValueError("hay texto antes de las secciones: ponlo dentro de <!-- system --> o de <!-- prompt -->")
         data["systemDataPrompt"] = lead
+    # Como en format_run_request: un bloque sin cerrar en el manual se traga la línea <!-- prompt --> que lo sigue,
+    # y la tarea desaparecería en silencio dentro del manual.
+    if unclosed and "prompt" not in data and any(
+            _RUN_FILE_SECTION.fullmatch(line) for line in str(data.get("systemDataPrompt", "")).split("\n")):
+        raise ValueError("systemDataPrompt no puede dejar un bloque de código sin cerrar")
     return data
 
 
@@ -6088,6 +6101,21 @@ class ControllerState:
             self.launched_agents.pop(conv_id, None)
             for key in [key for key in self.delivered_results if key[0] == conv_id]:
                 del self.delivered_results[key]
+
+
+# El del servidor de la interfaz, que es de un solo usuario: uno para todas sus conversaciones y pestañas, en memoria
+# hasta que el servidor se cierra, como el de una ejecución.
+INTERFACE_CONTROLLER = ControllerState()
+
+
+def forget_conversations(conversation_ids) -> None:
+    """Olvida en los controladores de este proceso (el de la interfaz y el de su ejecución) conversaciones que se van
+    a borrar: si no, check_agents las seguiría mostrando como lanzadas y sin guardar."""
+    session = current_run_session()
+    controllers = (INTERFACE_CONTROLLER, session) if session is not None else (INTERFACE_CONTROLLER,)
+    for conversation_id in conversation_ids:
+        for controller in controllers:
+            controller.forget(conversation_id)
 
 
 class RunSession(ControllerState):
@@ -6586,7 +6614,8 @@ def dispatch_profiles(method: str, params: dict) -> RpcOutcome:
 
 
 def _cancel_runs(conversation_ids):
-    """Borrar una conversación detiene su ejecución en servidor, si la hay."""
+    """Borrar una conversación detiene su ejecución en servidor, si la hay, y el controlador de este proceso la olvida."""
+    forget_conversations(conversation_ids)
     for conversation_id in conversation_ids:
         try:
             cancel_server_run(conversation_id)
@@ -9179,9 +9208,6 @@ AGENT_STOPPED_ERROR = "Stopped by its controller."
 AGENT_PRUNE_PROTECTED = ("running", "needs_input")
 
 
-# El del servidor de la interfaz, que es de un solo usuario: uno para todas sus conversaciones y pestañas, en memoria
-# hasta que el servidor se cierra, como el de una ejecución.
-INTERFACE_CONTROLLER = ControllerState()
 
 
 def _clip(text: str, limit: int) -> tuple[str, bool]:
@@ -9431,6 +9457,21 @@ def _controller_context(tool_name: str, ctx: SecurityContext | None, project: st
     return INTERFACE_CONTROLLER, "", _target_project(ctx, project, access)
 
 
+def _check_agents_args_error(target: SecurityContext, own_id: str, state: ControllerState, agent: str | None,
+                             conversation_id: str | None, offset, include_turn: bool) -> str | None:
+    """Por qué los argumentos de check_agents no valen juntos, o None."""
+    if (offset or include_turn) and agent is None and conversation_id is None:
+        return "offset and include_turn go with agent or conversation_id."
+    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+        return "offset must be a non-negative integer."
+    if agent is not None and conversation_id is not None:
+        # Con los dos, manda conversation_id: uno que es de otro agente daría datos de un agente que no se pidió.
+        found = _selected(target, own_id, state, None, conversation_id)
+        if found and found[0][0]["agent"] != agent:
+            return f"The conversation {conversation_id} belongs to the agent {found[0][0]['agent']}, not to {agent}."
+    return None
+
+
 def check_agents(agent: str | None = None, conversation_id: str | None = None, wait_seconds: int = 0,
                  project: str | None = None, offset: int = 0, include_turn: bool = False,
                  ctx: SecurityContext | None = None) -> str:
@@ -9443,10 +9484,8 @@ def check_agents(agent: str | None = None, conversation_id: str | None = None, w
     except ValueError as exc:
         return _tool_error(str(exc))
     detail = agent is not None or conversation_id is not None
-    if (offset or include_turn) and not detail:
-        return _tool_error("offset and include_turn go with agent or conversation_id.")
-    if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
-        return _tool_error("offset must be a non-negative integer.")
+    if (args_error := _check_agents_args_error(target, own_id, state, agent, conversation_id, offset, include_turn)):
+        return _tool_error(args_error)
 
     def read():
         return _selected(target, own_id, state, agent, conversation_id)
@@ -9692,6 +9731,9 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
     conv = _target_conversation(conv_id, agent, target, own_id)
     if "prompt" not in request and conv is None:
         raise ValueError("The conversation does not exist yet: give prompt to start it.")
+    # Lo mismo que comprobaría --run-file al arrancar, pero antes de lanzar: el controlador lo sabe al momento.
+    if "prompt" not in request and not any(m.get("role") in ("user", "tool") for m in conv.get("history") or []):
+        raise ValueError(f"The conversation {conv_id} has no turn to continue: give prompt.")
     # Continuar en línea una conversación existente conserva el lanzamiento guardado (manual, disabledTools, perfil,
     # razonamiento y límites) salvo lo que la llamada sobreescriba de forma explícita.
     if inline_keys is not None and conv is not None:
@@ -9699,6 +9741,9 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
         for key in ("profile", *RUN_LAUNCH_KEYS):
             if key not in inline_keys and key in stored and (key != "disabledTools" or stored[key]):
                 request[key] = stored[key]
+    profile = request.get("profile")
+    if isinstance(profile, str) and profile.strip() and not (get_general_profile(profile) or get_general_profile_by_name(profile)):
+        raise ValueError(f"The profile {profile} does not exist on this server: use the name of one of its connection profiles.")
     request["conversation_id"] = conv_id or f"session_{uuid.uuid4()}"
     try:
         check_no_active_run(request["conversation_id"])
@@ -12568,6 +12613,7 @@ def _delete_project(params: dict, ctx: SecurityContext) -> RpcOutcome:
                 raise ValueError("Existen subproyectos guardados dentro de este directorio: borra primero sus datos.")
         # Primero los datos (atómico y con la comprobación de ejecuciones en marcha); el disco, solo si eso salió bien.
         deleted_ids = delete_project_storage(ctx.key)
+        forget_conversations(deleted_ids)
         ACCESS_CONTROLLER.drop_project_session(ctx.key)
         if target is not None and target.exists():
             shutil.rmtree(target)
@@ -13158,7 +13204,7 @@ def build_parser() -> ZeroChatArgumentParser:
     parser.add_argument("--list-profiles", action="store_true", help="Listar los perfiles de conexión generales almacenados en el servidor local")
     parser.add_argument("--prompt", default=None, help="Ejecutar este prompt sin interfaz gráfica con Node.js, imprimir solo la respuesta final y terminar (salida 0 terminado, 1 error de generación, 2 runner cerrado sin resultado, 3 fallo de arranque, 4 argumentos no válidos, 5 pausada a la espera del usuario, con su pregunta en la salida, 6 límite de --run-file alcanzado)")
     parser.add_argument("--conversation", default=None, help="Con --prompt o para continuar, id de la conversación almacenada en SQLite")
-    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar el agente del fichero Markdown (- para leerlo de stdin) en lugar de --prompt, --conversation y --profile: una cabecera entre dos líneas --- con agent (<nombre> o <subconjunto>.<nombre>: marca la conversación nueva como de ese agente), conversation_id (la continúa o, si no existe, la crea con ese id), profile, controller (true: consulta, lanza, detiene y limpia los agentes del proyecto con check_agents, launch_agent, stop_agent y prune_agents), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), reasoning (none, low, medium, high o xhigh; medium por defecto), maxSteps y timeout (segundos), y las secciones <!-- system --> (su manual; también el texto sin marcador) y <!-- prompt --> (la tarea); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
+    parser.add_argument("--run-file", default=None, metavar="FICHERO", help="Ejecutar el agente del fichero Markdown (- para leerlo de stdin) en lugar de --prompt, --conversation y --profile: una cabecera entre dos líneas --- con agent (<nombre> o <subconjunto>.<nombre>: marca la conversación nueva como de ese agente), conversation_id (la continúa o, si no existe, la crea con ese id), profile, controller (true: consulta, lanza, detiene y limpia los agentes del proyecto con check_agents, launch_agent, stop_agent y prune_agents), projectMode (true inyecta AGENTS.md y .zerochat/state.md; por defecto no), reasoning (none, low, medium, high o xhigh; medium por defecto), maxSteps y timeout (segundos), disabledTools (herramientas, servicios MCP o navegador —browser_action, playwright— del entorno guardado que el agente no recibe, separados por comas), y las secciones <!-- system --> (su manual; también el texto sin marcador) y <!-- prompt --> (la tarea); exige un entorno de proyecto guardado, del que salen siempre herramientas y permisos")
     parser.add_argument("--profile", default=None, help=f"Con --prompt o --conversation, perfil (nombre o id) que se usa solo en esta ejecución, sin cambiar el activo (por defecto: {DEFAULT_RUN_PROFILE} del servidor)")
     parser.add_argument("--log", choices=("on", "off"), default=None, help="Mostrar la cabecera y el registro del servidor (default: on; off en modo ejecución)")
     parser.add_argument("--export", default=None, metavar="FICHERO", help=f"Con --prompt, --conversation o --run-file, guardar la conversación en FICHERO; el formato sale de la extensión ({', '.join(RUN_EXPORT_FORMATS)})")
