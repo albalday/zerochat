@@ -39,11 +39,17 @@ class Quiet(SimpleHTTPRequestHandler):
 
 
 class RecordingSite(Quiet):
-    """Sirve la interfaz y anota las rutas que se piden."""
+    """Sirve la interfaz y anota las rutas que se piden; las de dropped cierran la conexión sin responder, como
+    una red que se corta."""
     requests: list[str] = []
+    dropped: set[str] = set()
 
     def do_GET(self):
         self.requests.append(self.path)
+        if self.path in self.dropped:
+            self.close_connection = True
+            self.request.shutdown(socket.SHUT_RDWR)
+            return
         super().do_GET()
 
 
@@ -58,6 +64,7 @@ class RunnerLoaderTest(unittest.TestCase):
         self.cache_dir = base / "cache"
         self.cache_dir.mkdir()
         RecordingSite.requests = []
+        RecordingSite.dropped = set()
         self.server = zerochat.ZeroChatHTTPServer(("127.0.0.1", 0), partial(RecordingSite, directory=str(self.site)))
         threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True).start()
         self.addCleanup(self.server.server_close)
@@ -182,6 +189,41 @@ class RunnerLoaderTest(unittest.TestCase):
                 self.assertEqual(result.returncode, code, result.stderr)
                 if code:
                     self.assertIn(f"exceed {zerochat.RUNNER_MAX_BYTES} bytes", result.stderr)
+
+    def test_el_tope_cuenta_bytes_utf8_y_tambien_cada_libreria_bajo_demanda(self):
+        limit = zerochat.RUNNER_MAX_BYTES
+        others = sum(len(text) for name, text in SITE.items() if name not in ("js/c.js", "js/vendor/lib.js"))
+        head = "module.exports = { value: 'c' };//"
+        # Caben en el tope contando caracteres, pero «é» son dos bytes: uno de más.
+        padding = limit - others - len(head)
+        (self.site / "js" / "c.js").write_text(head + "x" * (padding - 1) + "é", encoding="utf-8", newline="")
+        result = self.run_loader()
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(f"exceed {limit} bytes", result.stderr)
+
+        (self.site / "js" / "c.js").write_text(SITE["js/c.js"], encoding="utf-8", newline="")
+        vendor = self.site / "js" / "vendor" / "lib.js"
+        for extra, code in ((0, 0), (1, 1)):
+            with self.subTest(extra=extra):
+                vendor.write_bytes(b"v" * (limit + extra))
+                result = self.run_loader(zerochat.RUNNER_CACHE_ALWAYS_DOWNLOAD)
+                self.assertEqual(result.returncode, code, result.stderr[-2000:])
+                if code:
+                    self.assertIn(f"exceed {limit} bytes", result.stderr)
+
+    def test_la_copia_guardada_conserva_su_version_aunque_no_se_lea_la_publicada(self):
+        self.publish("1.0.0")
+        self.assertEqual(self.loaded()[0], "a+b+c")
+        # Se corta la página y run-node.js, pero la librería llega: se guarda con la versión de la copia, no con null.
+        RecordingSite.dropped = {"/zerochat.html", "/js/run-node.js"}
+        value, stderr = self.loaded()
+        self.assertEqual(value, "a+b+c")
+        self.assertIn("using the cached copy", stderr)
+        self.assertIn("/js/vendor/lib.js", RecordingSite.requests)
+        cached = json.loads((self.cache_dir / "modules.json").read_text(encoding="utf-8"))
+        self.assertEqual(cached["version"], "1.0.0")
+        RecordingSite.dropped = set()
+        self.assertIn("Using the cached modules of version 1.0.0", self.loaded()[1])
 
 
 class FakeModel(BaseHTTPRequestHandler):

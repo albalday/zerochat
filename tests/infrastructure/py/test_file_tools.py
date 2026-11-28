@@ -113,6 +113,13 @@ class DiagnosticsTest(unittest.TestCase):
             full = json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))
             self.assertEqual((full["files_checked"], full["truncated"]), (limit, truncated))
 
+    def test_un_fichero_que_desaparece_o_no_se_puede_leer_no_rompe_el_resto(self):
+        # Un enlace roto dentro del proyecto: os.walk lo lista, pero stat() falla como si lo hubieran borrado.
+        (self.project / "roto.py").symlink_to(self.project / "no-existe.py")
+        result = json.loads(zerochat.get_diagnostics(path=str(self.project), ctx=CTX))
+        self.assertIs(result["success"], True, result)
+        self.assertEqual((result["files_checked"], result["error_count"]), (3, 2))
+
     def test_los_ficheros_por_encima_del_tope_de_bytes_se_listan_sin_comprobar(self):
         limit = 64
         big = self.project / "big.json"
@@ -166,6 +173,42 @@ class ReadFileTest(unittest.TestCase):
         self.assertTrue(all(line.startswith("paso ") for line in capped["content"].splitlines()))
         self.assertLess(capped["lines_returned"], 11)
         self.assertEqual(capped["end_line"], 3000)
+
+    def test_tail_lines_de_una_sola_linea_mayor_que_max_bytes_devuelve_su_final(self):
+        base = use_data_dir(self)
+        # Un minificado sin saltos de línea, con un carácter de dos bytes justo donde corta max_bytes.
+        minified = base / "app.min.js"
+        minified.write_bytes(("é" + "x" * 1023 + "FIN").encode("utf-8"))
+        result = json.loads(zerochat.read_file(str(minified), tail_lines=5, max_bytes=1025, ctx=CTX))
+        self.assertEqual(result["content"], "x" * 1022 + "FIN")
+        self.assertEqual((result["total_lines"], result["start_line"], result["lines_returned"], result["truncated"]),
+                         (1, 1, 1, True))
+        # Con su salto final y precedida de otra línea, igual: lo que no cabe se recorta por el principio.
+        minified.write_bytes(b"cabecera\n" + b"y" * 5000 + b"FIN\n")
+        result = json.loads(zerochat.read_file(str(minified), tail_lines=5, max_bytes=1024, ctx=CTX))
+        self.assertEqual(result["content"], "y" * 1020 + "FIN\n")
+        self.assertEqual((result["start_line"], result["lines_returned"], result["truncated"]), (2, 1, True))
+        # Si cabe entera, sale entera y sin aviso de recorte.
+        minified.write_bytes(b"z" * 1021 + b"FIN")
+        result = json.loads(zerochat.read_file(str(minified), tail_lines=5, max_bytes=1024, ctx=CTX))
+        self.assertEqual((result["content"], result["truncated"]), ("z" * 1021 + "FIN", False))
+
+    def test_read_file_no_carga_entera_una_linea_enorme(self):
+        import tracemalloc
+        huge = use_data_dir(self) / "volcado.txt"
+        size = 8 * 1024 * 1024
+        with open(huge, "wb") as handle:
+            handle.write(b"a" * size + b"\nsegunda\n")
+        tracemalloc.start()
+        try:
+            first = json.loads(zerochat.read_file(str(huge), max_bytes=1024, ctx=CTX))
+            second = json.loads(zerochat.read_file(str(huge), start_line=2, ctx=CTX))
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        self.assertEqual((first["content"], first["truncated"]), ("a" * 1024, True))
+        self.assertEqual((second["content"], second["start_line"], second["total_lines"]), ("segunda\n", 2, 2))
+        self.assertLess(peak, size // 4, "La línea de 8 MiB no debe estar entera en memoria")
 
     def test_read_file_lee_imagenes_raster_en_base64_y_acota_en_n_y_n_mas_1(self):
         img_dir = use_data_dir(self)

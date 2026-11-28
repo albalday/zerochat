@@ -27,6 +27,48 @@ def wait_dead(pid):
         raise AssertionError(f"El proceso {pid} sigue vivo")
 
 
+
+class ScriptedJob:
+    """Un comando para _wait_job cuya salida ya está escrita, entregada en tramos de chunk caracteres."""
+
+    def __init__(self, output: str, finished: bool, chunk: int = 4096):
+        self.output, self.chunk, self.model_cursor = output, chunk, 0
+        self.total = len(output)
+        self.done = threading.Event()
+        if finished:
+            self.done.set()
+
+    def read_range(self, start, max_bytes):
+        end = min(start + max_bytes, start + self.chunk, self.total)
+        return self.output[start:end], end
+
+    def wait_change(self, _pos, remaining, _cancel):
+        time.sleep(min(remaining, 0.01))
+
+
+class WaitJobLinesTest(unittest.TestCase):
+    def wait(self, output, pattern, finished=True, **kwargs):
+        job = ScriptedJob(output, finished, **kwargs)
+        return zerochat._wait_job(job, 0.2, (pattern,), threading.Event())
+
+    def test_un_tramo_reescrito_con_retorno_de_carro_cuenta_como_linea(self):
+        # La barra sigue en marcha y no ha escrito ningún \n: «100%» ya se ve en la terminal.
+        self.assertEqual(self.wait("compilando 50%\rcompilando 100%\renlazando", "100%", finished=False),
+                         ("pattern_matched", "compilando 100%"))
+        self.assertEqual(self.wait("listo\r\nsiguiente", "listo", finished=False), ("pattern_matched", "listo"))
+
+    def test_de_una_linea_sin_terminar_solo_cuenta_su_final(self):
+        limit = zerochat.WAIT_PARTIAL_MAX_CHARS
+        for extra, expected in ((0, "pattern_matched"), (1, "command_finished")):
+            with self.subTest(extra=extra):
+                # Un volcado sin saltos de línea, leído en tramos: el texto del principio entra si cabe en el tope.
+                output = "inicio" + "x" * (limit - len("inicio") + extra)
+                reason, line = self.wait(output, "inicio")
+                self.assertEqual(reason, expected)
+                if line is not None:
+                    self.assertEqual(len(line), limit)
+
+
 def run(command, **kwargs):
     return json.loads(zerochat.run_command(command, **kwargs, ctx=zerochat.project_context()))
 

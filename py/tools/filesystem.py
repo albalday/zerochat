@@ -137,11 +137,18 @@ def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
     truncated_bytes = len(data) > max_bytes
     if truncated_bytes:
         data = data[-max_bytes:]
+        # Sin el carácter UTF-8 que el corte deja a medias.
+        while data and data[0] & 0xC0 == 0x80:
+            data = data[1:]
     # Solo \n separa líneas: splitlines también parte en \r y desharía las barras de progreso.
     parts = data.decode("utf-8", errors="replace").split("\n")
     lines = [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
-    if (position > 0 or truncated_bytes) and lines:
+    # La primera línea del bloque puede estar a medias: se quita, salvo si es la única (una línea mayor que
+    # max_bytes, como un minificado), que se devuelve con su final.
+    first_cut = position > 0 or truncated_bytes
+    if first_cut and len(lines) > 1:
         lines = lines[1:]
+        first_cut = False
     lines = lines[-wanted:]
     total_lines = _count_lines(target)
     start_line = total_lines - len(lines) + 1
@@ -153,13 +160,23 @@ def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
         "start_line": start_line,
         "end_line": total_lines,
         "lines_returned": len(lines),
-        "truncated": start_line > 1,
+        "truncated": start_line > 1 or first_cut,
         "content": "".join(_terminal_line(line) for line in lines)
     }, ensure_ascii=False, indent=2)
 
 
 # Pasado el rango pedido, read_file sigue contando líneas para total_lines hasta este número más allá del inicio.
 READ_COUNT_AHEAD_LINES = 50000
+
+
+def _bounded_lines(f, limit: int) -> Iterator[str]:
+    """Las líneas de f con como mucho limit caracteres cada una: el resto de una línea más larga se lee por tramos
+    y se descarta, sin tenerla entera en memoria (un fichero de 2 GB sin saltos de línea)."""
+    while line := f.readline(limit):
+        if len(line) == limit and not line.endswith("\n"):
+            while (rest := f.readline(limit)) and not rest.endswith("\n"):
+                pass
+        yield line
 
 
 def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tuple[list[str], int, bool]:
@@ -169,7 +186,7 @@ def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tu
     used = 0
     total_lines = 0
     with open(target, "r", encoding="utf-8", errors="replace") as f:
-        for line_no, line in enumerate(f, 1):
+        for line_no, line in enumerate(_bounded_lines(f, max_bytes + 1), 1):
             total_lines = line_no
             if line_no < start:
                 continue
@@ -633,10 +650,18 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
             checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
             checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES + 1))
         truncated = len(checked) > DIAGNOSTICS_MAX_FILES
-        oversized = [fp for fp in checked[:DIAGNOSTICS_MAX_FILES] if fp.stat().st_size > DIAGNOSTICS_MAX_FILE_BYTES]
-        checked = [fp for fp in checked[:DIAGNOSTICS_MAX_FILES] if fp not in oversized]
-        files_checked = len(checked)
-        diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
+        oversized: list[Path] = []
+        diagnostics: list[dict] = []
+        files_checked = 0
+        for fp in checked[:DIAGNOSTICS_MAX_FILES]:
+            try:
+                if fp.stat().st_size > DIAGNOSTICS_MAX_FILE_BYTES:
+                    oversized.append(fp)
+                    continue
+                diagnostics.extend(_file_diagnostics(fp, ctx.workspace_dir))
+            except OSError:
+                continue  # Borrado tras listarlo, un enlace roto o sin permiso de lectura: no se ha comprobado.
+            files_checked += 1
 
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
         if oversized:

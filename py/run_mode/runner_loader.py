@@ -30,7 +30,8 @@ RUNNER_CACHE_ALWAYS_DOWNLOAD = "always"
 # Variable de entorno en la que viaja la URL de la interfaz con el runner_token (fuera de argv; se borra al leerla).
 RUNNER_URL_ENV = "ZEROCHAT_RUNNER_URL"
 
-# Tope de lo descargado en una ejecución: la interfaz completa ocupa unas pocas centenas de KiB.
+# Tope en bytes UTF-8, contados mientras llegan, de los módulos de la interfaz (que ocupan unas pocas centenas de KiB)
+# y, aparte, de cada librería que se pide al usarla.
 RUNNER_MAX_BYTES = 16 * 1024 * 1024
 
 RUNNER_LOADER_SCRIPT = r"""
@@ -65,8 +66,14 @@ function resolveKey(from, spec) {
   return href.slice(base.length);
 }
 
+// Bytes UTF-8 que aún se pueden descargar: los módulos de la interfaz comparten uno y cada librería bajo demanda
+// tiene el suyo.
+function byteBudget() {
+  return { left: MAX_BYTES };
+}
+
 // Solo un fallo de red (fetch lanza) permite usar la caché: una respuesta de error o un tope superado, no.
-async function download(key) {
+async function download(key, budget) {
   let response;
   try {
     response = await fetch(base + key);
@@ -76,20 +83,26 @@ async function download(key) {
     throw error;
   }
   if (!response.ok) throw new Error(`${base + key}: HTTP ${response.status}`);
-  return response.text();
+  // Se cuenta mientras llega: una respuesta que pasa del tope se corta (salir del bucle cancela la descarga).
+  const chunks = [];
+  for await (const chunk of response.body || []) {
+    budget.left -= chunk.byteLength;
+    if (budget.left < 0) throw new Error(`The runner modules exceed ${MAX_BYTES} bytes.`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 async function downloadGraph() {
   const files = {};
   const seen = new Set([ENTRY]);
   let pending = [ENTRY];
-  let total = 0;
+  const budget = byteBudget();
   while (pending.length) {
-    const texts = await Promise.all(pending.map(key => download(key)));
+    const texts = await Promise.all(pending.map(key => download(key, budget)));
     const next = [];
     pending.forEach((key, index) => {
       files[key] = texts[index];
-      total += texts[index].length;
       for (const match of texts[index].matchAll(REQUIRE_RE)) {
         const dep = resolveKey(key, match[1]);
         if (!seen.has(dep)) {
@@ -98,7 +111,6 @@ async function downloadGraph() {
         }
       }
     });
-    if (total > MAX_BYTES) throw new Error(`The runner modules exceed ${MAX_BYTES} bytes.`);
     pending = next;
   }
   return files;
@@ -156,32 +168,32 @@ async function loadFiles(version) {
   const cached = readCache();
   if (version && cached && cached.version === version) {
     console.error(`[RunnerLoader] Using the cached modules of version ${version}.`);
-    return { files: cached.files, current: true };
+    return { files: cached.files, current: true, version };
   }
   const started = Date.now();
   try {
     const files = await downloadGraph();
     writeCache(files, version);
-    const kib = Math.round(Object.values(files).reduce((sum, text) => sum + text.length, 0) / 1024);
+    const kib = Math.round(Object.values(files).reduce((sum, text) => sum + Buffer.byteLength(text), 0) / 1024);
     console.error(`[RunnerLoader] Downloaded ${Object.keys(files).length} modules (${kib} KiB) in ${Date.now() - started} ms.`);
-    return { files, current: false };
+    return { files, current: false, version };
   } catch (error) {
     if (!error.offline || !cached) throw error;
     console.error(`[RunnerLoader] ${base} is unreachable (${error.message}); using the cached copy.`);
-    return { files: cached.files, current: false };
+    // La copia guardada sigue siendo de su versión, aunque ahora no se haya podido leer la publicada.
+    return { files: cached.files, current: false, version: cached.version ?? null };
   }
 }
 
 (async () => {
-  const version = await publishedVersion();
-  const { files, current } = await loadFiles(version);
+  const { files, current, version: filesVersion } = await loadFiles(await publishedVersion());
   // Las librerías de terceros se piden al usarlas: con la caché de la versión publicada salen de ella si ya están;
   // si no, se descargan y se añaden a la caché.
   globalThis.ChatRunnerSource = async key => {
     if (current && typeof files[key] === 'string') return files[key];
     try {
-      files[key] = await download(key);
-      writeCache(files, version);
+      files[key] = await download(key, byteBudget());
+      writeCache(files, filesVersion);
     } catch (error) {
       if (!error.offline || typeof files[key] !== 'string') throw error;
     }

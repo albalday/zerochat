@@ -1729,7 +1729,8 @@ RUNNER_CACHE_ALWAYS_DOWNLOAD = "always"
 # Variable de entorno en la que viaja la URL de la interfaz con el runner_token (fuera de argv; se borra al leerla).
 RUNNER_URL_ENV = "ZEROCHAT_RUNNER_URL"
 
-# Tope de lo descargado en una ejecución: la interfaz completa ocupa unas pocas centenas de KiB.
+# Tope en bytes UTF-8, contados mientras llegan, de los módulos de la interfaz (que ocupan unas pocas centenas de KiB)
+# y, aparte, de cada librería que se pide al usarla.
 RUNNER_MAX_BYTES = 16 * 1024 * 1024
 
 RUNNER_LOADER_SCRIPT = r"""
@@ -1764,8 +1765,14 @@ function resolveKey(from, spec) {
   return href.slice(base.length);
 }
 
+// Bytes UTF-8 que aún se pueden descargar: los módulos de la interfaz comparten uno y cada librería bajo demanda
+// tiene el suyo.
+function byteBudget() {
+  return { left: MAX_BYTES };
+}
+
 // Solo un fallo de red (fetch lanza) permite usar la caché: una respuesta de error o un tope superado, no.
-async function download(key) {
+async function download(key, budget) {
   let response;
   try {
     response = await fetch(base + key);
@@ -1775,20 +1782,26 @@ async function download(key) {
     throw error;
   }
   if (!response.ok) throw new Error(`${base + key}: HTTP ${response.status}`);
-  return response.text();
+  // Se cuenta mientras llega: una respuesta que pasa del tope se corta (salir del bucle cancela la descarga).
+  const chunks = [];
+  for await (const chunk of response.body || []) {
+    budget.left -= chunk.byteLength;
+    if (budget.left < 0) throw new Error(`The runner modules exceed ${MAX_BYTES} bytes.`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
 }
 
 async function downloadGraph() {
   const files = {};
   const seen = new Set([ENTRY]);
   let pending = [ENTRY];
-  let total = 0;
+  const budget = byteBudget();
   while (pending.length) {
-    const texts = await Promise.all(pending.map(key => download(key)));
+    const texts = await Promise.all(pending.map(key => download(key, budget)));
     const next = [];
     pending.forEach((key, index) => {
       files[key] = texts[index];
-      total += texts[index].length;
       for (const match of texts[index].matchAll(REQUIRE_RE)) {
         const dep = resolveKey(key, match[1]);
         if (!seen.has(dep)) {
@@ -1797,7 +1810,6 @@ async function downloadGraph() {
         }
       }
     });
-    if (total > MAX_BYTES) throw new Error(`The runner modules exceed ${MAX_BYTES} bytes.`);
     pending = next;
   }
   return files;
@@ -1855,32 +1867,32 @@ async function loadFiles(version) {
   const cached = readCache();
   if (version && cached && cached.version === version) {
     console.error(`[RunnerLoader] Using the cached modules of version ${version}.`);
-    return { files: cached.files, current: true };
+    return { files: cached.files, current: true, version };
   }
   const started = Date.now();
   try {
     const files = await downloadGraph();
     writeCache(files, version);
-    const kib = Math.round(Object.values(files).reduce((sum, text) => sum + text.length, 0) / 1024);
+    const kib = Math.round(Object.values(files).reduce((sum, text) => sum + Buffer.byteLength(text), 0) / 1024);
     console.error(`[RunnerLoader] Downloaded ${Object.keys(files).length} modules (${kib} KiB) in ${Date.now() - started} ms.`);
-    return { files, current: false };
+    return { files, current: false, version };
   } catch (error) {
     if (!error.offline || !cached) throw error;
     console.error(`[RunnerLoader] ${base} is unreachable (${error.message}); using the cached copy.`);
-    return { files: cached.files, current: false };
+    // La copia guardada sigue siendo de su versión, aunque ahora no se haya podido leer la publicada.
+    return { files: cached.files, current: false, version: cached.version ?? null };
   }
 }
 
 (async () => {
-  const version = await publishedVersion();
-  const { files, current } = await loadFiles(version);
+  const { files, current, version: filesVersion } = await loadFiles(await publishedVersion());
   // Las librerías de terceros se piden al usarlas: con la caché de la versión publicada salen de ella si ya están;
   // si no, se descargan y se añaden a la caché.
   globalThis.ChatRunnerSource = async key => {
     if (current && typeof files[key] === 'string') return files[key];
     try {
-      files[key] = await download(key);
-      writeCache(files, version);
+      files[key] = await download(key, byteBudget());
+      writeCache(files, filesVersion);
     } catch (error) {
       if (!error.offline || typeof files[key] !== 'string') throw error;
     }
@@ -7409,13 +7421,18 @@ class CancellableWaits:
 
 WAITS = CancellableWaits()
 
+# De una línea que aún no ha terminado se guarda solo su final para compararlo: una salida sin saltos de línea
+# (un minificado, un volcado binario) no crece en memoria ni se vuelve a recorrer entera en cada lectura.
+WAIT_PARTIAL_MAX_CHARS = 64 * 1024
+
 
 def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading.Event) -> tuple[str, str | None]:
     """Espera a que termine el comando (CommandJob), a que una línea nueva de su salida contenga alguno de terms
     o a que pase wait.
 
-    Recorre la salida que el modelo aún no ha visto, línea a línea; la última línea, si no está completa,
-    solo se compara cuando el comando termina. Devuelve el motivo y la línea que coincidió.
+    Recorre la salida que el modelo aún no ha visto, línea a línea (\n o \r); la última línea, si no está completa,
+    solo se compara cuando el comando termina, y de ella cuentan sus últimos WAIT_PARTIAL_MAX_CHARS caracteres.
+    Devuelve el motivo y la línea que coincidió.
     """
     deadline = time.monotonic() + wait
     pos = job.model_cursor
@@ -7425,8 +7442,9 @@ def _wait_job(job, wait: float, terms: tuple[str, ...] | None, cancel: threading
         total = job.total
         if terms is not None and total > pos:
             text, pos = job.read_range(pos, total - pos)
-            lines = (partial + text).split("\n")
-            partial = lines.pop()
+            # Una barra de progreso reescribe su línea con \r: cada tramo cuenta como una línea, como en la terminal.
+            lines = (partial + text).replace("\r", "\n").split("\n")
+            partial = lines.pop()[-WAIT_PARTIAL_MAX_CHARS:]
             for line in lines:
                 if line_matches(line, terms):
                     return "pattern_matched", line
@@ -9644,11 +9662,18 @@ def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
     truncated_bytes = len(data) > max_bytes
     if truncated_bytes:
         data = data[-max_bytes:]
+        # Sin el carácter UTF-8 que el corte deja a medias.
+        while data and data[0] & 0xC0 == 0x80:
+            data = data[1:]
     # Solo \n separa líneas: splitlines también parte en \r y desharía las barras de progreso.
     parts = data.decode("utf-8", errors="replace").split("\n")
     lines = [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
-    if (position > 0 or truncated_bytes) and lines:
+    # La primera línea del bloque puede estar a medias: se quita, salvo si es la única (una línea mayor que
+    # max_bytes, como un minificado), que se devuelve con su final.
+    first_cut = position > 0 or truncated_bytes
+    if first_cut and len(lines) > 1:
         lines = lines[1:]
+        first_cut = False
     lines = lines[-wanted:]
     total_lines = _count_lines(target)
     start_line = total_lines - len(lines) + 1
@@ -9660,13 +9685,23 @@ def _read_tail(target: Path, tail_lines: int, max_bytes: int) -> str:
         "start_line": start_line,
         "end_line": total_lines,
         "lines_returned": len(lines),
-        "truncated": start_line > 1,
+        "truncated": start_line > 1 or first_cut,
         "content": "".join(_terminal_line(line) for line in lines)
     }, ensure_ascii=False, indent=2)
 
 
 # Pasado el rango pedido, read_file sigue contando líneas para total_lines hasta este número más allá del inicio.
 READ_COUNT_AHEAD_LINES = 50000
+
+
+def _bounded_lines(f, limit: int) -> Iterator[str]:
+    """Las líneas de f con como mucho limit caracteres cada una: el resto de una línea más larga se lee por tramos
+    y se descarta, sin tenerla entera en memoria (un fichero de 2 GB sin saltos de línea)."""
+    while line := f.readline(limit):
+        if len(line) == limit and not line.endswith("\n"):
+            while (rest := f.readline(limit)) and not rest.endswith("\n"):
+                pass
+        yield line
 
 
 def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tuple[list[str], int, bool]:
@@ -9676,7 +9711,7 @@ def _read_line_range(target: Path, start: int, count: int, max_bytes: int) -> tu
     used = 0
     total_lines = 0
     with open(target, "r", encoding="utf-8", errors="replace") as f:
-        for line_no, line in enumerate(f, 1):
+        for line_no, line in enumerate(_bounded_lines(f, max_bytes + 1), 1):
             total_lines = line_no
             if line_no < start:
                 continue
@@ -10140,10 +10175,18 @@ def get_diagnostics(path: str | None = None, *, ctx: SecurityContext) -> str:
             checkable = (fp for fp in _walk_project_files(target) if fp.suffix.lower() in DIAGNOSTIC_CHECKS)
             checked = list(itertools.islice(checkable, DIAGNOSTICS_MAX_FILES + 1))
         truncated = len(checked) > DIAGNOSTICS_MAX_FILES
-        oversized = [fp for fp in checked[:DIAGNOSTICS_MAX_FILES] if fp.stat().st_size > DIAGNOSTICS_MAX_FILE_BYTES]
-        checked = [fp for fp in checked[:DIAGNOSTICS_MAX_FILES] if fp not in oversized]
-        files_checked = len(checked)
-        diagnostics = [diag for fp in checked for diag in _file_diagnostics(fp, ctx.workspace_dir)]
+        oversized: list[Path] = []
+        diagnostics: list[dict] = []
+        files_checked = 0
+        for fp in checked[:DIAGNOSTICS_MAX_FILES]:
+            try:
+                if fp.stat().st_size > DIAGNOSTICS_MAX_FILE_BYTES:
+                    oversized.append(fp)
+                    continue
+                diagnostics.extend(_file_diagnostics(fp, ctx.workspace_dir))
+            except OSError:
+                continue  # Borrado tras listarlo, un enlace roto o sin permiso de lectura: no se ha comprobado.
+            files_checked += 1
 
         msg = f"Found {len(diagnostics)} issue(s)." if diagnostics else "No diagnostic issues found."
         if oversized:
