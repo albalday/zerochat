@@ -178,7 +178,7 @@ test('Service Worker - una librería bajo demanda se guarda al primer uso y se s
 });
 
 
-test('Service Worker - install falla si algún recurso del precache no se descarga', async () => {
+test('Service Worker - install falla si algún recurso del precache no se descarga y la versión nueva espera al aviso', async () => {
   const vm = require('node:vm');
   const swCode = fs.readFileSync(path.resolve(__dirname, '../../sw.js'), 'utf8');
 
@@ -202,13 +202,21 @@ test('Service Worker - install falla si algún recurso del precache no se descar
     let installPromise;
     listeners.install({ waitUntil: (promise) => { installPromise = promise; } });
     await installPromise.catch(() => {});
-    return { installPromise, skipped };
+    return { installPromise, listeners, wasSkipped: () => skipped };
   }
 
   let requested = [];
   const ok = await runInstall(async (requests) => { requested = requests; });
   await ok.installPromise;
-  assert.equal(ok.skipped, true);
+  // Instalada, queda en espera: solo se activa con el mensaje que envía js/app.js al aceptar el aviso.
+  assert.equal(ok.wasSkipped(), false);
+  ok.listeners.message({ data: { type: 'otro' } });
+  assert.equal(ok.wasSkipped(), false);
+  const appCode = fs.readFileSync(path.resolve(__dirname, '../../js/app.js'), 'utf8');
+  const sentType = appCode.match(/waiting\.postMessage\(\{ type: '([^']+)' \}\)/)?.[1];
+  assert.ok(sentType, 'js/app.js debe enviar el mensaje de activación al worker en espera');
+  ok.listeners.message({ data: { type: sentType } });
+  assert.equal(ok.wasSkipped(), true);
   assert.ok(requested.length > 1);
   assert.ok(requested.every(req => req.cache === 'no-cache'));
   // La raíz no es la aplicación y el servidor local la protege con token: rompería la instalación.
@@ -216,5 +224,4 @@ test('Service Worker - install falla si algún recurso del precache no se descar
 
   const failed = await runInstall(async () => { throw new TypeError('Request failed'); });
   await assert.rejects(failed.installPromise, /Request failed/);
-  assert.equal(failed.skipped, false);
 });

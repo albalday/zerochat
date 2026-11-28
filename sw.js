@@ -117,12 +117,17 @@ const PRECACHE_ASSETS = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(
-    // addAll es atómico: si falta un recurso, la instalación falla y sigue activa la versión anterior.
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(PRECACHE_ASSETS.map(asset => new Request(asset, { cache: 'no-cache' })));
-    }).then(() => self.skipWaiting())
-  );
+  // addAll es atómico: si falta un recurso, la instalación falla y sigue activa la versión anterior.
+  // Una versión nueva queda en espera, sin tocar las pestañas abiertas ni sus cachés, hasta que la persona
+  // acepta el aviso de actualización (o se cierran todas las pestañas de ZeroChat).
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => {
+    return cache.addAll(PRECACHE_ASSETS.map(asset => new Request(asset, { cache: 'no-cache' })));
+  }));
+});
+
+// Lo envía js/app.js al pulsar «Recargar ahora».
+self.addEventListener('message', event => {
+  if (event.data?.type === 'zerochat-skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', event => {

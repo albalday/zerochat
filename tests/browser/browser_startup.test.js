@@ -191,9 +191,15 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
         };
         const secondLoad = events.includes('update');
         const listeners = [];
+        const controllerListeners = [];
+        // El worker en espera solo toma el control (y la página recarga) cuando recibe el mensaje de activación.
         const worker = {
           state: 'installing',
-          addEventListener: (type, listener) => listeners.push(listener)
+          addEventListener: (type, listener) => listeners.push(listener),
+          postMessage: message => {
+            window.__recordStartup(`activate:${message.type}`);
+            controllerListeners.forEach(listener => listener());
+          }
         };
         const registration = {
           waiting: null,
@@ -211,7 +217,11 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
         };
         Object.defineProperty(navigator, 'serviceWorker', {
           configurable: true,
-          value: { controller: {}, register: async () => registration }
+          value: {
+            controller: {},
+            register: async () => registration,
+            addEventListener: (type, listener) => { if (type === 'controllerchange') controllerListeners.push(listener); }
+          }
         });
       }, { outcome });
       await page.route('**/js/app.js', async route => {
@@ -257,7 +267,7 @@ for (const outcome of ['later', 'reload', 'none', 'offline']) {
         }
       }
       await page.waitForFunction(() => window.__startupEvents.includes('mcp'));
-      const expected = outcome === 'reload' ? ['check', 'update', 'check', 'mcp'] :
+      const expected = outcome === 'reload' ? ['check', 'update', 'activate:zerochat-skip-waiting', 'check', 'mcp'] :
         outcome === 'later' ? ['check', 'update', 'mcp'] : ['check', 'mcp'];
       assert.deepEqual(await page.evaluate(() => window.__startupEvents), expected);
       assert.equal(await page.evaluate(() => window.__mcpStartedId), 'memory');

@@ -1028,15 +1028,27 @@
 
   let serviceWorkerUpdatePrompt = null;
 
-  function promptServiceWorkerUpdate() {
+  /** Con «Más tarde» la versión nueva sigue en espera y la pestaña conserva entera la que tiene. */
+  function promptServiceWorkerUpdate(registration) {
     serviceWorkerUpdatePrompt ||= (async () => {
       const accepted = await Dialogs.confirm(t('pwa_update_available'), {
         type: 'info', title: t('pwa_update_title'), acceptText: t('pwa_update_reload'), cancelText: t('pwa_update_later')
       });
-      if (accepted) location.reload();
+      if (accepted) activateWaitingWorker(registration);
       return accepted;
     })();
     return serviceWorkerUpdatePrompt;
+  }
+
+  /** Activa el Service Worker en espera y recarga cuando toma el control de la página. */
+  function activateWaitingWorker(registration) {
+    const waiting = registration.waiting;
+    if (!waiting) {
+      location.reload();
+      return;
+    }
+    navigator.serviceWorker.addEventListener('controllerchange', () => location.reload(), { once: true });
+    waiting.postMessage({ type: 'zerochat-skip-waiting' });
   }
 
   /** Registra el Service Worker; devuelve true si el usuario eligió recargar para actualizar. */
@@ -1051,17 +1063,17 @@
       registration.addEventListener('updatefound', () => {
         const worker = registration.installing;
         worker.addEventListener('statechange', () => {
-          if (worker.state === 'installed' && navigator.serviceWorker.controller) promptServiceWorkerUpdate();
+          if (worker.state === 'installed' && navigator.serviceWorker.controller) promptServiceWorkerUpdate(registration);
         });
       });
-      if (registration.waiting) return await promptServiceWorkerUpdate();
+      if (registration.waiting) return await promptServiceWorkerUpdate(registration);
       await registration.update().catch(() => { /* sin red se sigue con la versión instalada */ });
       const worker = registration.installing;
       if (worker && !isSettled(worker)) {
         await new Promise(resolve => worker.addEventListener('statechange', () => { if (isSettled(worker)) resolve(); }));
       }
       if (registration.waiting || (worker?.state === 'installed' && navigator.serviceWorker.controller)) {
-        return await promptServiceWorkerUpdate();
+        return await promptServiceWorkerUpdate(registration);
       }
       return await (serviceWorkerUpdatePrompt || false);
     } catch (_) {
