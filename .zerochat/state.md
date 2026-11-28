@@ -1,5 +1,5 @@
 # Current state
 - Milestone: M97 Arreglos pequeños agentes
-- Next task: none pending
+- Next task: M97-T4
 - Last closed: M98 (2026-11-28)
 - Last updated: 2026-11-28
