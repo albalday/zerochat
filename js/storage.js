@@ -426,7 +426,9 @@
   }
 
   function splitOversizedMessage(uploadId, conversationId, msg, maxBytes) {
-    if (typeof msg?.content !== 'string') {
+    // Solo se trocea content: sin texto (todo en tool_calls o el razonamiento) no habría ningún tramo y el
+    // mensaje desaparecería en silencio de la copia del servidor; mejor que falle la subida (M98-D19).
+    if (typeof msg?.content !== 'string' || msg.content.length === 0) {
       throw new Error('Single message exceeds the maximum HTTP chunk size.');
     }
     const { content, ...msgShell } = msg;
