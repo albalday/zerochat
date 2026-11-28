@@ -570,6 +570,15 @@ def start_server_run(params: dict) -> dict:
     return {"ok": True, "run_id": run_id, "conversation_id": clean_conv_id, "status": "running"}
 
 
+def run_request_bytes(request: dict) -> bytes:
+    """El run-file de la petición tal como lo leerá `--run-file -`. ValueError, con los textos de format_run_request y
+    parse_run_request, si no se puede escribir o pasa de RUN_FILE_MAX_BYTES (al cambiar prompt o añadir conversation_id)."""
+    data = format_run_request(request).encode("utf-8")
+    if len(data) > RUN_FILE_MAX_BYTES:
+        raise ValueError(f"no puede superar {RUN_FILE_MAX_BYTES} bytes")
+    return data
+
+
 def launch_run_file(request: dict, cwd: Path) -> dict:
     """
     Lanza `zerochat --run-file -` con la petición ya validada (con su conversation_id) en la carpeta cwd, separado de
@@ -577,6 +586,8 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
     en marcha con el run_id que recibe en ZEROCHAT_RUN_ID antes de que arranque. ValueError si no se puede lanzar.
     """
     conv_id = request["conversation_id"]
+    # Antes de lanzar nada: una petición que no se puede escribir no deja un proceso esperando ni una fila en marcha.
+    data = run_request_bytes(request)
     check_no_active_run(conv_id)
     check_run_capacity()
     if not find_node_executable():
@@ -598,7 +609,6 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
                "started_at": now, "updated_at": now, "status": "running", "step_text": "", "pending": None, "error": None}
     upsert_run_state(payload)
     watch_run_exit(proc.pid, payload["pid_start"], proc)
-    data = format_run_request(request).encode("utf-8")
 
     def write_request():
         # Hasta RUN_FILE_MAX_BYTES no caben en la tubería: la escritura espera a que el hijo lea, fuera de este hilo.
@@ -638,14 +648,51 @@ def _approved_call(tool_security) -> tuple[str, dict] | None:
     return tool_name, args
 
 
+# Entradas que recuerda un controlador de cada clase: pasado el tope, se olvidan las más antiguas.
+CONTROLLER_MEMORY_MAX = 1000
+
+
+def _remember(entries: dict, key, value) -> None:
+    entries.pop(key, None)
+    entries[key] = value
+    while len(entries) > CONTROLLER_MEMORY_MAX:
+        del entries[next(iter(entries))]
+
+
 class ControllerState:
     """Lo que un controlador recuerda mientras vive: las conversaciones que lanzó con launch_agent
-    ({id: {agent, project, updatedAt}}), que check_agents ve desde el lanzamiento, antes de que el agente las guarde, y
-    las respuestas finales ya entregadas, por (conversación, run_id) -> (result_chars, partial), que el listado no repite
-    ni relee en conversaciones cortadas. Lo tiene cada ejecución y cada conversación del servidor de la interfaz."""
+    ({id: {agent, project, run_id, updatedAt}}), que check_agents ve desde el lanzamiento, antes de que el agente las
+    guarde, y las respuestas finales ya entregadas, por (conversación, run_id) -> (result_chars, partial), que el
+    listado no repite ni relee en conversaciones cortadas. Lo tiene cada ejecución y cada conversación del servidor de
+    la interfaz, que lo comparte entre los hilos de sus peticiones: se lee y se cambia con estos métodos, bajo su cerrojo."""
     def __init__(self):
+        self.controller_lock = threading.Lock()
         self.launched_agents: dict[str, dict] = {}
         self.delivered_results: dict[tuple[str, str], tuple[int, bool]] = {}
+
+    def remember_launch(self, conv_id: str, meta: dict) -> None:
+        with self.controller_lock:
+            _remember(self.launched_agents, conv_id, meta)
+
+    def launched(self) -> dict[str, dict]:
+        """Copia de las conversaciones lanzadas, para recorrerla sin el cerrojo."""
+        with self.controller_lock:
+            return dict(self.launched_agents)
+
+    def delivered(self, key: tuple[str, str]) -> tuple[int, bool] | None:
+        with self.controller_lock:
+            return self.delivered_results.get(key)
+
+    def mark_delivered(self, key: tuple[str, str], value: tuple[int, bool]) -> None:
+        with self.controller_lock:
+            _remember(self.delivered_results, key, value)
+
+    def forget(self, conv_id: str) -> None:
+        """Olvida una conversación borrada: si no, check_agents la seguiría mostrando como lanzada y sin guardar."""
+        with self.controller_lock:
+            self.launched_agents.pop(conv_id, None)
+            for key in [key for key in self.delivered_results if key[0] == conv_id]:
+                del self.delivered_results[key]
 
 
 class RunSession(ControllerState):

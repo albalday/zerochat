@@ -924,7 +924,7 @@ class ServerRunsInfrastructureTest(unittest.TestCase):
             base = {"run_id": f"r_{race_id}", "conversation_id": race_id, "status": "running",
                     "pid": os.getpid(), "pid_start": zerochat._process_start_token(os.getpid())}
             upsert_run(base)
-            zerochat.RUN_SESSION.launched_agents[race_id] = {"agent": "lector", "project": ctx.key, "updatedAt": 1000}
+            zerochat.RUN_SESSION.launched_agents[race_id] = {"agent": "lector", "project": ctx.key, "run_id": f"r_{race_id}", "updatedAt": 1000}
             with mock.patch.object(zerochat, "_kill_process_tree", side_effect=lambda *_, **__: upsert_run({**base, **race_patch})):
                 res = stop(conversation_id=race_id)
             self.assertEqual((res["stopped"], res["status"], res["result_text"] if res["status"] == "completed" else None, res.get("usage")), expected)

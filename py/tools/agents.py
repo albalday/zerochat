@@ -35,6 +35,7 @@ from run_mode.state import (
     current_run_session,
     format_run_request,
     launch_run_file,
+    run_request_bytes,
     parse_run_request,
     run_process_alive,
     running_run_count,
@@ -131,7 +132,7 @@ def _agent_conversations(ctx: SecurityContext, own_id: str, state: ControllerSta
     convs = [conv for conv in list_conversations()
              if conv["id"] != own_id and conv.get("agent") and (conv.get("project") or "") == project]
     saved = {conv["id"] for conv in convs}
-    pending = [{"id": conv_id, **meta, "_unsaved": True} for conv_id, meta in state.launched_agents.items()
+    pending = [{"id": conv_id, **meta, "_unsaved": True} for conv_id, meta in state.launched().items()
                if conv_id not in saved and meta["project"] == project]
     if not pending:
         return convs
@@ -193,12 +194,11 @@ def _listing(selected: list[tuple[dict, dict]], state: ControllerState) -> dict:
     """El listado con la respuesta final entera de cada agente mientras quepa (por agente y entre todos); la que no,
     sin texto y con result_chars, y la ya entregada en esta ejecución, sin texto y con result_seen."""
     budget, agents, omitted, seen = AGENT_LIST_TOTAL_CHARS, [], False, False
-    delivered = state.delivered_results
     for conv, run in selected:
         entry = _agent_state(conv, run)
         key = _delivered_key(conv, run)
-        if key in delivered:
-            result_chars, partial = delivered[key]
+        if (delivered := state.delivered(key)) is not None:
+            result_chars, partial = delivered
             if partial:
                 entry["partial"] = True
             entry.update(result_seen=True, result_chars=result_chars)
@@ -212,7 +212,7 @@ def _listing(selected: list[tuple[dict, dict]], state: ControllerState) -> dict:
             entry["result_text"] = result
             budget -= len(result)
             if result:
-                delivered[key] = (len(result), partial)
+                state.mark_delivered(key, (len(result), partial))
         else:
             entry["result_chars"] = len(result)
             omitted = True
@@ -259,7 +259,7 @@ def _selected(ctx: SecurityContext, own_id: str, state: ControllerState, agent: 
     elif agent is not None:
         picked = [conv for conv in convs if conv["agent"] == agent][:1]
     else:
-        launched = state.launched_agents
+        launched = state.launched()
         seen: set[str] = set()
         picked = []
         for conv in convs:  # De la más reciente a la más antigua.
@@ -305,9 +305,10 @@ def _wait_for_change(read, wait: float) -> tuple[list[tuple[dict, dict]] | None,
         selected = read()
 
 
-def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
+def _prune(convs: list[dict], agent: str | None, keep: int, state: ControllerState) -> str:
     """Borra las conversaciones de cada agente (o solo de agent) salvo las keep más recientes, con su fila
-    de runs; las que están en marcha o esperan a una persona se conservan y se indican."""
+    de runs y lo que el controlador recuerda de ellas; las que están en marcha o esperan a una persona se conservan
+    y se indican."""
     deleted, skipped, seen = [], [], {}
     for conv in convs:  # De la más reciente a la más antigua.
         if conv.get("_unsaved"):
@@ -323,6 +324,7 @@ def _prune(convs: list[dict], agent: str | None, keep: int) -> str:
             continue
         if delete_conversation(conv["id"]):
             delete_run_state(conv["id"])
+            state.forget(conv["id"])
             deleted.append({"agent": conv["agent"], "conversation_id": conv["id"]})
     return json.dumps({"success": True, "deleted": deleted, "skipped": skipped}, ensure_ascii=False)
 
@@ -388,7 +390,8 @@ def stop_agent(conversation_id: str | None = None, project: str | None = None,
     if not isinstance(conversation_id, str) or not conversation_id.strip():
         return _tool_error("conversation_id must be a non-empty string.")
     conv_id = conversation_id.strip()
-    if conv_id not in state.launched_agents:
+    launched = state.launched().get(conv_id)
+    if launched is None:
         return _tool_error("A controller only stops the agents it launched in this run.")
     selected = _selected(target, own_id, state, None, conv_id)
     if selected is None:
@@ -396,9 +399,15 @@ def stop_agent(conversation_id: str | None = None, project: str | None = None,
     conv, run = selected[0]
     if run.get("status") != "running" or not run_process_alive(run):
         return _tool_error(f"The conversation {conv_id} is not running (status: {_agent_state(conv, run)['status']}).")
+    # La conversación sigue siendo suya, pero quizá no la ejecución: una persona o cron pudo reanudarla después.
+    if run.get("run_id") != launched.get("run_id"):
+        return _tool_error(f"The conversation {conv_id} is running again, in a run this controller did not launch.")
     _kill_process_tree(run["pid"], grace_seconds=AGENT_STOP_GRACE_SECONDS)
-    # Releer tras el plazo de gracia para conservar usage/warnings recientes o un resultado terminado a tiempo.
+    # Releer tras el plazo de gracia para conservar usage/warnings recientes o un resultado terminado a tiempo; una
+    # ejecución nueva que la sustituyó en ese plazo no es la que se ha parado y queda como está.
     fresh = get_run_state(conv_id) or run
+    if fresh.get("run_id") != run.get("run_id"):
+        return _detail(conv, fresh, state, 0, False, {"stopped": True})
     if fresh.get("status") != "running" and not (fresh.get("status") == "error" and fresh.get("error") == RUN_INTERRUPTED_ERROR):
         return _detail(conv, fresh, state, 0, False, {"stopped": False})
     now = int(time.time() * 1000)
@@ -419,7 +428,7 @@ def prune_agents(keep: int | None = None, agent: str | None = None, project: str
     convs = _agent_conversations(target, own_id, state)
     if agent is not None and not any(conv["agent"] == agent for conv in convs):
         return _tool_error("That agent is not an agent of this project.")
-    return _prune(convs, agent, keep)
+    return _prune(convs, agent, keep, state)
 
 
 def _detail(conv: dict, run: dict, controller: ControllerState, offset: int, include_turn: bool, extra: dict) -> str:
@@ -436,7 +445,7 @@ def _detail(conv: dict, run: dict, controller: ControllerState, offset: int, inc
         turn = {"last_turn": messages, **({"last_turn_truncated": True} if truncated else {})}
     page = _result_page(result, offset)
     if result and page["next_offset"] is None:
-        controller.delivered_results[_delivered_key(conv, run)] = (len(result), partial)
+        controller.mark_delivered(_delivered_key(conv, run), (len(result), partial))
     return json.dumps({"success": True, **state, **page, **turn, **extra},
                       ensure_ascii=False)
 
@@ -571,8 +580,8 @@ def _target_conversation(conv_id: str | None, agent: str, target: SecurityContex
     return conv
 
 
-def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str, state: ControllerState,
-            *, inline_keys: set[str] | None = None) -> str:
+def _apply_prompt(request: dict, prompt: str | None) -> str:
+    """Comprueba que la petición sea de un agente, le aplica prompt si se da y devuelve el agente."""
     agent = request.get("agent")
     if not agent:
         raise ValueError("The run-file must set an agent.")
@@ -584,6 +593,12 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
         request["prompt"] = prompt.strip()
     if "prompt" not in request and "conversation_id" not in request:
         raise ValueError("The run-file needs a prompt (or give one in prompt).")
+    return agent
+
+
+def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: str, state: ControllerState,
+            *, inline_keys: set[str] | None = None) -> str:
+    agent = _apply_prompt(request, prompt)
     if not get_project_environment(target.key)["saved"]:
         raise ValueError(f"The project {target.workspace_dir} has no saved environment: save its tools and permissions in the UI first.")
     conv_id = request.get("conversation_id")
@@ -602,9 +617,15 @@ def _launch(request: dict, prompt: str | None, target: SecurityContext, own_id: 
         check_no_active_run(request["conversation_id"])
     except ValueError:
         raise ValueError(f"The conversation {request['conversation_id']} is already running: nothing was launched.") from None
+    # Con el prompt sustituido y el conversation_id añadido, el run-file puede dejar de ser válido o pasar del tope.
+    try:
+        run_request_bytes(request)
+    except ValueError as exc:
+        raise ValueError(_format_run_error(exc, inline=inline_keys is not None)) from None
     launched = launch_run_file(request, Path(target.workspace_dir))
-    state.launched_agents[request["conversation_id"]] = {
-        "agent": agent, "project": _conversation_project(target), "updatedAt": int(time.time() * 1000)}
+    state.remember_launch(request["conversation_id"], {
+        "agent": agent, "project": _conversation_project(target), "run_id": launched["run_id"],
+        "updatedAt": int(time.time() * 1000)})
     return json.dumps({"success": True, "agent": agent, "conversation_id": request["conversation_id"], "new": conv is None,
                        "run_id": launched["run_id"], "project": target.key, "runs": _runs(),
                        "note": "It runs on its own: follow it with check_agents (with the same project), which can wait for it."},
