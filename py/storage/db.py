@@ -16,7 +16,7 @@ import urllib.parse
 import uuid
 from pathlib import Path
 
-from core.environment import get_data_dir
+from core.environment import DETECTED_OS, get_data_dir
 from core.limits import MAX_PATH_LENGTH
 from core.live_events import notify_live_change
 from storage.obfuscation import OBFUSCATION_PREFIX, obfuscate_secret, reveal_secret
@@ -410,37 +410,39 @@ def save_general_profile(record: dict) -> dict:
     created_at = _parse_optional_timestamp(record.get("createdAt"), "createdAt") or updated_at
 
     with open_storage() as conn:
-        existing = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
-        if existing:
-            try:
-                existing_settings = json.loads(existing["settings_json"])
-            except (json.JSONDecodeError, TypeError):
-                existing_settings = {}
-            if existing_settings.get("apiKeyLocked") is True:
-                raise ValueError("Los cambios en este perfil están bloqueados")
+        # Lectura y escritura en una transacción: otro guardado a la vez no pasa la misma comprobación de nombre ni
+        # sube la misma versión.
+        with _immediate_transaction(conn):
+            existing = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
+            if existing:
+                try:
+                    existing_settings = json.loads(existing["settings_json"])
+                except (json.JSONDecodeError, TypeError):
+                    existing_settings = {}
+                if existing_settings.get("apiKeyLocked") is True:
+                    raise ValueError("Los cambios en este perfil están bloqueados")
 
-        same_name = conn.execute(
-            "SELECT id FROM profiles WHERE name = ? COLLATE NOCASE AND id != ?;",
-            (name, profile_id)
-        ).fetchone()
-        if same_name:
-            raise ValueError(f"Ya existe un perfil con el nombre '{name}' en el servidor")
+            same_name = conn.execute(
+                "SELECT id FROM profiles WHERE name = ? COLLATE NOCASE AND id != ?;",
+                (name, profile_id)
+            ).fetchone()
+            if same_name:
+                raise ValueError(f"Ya existe un perfil con el nombre '{name}' en el servidor")
 
-        if existing:
-            version = existing["version"] + 1
-            final_api_key = (existing["api_key"] or "") if api_key is None else obfuscate_secret(api_key)
-            conn.execute("""
-                UPDATE profiles
-                SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
-                WHERE id = ?;
-            """, (name, description, json.dumps(settings), final_api_key, version, updated_at, profile_id))
-        else:
-            conn.execute("""
-                INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 1, ?, ?);
-            """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), created_at, updated_at))
+            if existing:
+                version = existing["version"] + 1
+                final_api_key = (existing["api_key"] or "") if api_key is None else obfuscate_secret(api_key)
+                conn.execute("""
+                    UPDATE profiles
+                    SET name = ?, description = ?, settings_json = ?, api_key = ?, version = ?, updated_at = ?
+                    WHERE id = ?;
+                """, (name, description, json.dumps(settings), final_api_key, version, updated_at, profile_id))
+            else:
+                conn.execute("""
+                    INSERT INTO profiles (id, name, description, settings_json, api_key, version, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, 1, ?, ?);
+                """, (profile_id, name, description, json.dumps(settings), obfuscate_secret(api_key or ""), created_at, updated_at))
 
-        conn.commit()
         saved_row = conn.execute("SELECT * FROM profiles WHERE id = ?;", (profile_id,)).fetchone()
         return _row_to_profile(saved_row)
 
@@ -674,21 +676,23 @@ def save_conversation(session_meta: dict, messages: list[dict] | None = None) ->
     extra = _conversation_extra(session_meta)
 
     with open_storage() as conn:
-        existing = conn.execute("SELECT created_at, extra_json, title FROM conversations WHERE id = ?;", (session_id,)).fetchone()
-        if existing:
-            created_at, title, extra = _merge_saved_header(existing, session_meta, created_at, title, extra)
-        conn.execute("""
-            INSERT INTO conversations (id, title, created_at, updated_at, message_count, extra_json)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                title = excluded.title,
-                updated_at = excluded.updated_at,
-                message_count = excluded.message_count,
-                extra_json = excluded.extra_json;
-        """, (session_id, title, created_at, updated_at, len(messages), json.dumps(extra, ensure_ascii=False) if extra else "{}"))
-        _replace_messages(conn, session_id, messages)
-        _replace_conversation_blobs(conn, session_id, new_blob_ids)
-        conn.commit()
+        # La cabecera guardada se mezcla con la nueva en la misma transacción: un cambio de otro proceso en medio
+        # (_patch_conversation_extra desde una ejecución) no se pierde.
+        with _immediate_transaction(conn):
+            existing = conn.execute("SELECT created_at, extra_json, title FROM conversations WHERE id = ?;", (session_id,)).fetchone()
+            if existing:
+                created_at, title, extra = _merge_saved_header(existing, session_meta, created_at, title, extra)
+            conn.execute("""
+                INSERT INTO conversations (id, title, created_at, updated_at, message_count, extra_json)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    title = excluded.title,
+                    updated_at = excluded.updated_at,
+                    message_count = excluded.message_count,
+                    extra_json = excluded.extra_json;
+            """, (session_id, title, created_at, updated_at, len(messages), json.dumps(extra, ensure_ascii=False) if extra else "{}"))
+            _replace_messages(conn, session_id, messages)
+            _replace_conversation_blobs(conn, session_id, new_blob_ids)
         row = conn.execute("SELECT * FROM conversations WHERE id = ?;", (session_id,)).fetchone()
         saved = _row_to_conversation_header(row)
     notify_live_change()
@@ -865,8 +869,12 @@ def commit_conversation_upload(session_meta: dict, upload_id: str) -> dict:
             raise ValueError("La conversación no coincide con la subida")
         if entry["next_index"] != entry["total_chunks"] or entry["partial_message"] is not None:
             raise ValueError("La subida de conversación está incompleta")
-        messages = _PENDING_CONVERSATION_UPLOADS.pop(clean_upload_id)["messages"]
-    return save_conversation(session_meta, messages)
+        messages = entry["messages"]
+    saved = save_conversation(session_meta, messages)
+    # Solo tras guardar: si el guardado falla, la subida sigue completa para reintentarlo.
+    with _STORAGE_LOCK:
+        _PENDING_CONVERSATION_UPLOADS.pop(clean_upload_id, None)
+    return saved
 
 
 def _patch_conversation_extra(session_id: str, patch: dict) -> bool:
@@ -876,14 +884,13 @@ def _patch_conversation_extra(session_id: str, patch: dict) -> bool:
     except (ValueError, TypeError):
         return False
     try:
-        with open_storage() as conn:
+        with open_storage() as conn, _immediate_transaction(conn):
             row = conn.execute("SELECT extra_json FROM conversations WHERE id = ?;", (clean_id,)).fetchone()
             if not row:
                 return False
             cur_extra = json.loads(row["extra_json"]) if row["extra_json"] else {}
             cur_extra.update(patch)
             conn.execute("UPDATE conversations SET extra_json = ? WHERE id = ?;", (json.dumps(cur_extra, ensure_ascii=False), clean_id))
-            conn.commit()
     except (sqlite3.Error, OSError, json.JSONDecodeError):
         return False
     notify_live_change()
@@ -962,10 +969,12 @@ def delete_conversation(session_id: str) -> bool:
         return bool(_delete_conversations(conn, "id = ?", (clean_id,)))
 
 
-def delete_conversations(project: str | None, agents: bool) -> list[str]:
+def delete_conversations(project: str | None, agents: bool,
+                         stop_runs: typing.Callable[[list[str]], None] | None = None) -> list[str]:
     """
     Borra en bloque un historial con sus mensajes y blobs propios: las conversaciones de agentes (`agents`) o los
     chats, de un proyecto (vacío para la carpeta general) o de todos (`project` None). Nunca los dos a la vez.
+    Con stop_runs, antes de borrar se le pasan las conversaciones que se van a borrar para detener sus ejecuciones.
     """
     if not isinstance(agents, bool):
         raise ValueError("agents debe ser un booleano")
@@ -980,6 +989,9 @@ def delete_conversations(project: str | None, agents: bool) -> list[str]:
         else:
             where.append("(json_extract(extra_json, '$.project') IS NULL OR json_extract(extra_json, '$.project') = '')")
     with open_storage() as conn:
+        if stop_runs is not None:
+            # Antes de borrar: una ejecución viva podría volver a guardar su conversación entre el borrado y su cancelación.
+            stop_runs([row["id"] for row in conn.execute(f"SELECT id FROM conversations WHERE {' AND '.join(where)};", params)])  # noqa: S608
         return _delete_conversations(conn, " AND ".join(where), params)
 
 
@@ -988,6 +1000,11 @@ def _validate_blob_id(blob_id: str) -> str:
     if not isinstance(blob_id, str) or not re.match(r"^[0-9a-f]{64}$", blob_id.strip().lower()):
         raise ValueError(f"ID de blob inválido (debe ser un hash SHA-256 hexadecimal de 64 caracteres): {blob_id}")
     return blob_id.strip().lower()
+
+
+# tipo/subtipo con parámetros opcionales (text/plain; charset=utf-8), como el type de un File del navegador.
+BLOB_MIME_TYPE_RE = re.compile(r'[\w.+-]+/[\w.+-]+(?:\s*;\s*[\w.+-]+=(?:[\w.+-]+|"[^"\\]*"))*')
+MAX_BLOB_MIME_TYPE_LENGTH = 255
 
 
 def put_blob(data_bytes: bytes, mime_type: str = "application/octet-stream", blob_id: str | None = None) -> dict:
@@ -1008,6 +1025,8 @@ def put_blob(data_bytes: bytes, mime_type: str = "application/octet-stream", blo
         clean_id = calc_id
 
     mime = (mime_type or "application/octet-stream").strip()
+    if len(mime) > MAX_BLOB_MIME_TYPE_LENGTH or not BLOB_MIME_TYPE_RE.fullmatch(mime):
+        raise ValueError("El tipo MIME del blob debe tener la forma tipo/subtipo")
     now = int(time.time() * 1000)
     with open_storage() as conn:
         conn.execute("""
@@ -1340,13 +1359,14 @@ def conversations_revision() -> str:
 
 
 def get_server_id() -> str:
-    """Identificador único y persistente de este servidor en SQLite."""
-    with _STORAGE_LOCK:
-        existing = get_secret(SERVER_ID_KEY)
-        if existing:
+    """Identificador único y persistente de este servidor en SQLite: si dos procesos lo crean a la vez, ambos
+    devuelven el mismo (la transacción de escritura serializa la lectura y la creación)."""
+    with open_storage() as conn, _immediate_transaction(conn):
+        row = conn.execute("SELECT value FROM secrets WHERE name = ?;", (SERVER_ID_KEY,)).fetchone()
+        if row and (existing := reveal_secret(row["value"])):
             return existing
         server_id = str(uuid.uuid4())
-        save_secret(SERVER_ID_KEY, server_id)
+        _write_secret_on_conn(conn, SERVER_ID_KEY, server_id, int(time.time() * 1000))
         return server_id
 
 
@@ -1568,7 +1588,15 @@ def delete_project_storage(project_key: str) -> list[str]:
     return deleted_ids
 
 
-def _has_prefix_match(conn: sqlite3.Connection, query: str, p1: str, p2: str) -> bool:
+def _has_prefix_match(conn: sqlite3.Connection, table: str, column: str, p1: str, p2: str) -> bool:
+    """Si alguna fila de table tiene column empezando por p1 o por p2."""
+    prefix = f"substr({column}, 1, ?)"
+    if DETECTED_OS in ("windows", "macos"):
+        # Sistemas de ficheros sin distinguir mayúsculas: C:/Proyecto/sub está dentro de c:/proyecto.
+        match = f"lower({prefix}) = lower(?)"
+    else:
+        match = f"{prefix} = ?"
+    query = f"SELECT 1 FROM {table} WHERE {match} OR {match} LIMIT 1;"  # noqa: S608
     return conn.execute(query, (len(p1), p1, len(p2), p2)).fetchone() is not None
 
 
@@ -1579,33 +1607,11 @@ def has_nested_project_data(project_key: str) -> bool:
         return False
     p_slash, p_back = f"{clean_key}/", f"{clean_key}\\"
     prefixed_slash, prefixed_back = f"{PROJECT_KEY_PREFIX}{p_slash}", f"{PROJECT_KEY_PREFIX}{p_back}"
+    checks = (
+        ("project_environments", "project_key", p_slash, p_back),
+        ("security_policies", "id", prefixed_slash, prefixed_back),
+        ("secrets", "name", prefixed_slash, prefixed_back),
+        ("conversations", "json_extract(extra_json, '$.project')", p_slash, p_back),
+    )
     with open_storage() as conn:
-        if _has_prefix_match(
-            conn,
-            "SELECT 1 FROM project_environments WHERE substr(project_key, 1, ?) = ? OR substr(project_key, 1, ?) = ? LIMIT 1;",
-            p_slash,
-            p_back,
-        ):
-            return True
-        if _has_prefix_match(
-            conn,
-            "SELECT 1 FROM security_policies WHERE substr(id, 1, ?) = ? OR substr(id, 1, ?) = ? LIMIT 1;",
-            prefixed_slash,
-            prefixed_back,
-        ):
-            return True
-        if _has_prefix_match(
-            conn,
-            "SELECT 1 FROM secrets WHERE substr(name, 1, ?) = ? OR substr(name, 1, ?) = ? LIMIT 1;",
-            prefixed_slash,
-            prefixed_back,
-        ):
-            return True
-        if _has_prefix_match(
-            conn,
-            "SELECT 1 FROM conversations WHERE substr(json_extract(extra_json, '$.project'), 1, ?) = ? OR substr(json_extract(extra_json, '$.project'), 1, ?) = ? LIMIT 1;",
-            p_slash,
-            p_back,
-        ):
-            return True
-    return False
+        return any(_has_prefix_match(conn, *check) for check in checks)

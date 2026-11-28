@@ -95,8 +95,8 @@ def _cancel_runs(conversation_ids):
 def _rpc_delete_conversations(params: dict) -> RpcOutcome:
     # En bloque, un solo historial (agents: chats o agentes) de un proyecto o de todos.
     if params.get("all") is True or "project" in params:
-        deleted_ids = delete_conversations(None if params.get("all") is True else params.get("project"), params.get("agents"))
-        _cancel_runs(deleted_ids)
+        deleted_ids = delete_conversations(None if params.get("all") is True else params.get("project"), params.get("agents"),
+                                           stop_runs=_cancel_runs)
         return rpc_result({"deleted": True, "count": len(deleted_ids)})
     conv_id = params.get("id")
     if isinstance(conv_id, str) and conv_id.strip():
@@ -162,7 +162,8 @@ def _put_blob(params: dict) -> RpcOutcome:
             mime_type = header[5:]
         raw_data = b64_part
     try:
-        data_bytes = base64.b64decode(raw_data)
+        # validate: un carácter ajeno al base64 es un error, no algo que se descarta guardando otros datos.
+        data_bytes = base64.b64decode(raw_data, validate=True)
     except Exception as decode_err:
         raise ValueError(f"Error decodificando base64: {decode_err}") from decode_err
     saved = put_blob(data_bytes, mime_type=mime_type, blob_id=params.get("id"))
