@@ -126,10 +126,13 @@ class PersistentBrowserSessionTest(unittest.TestCase):
             # Subclase y no una función: _kill_process_tree comprueba isinstance(proc, subprocess.Popen). Solo sustituye
             # a node: el taskkill de _kill_process_tree en Windows también pasa por Popen.
             def __init__(self, cmd, **kwargs):
-                super().__init__([sys.executable, "-c", script] if cmd[:1] == ["node"] else cmd, **kwargs)
+                self._is_fake_node = cmd[:1] == ["node"]
+                super().__init__([sys.executable, "-c", script] if self._is_fake_node else cmd, **kwargs)
 
             def wait(self, timeout=None):
-                return super().wait(timeout=min(timeout, 0.05) if timeout is not None else None)
+                if self._is_fake_node and timeout is not None:
+                    timeout = min(timeout, 0.05)
+                return super().wait(timeout=timeout)
 
         patches = (patch.object(zerochat.shutil, "which", return_value="node"), patch.object(zerochat.subprocess, "Popen", FakeNode))
         for patcher in patches:
