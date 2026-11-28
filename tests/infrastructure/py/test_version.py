@@ -1,4 +1,5 @@
 import contextlib
+import http.client
 import io
 import unittest
 from unittest.mock import patch
@@ -31,6 +32,10 @@ class VersionTest(unittest.TestCase):
                 patch.object(zerochat, "_read_remote_backend_version", return_value=newer_version):
             zerochat.check_version()
         ui_notice, backend_notice = zerochat.get_notices()[-2:]
+        # Una respuesta cortada de GitHub cuenta como sin conexión: no rompe la comprobación.
+        with patch.object(zerochat, "get_dev_root", return_value=None), \
+                patch.object(zerochat, "_read_remote_ui_version", side_effect=http.client.IncompleteRead(b"")):
+            zerochat.check_version()
         self.assertIn("Interfaz web en GitHub Pages: v99.1.2", ui_notice)
         self.assertIn("Nueva versión del servidor disponible", backend_notice)
         self.assertIn("-m pip install --upgrade", backend_notice)

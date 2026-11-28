@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import importlib.metadata
 import json
 import re
@@ -127,8 +128,8 @@ def check_version():
             else:
                 notice += f" Actualiza con: curl -sSL {REMOTE_SCRIPT_URL} -o zerochat.py"
             add_notice(notice)
-    except (urllib.error.URLError, TimeoutError, OSError):
-        # Modo offline o sin conectividad al comprobar versiones remotas.
+    except (urllib.error.URLError, http.client.HTTPException, TimeoutError, OSError):
+        # Modo offline, sin conectividad o con una respuesta cortada al comprobar versiones remotas.
         pass
 
 

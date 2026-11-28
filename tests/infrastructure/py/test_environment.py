@@ -38,6 +38,15 @@ class EnvironmentTest(unittest.TestCase):
                 zerochat.McpServiceManager()._prepare_service("example", {"_directory": service_dir})
 
 
+    def test_un_secreto_que_no_se_puede_escribir_no_deja_temporal(self):
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "token.json"
+            # Un sustituto suelto no se codifica en UTF-8: la escritura falla a medias.
+            with self.assertRaises(UnicodeEncodeError):
+                zerochat._write_private_text(target, "abc\ud800")
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+
 class SelfTestTest(unittest.TestCase):
     def test_test_comprueba_las_herramientas_locales_en_una_carpeta_propia(self):
         use_data_dir(self)

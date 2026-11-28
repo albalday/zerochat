@@ -374,7 +374,11 @@ def compile_backend(py_dir: Path = DEFAULT_PY_DIR) -> str:
 
 
 def build_backend(py_dir: Path = DEFAULT_PY_DIR, output_path: Path = DEFAULT_OUTPUT) -> Path:
-    compiled = compile_backend(py_dir)
+    return write_backend(compile_backend(py_dir), output_path)
+
+
+def write_backend(compiled: str, output_path: Path = DEFAULT_OUTPUT) -> Path:
+    """Escribe el código ya compilado como ejecutable."""
     output_path.write_text(compiled, encoding="utf-8")
     try:
         mode = output_path.stat().st_mode
@@ -401,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(compiled)
         return 0
 
-    build_backend(args.py_dir, args.output)
+    write_backend(compiled, args.output)
     return 0
 
 

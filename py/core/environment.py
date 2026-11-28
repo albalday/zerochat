@@ -107,9 +107,14 @@ def _write_private_text(target: Path, text: str):
     tmp_file = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp_file.unlink(missing_ok=True)
     fd = os.open(tmp_file, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(text)
-    tmp_file.replace(target)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        tmp_file.replace(target)
+    except BaseException:
+        # Sin dejar a medias un temporal con parte del secreto.
+        tmp_file.unlink(missing_ok=True)
+        raise
 
 
 ACTIVE_PORT = DEFAULT_PORT

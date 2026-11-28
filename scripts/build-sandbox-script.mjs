@@ -23,7 +23,7 @@ const outDir = outdirFlag === -1 ? ROOT_DIR : path.resolve(process.argv[outdirFl
 const script = fs.readFileSync(path.join(ROOT_DIR, 'scripts', 'sandbox-child.js'), 'utf8').trim();
 
 // Un literal JSON de solo ASCII es también un literal de cadena válido en Python y en JavaScript.
-const literal = value => JSON.stringify(value).replace(/[\u007f-￿]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+const literal = value => JSON.stringify(value).replace(/[\u007f-\uffff]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
 
 const python = `"""Proceso hijo de execute_javascript en Node. ${NOTICE}"""
 
