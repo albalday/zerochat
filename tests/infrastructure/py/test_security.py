@@ -207,6 +207,27 @@ class PolicyEvaluationTest(ControllerTestCase):
             for tool in ("read_file", "write_file"):
                 self.assertTrue(self.evaluate(tool, {"path": parent_rel}).allowed, parent_rel)
 
+    def test_rules_starting_with_a_wildcard_stay_inside_the_project(self):
+        (self.workspace / "src").mkdir()
+        set_rules(self.controller, ["RW:**"], self.ctx)
+        self.assertTrue(self.evaluate("read_file", {"path": "src/a.txt"}).allowed)
+        self.assertEqual(self.evaluate("read_file", {"path": "/etc/passwd"}).status, "ask")
+
+        set_rules(self.controller, ["R:**/*.py"], self.ctx)
+        self.assertTrue(self.evaluate("read_file", {"path": "a.py"}).allowed)
+        self.assertTrue(self.evaluate("read_file", {"path": "src/a.py"}).allowed)
+        self.assertEqual(self.evaluate("read_file", {"path": str(self.base_dir / "a.py")}).status, "ask")
+
+    def test_double_star_segment_also_matches_no_folder(self):
+        self.assertTrue(zerochat.matches_directory_pattern("/a/b", "/a/**/b"))
+        self.assertTrue(zerochat.matches_directory_pattern("/a/x/y/b", "/a/**/b"))
+        self.assertFalse(zerochat.matches_directory_pattern("/a/xb", "/a/**/b"))
+
+    def test_dot_dot_never_drops_the_windows_drive(self):
+        self.assertEqual(zerochat.normalize_directory_path("C:/a/../Windows"), "C:/Windows")
+        self.assertEqual(zerochat.normalize_directory_path("C:/../Windows"), "")
+        self.assertEqual(zerochat.normalize_directory_path("C:\\..\\Windows"), "")
+
     def test_default_rule_follows_the_project_and_is_never_stored(self):
         proj_a, proj_b = self.base_dir / "proj_a", self.base_dir / "proj_b"
         for proj in (proj_a, proj_b):
@@ -281,6 +302,9 @@ class PolicyEvaluationTest(ControllerTestCase):
             self.assertEqual(self.evaluate("run_command", {"command": command}).status, "ask", command)
         for command in ("npm run sudoku", "grep -r pseudo src", "cat mkfs-notes.txt", "ls systemctl-backup"):
             self.assertTrue(self.evaluate("run_command", {"command": command}).allowed, command)
+        # Una ruta externa que las comillas pegan a una opción no deja referencia que validar: pide permiso
+        for command in ('grep -f"/etc/passwd" .', 'git -C"/etc" status', 'grep -f"../secret" .'):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).status, "ask", command)
         # Un patrón guardado es una vía más de permitir: no hace más estrictas las reglas RWX del proyecto
         set_patterns(self.controller, "git status *")
         self.assertEqual(self.evaluate("run_command", {"command": "npm test"}).reason, "directory_rule_allow")
@@ -325,7 +349,8 @@ class PolicyEvaluationTest(ControllerTestCase):
         with unittest.mock.patch.object(zerochat, "COMMAND_SHELL", "posix"):
             self.assertEqual(zerochat.split_command("git log >/dev/null 2>&1| git status"), [("", "git log"), ("|", "git status")])
         unsplittable = ("git log >/dev/null.txt", "git log 2>/dev/null-x", "git log 2>&10", "git log > out.txt", "git log $(rm x)", "git log `rm x`", "git status & rm x", "(git status)",
-                        "if git status; then rm x; fi", "git status &&", "git log\nrm x", 'git log "a')
+                        "if git status; then rm x; fi", "git status &&", "git log\nrm x", 'git log "a',
+                        "eval 'echo x > out'", "source evil.sh", ". evil.sh", "exec sh")
         for command in unsplittable:
             dec = self.evaluate("run_command", {"command": command})
             self.assertEqual((dec.reason, dec.rule_offer), ("command_chaining_requires_approval", None), command)
@@ -919,6 +944,8 @@ class PowerShellCommandTest(ControllerTestCase):
         for command in ("Invoke-Command { Remove-Item src }", "ls | % { $_ }", "echo `whoami`", "& .\\build.ps1",
                         "npm test > /dev/null", "npm test > out.txt"):
             self.assertIsNone(split(command), command)
+        for command in ("iex 'Remove-Item src'", "Invoke-Expression 'Remove-Item src'"):
+            self.assertEqual(self.evaluate("run_command", {"command": command}).reason, "command_chaining_requires_approval", command)
         self.assertEqual(split("npm test 2>$null; npm run lint *>$null"), [("", "npm test"), (";", "npm run lint")])
         for command in ("npm test >$null.txt", "npm test 2>$null-out.txt", "npm test 2>&10"):
             self.assertIsNone(split(command), command)

@@ -108,12 +108,14 @@ def normalize_directory_path(value: str) -> str:
         return ""
     trimmed = value.strip().replace("\\", "/")
     is_absolute = bool(re.match(r"^(/|[A-Za-z]:/?)", trimmed))
+    # La unidad (C:) es la raíz de la ruta: un .. no la saca, igual que no sale de /.
+    root_parts = 1 if re.match(r"^[A-Za-z]:", trimmed) else 0
     parts = []
     for part in trimmed.split("/"):
         if not part or part == ".":
             continue
         if part == "..":
-            if parts:
+            if len(parts) > root_parts:
                 parts.pop()
             else:
                 return ""

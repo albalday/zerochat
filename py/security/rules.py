@@ -49,10 +49,12 @@ POWERSHELL_SPLIT_UNSUPPORTED = re.compile(r"[`\n\r{}]|\$\(|[<>]\(")
 # PowerShell también acepta como comillas las tipográficas: se leen como las ASCII.
 _POWERSHELL_QUOTES = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201a": "'", "\u201b": "'",
                                     "\u201c": '"', "\u201d": '"', "\u201e": '"'})
-# Palabras que cambian cómo se ejecuta lo que sigue (bloques, bucles, prefijos o cambios de carpeta ocultos).
+# Palabras que cambian cómo se ejecuta lo que sigue (bloques, bucles, prefijos, cambios de carpeta ocultos o texto
+# que se vuelve a leer como comando: eval, source, iex).
 SHELL_KEYWORDS = frozenset(["if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac",
                             "select", "function", "{", "}", "!", "[[", "time", "coproc", "pushd", "popd", "builtin",
-                            "set-location", "sl", "chdir", "push-location", "pop-location"])
+                            "eval", "exec", "source", ".", "set-location", "sl", "chdir", "push-location",
+                            "pop-location", "iex", "invoke-expression"])
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 # Un cd a una carpeta que solo la shell conoce: variables, ~, comodines o la anterior.
 CD_UNSAFE_TARGET = re.compile(r"[$~*?\[{]")
@@ -104,7 +106,8 @@ def matches_directory_pattern(path: str, pattern: str) -> bool:
         prefix = pattern if pattern.endswith("/") else f"{pattern}/"
         if path.startswith(prefix):
             return True
-    escaped = re.escape(pattern).replace(r"\*\*\/", ".*").replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
+    # /**/ también casa ninguna carpeta intermedia: /a/**/b cubre /a/b.
+    escaped = re.escape(pattern).replace(r"\*\*/", "(?:.*/)?").replace(r"\*\*", ".*").replace(r"\*", "[^/]*")
     return bool(re.fullmatch(escaped, path))
 
 
@@ -271,8 +274,9 @@ def is_workspace_local_command(segment: str) -> bool:
 def command_outside_references(segment: str) -> list[str] | None:
     """
     Rutas externas o con '..' que aparecen como argumentos del subcomando para validarlas frente a
-    directoryRules; [] si es local al proyecto, o None si lleva órdenes globales, $, ~ o texto con
-    rutas incrustadas no validables como argumento de ruta.
+    directoryRules; [] si es local al proyecto, o None si lleva órdenes globales, $, ~, texto con
+    rutas incrustadas no validables como argumento de ruta, o si el texto sale del proyecto pero sus
+    palabras no dejan ninguna ruta que validar (grep -f"/etc/passwd" . queda en -f/etc/passwd).
     """
     if is_workspace_local_command(segment):
         return []
@@ -293,7 +297,7 @@ def command_outside_references(segment: str) -> list[str] | None:
         if not _COMMAND_PATH_START.match(candidate) or _COMMAND_INTERNAL_OUTSIDE_REF.search(tail):
             return None
         refs.append(candidate)
-    return refs
+    return refs or None
 
 
 @functools.lru_cache(maxsize=512)

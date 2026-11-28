@@ -399,6 +399,10 @@ class AccessController:
             real_base = normalize_directory_path(str(target.resolve(strict=False)))
             if sep and base.endswith("/") and not real_base.endswith("/"):
                 real_base += "/"
+        elif workspace_dir:
+            # Una regla que empieza por un comodín (RW:**, RW:*.py) es relativa al proyecto, como RW:src/**.
+            real_base = normalize_directory_path(str(workspace_dir))
+            real_base += "" if real_base.endswith("/") else "/"
         else:
             real_base = ""
         return f"{real_base}{sep}{rest}"
