@@ -786,7 +786,7 @@
         const table = tableContainer?.querySelector('.markdown-table');
         if (!table) return;
         const csv = tableToCsv(table);
-        Utils.downloadFile(csv, 'tabla.csv', 'text/csv;charset=utf-8');
+        Utils.downloadFile(csv, I18n.t('md_export_table_csv_filename'), 'text/csv;charset=utf-8');
       });
     });
   }

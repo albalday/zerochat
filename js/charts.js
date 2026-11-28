@@ -90,7 +90,7 @@
         bars += `
           <g class="chart-bar-group">
             <rect x="${barX}" y="${barY}" width="${Math.max(singleBarWidth - 2, 2)}" height="${Math.max(barH, 2)}" fill="${color}" rx="3">
-              <title>${escapeHtml(label)} (${escapeHtml(ds.label || 'Valor')}): ${val.toLocaleString()}</title>
+              <title>${escapeHtml(label)} (${escapeHtml(ds.label || t('chart_default_series_value'))}): ${val.toLocaleString()}</title>
             </rect>
             <text x="${barX + singleBarWidth / 2}" y="${barY - 5}" font-size="10" font-weight="600" text-anchor="middle" fill="${color}">
               ${formatShortValue(val)}
@@ -294,7 +294,7 @@
       topLegend = '<div class="chart-legend-top">' + datasets.map((ds, idx) => `
         <span class="chart-legend-item">
           <span class="chart-legend-dot" style="background-color:${ds.color || COLOR_PALETTE[idx % COLOR_PALETTE.length]}"></span>
-          ${escapeHtml(ds.label || `Serie ${idx + 1}`)}
+          ${escapeHtml(ds.label || t('chart_default_series_name', { n: idx + 1 }))}
         </span>
       `).join('') + '</div>';
     }

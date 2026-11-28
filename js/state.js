@@ -358,7 +358,7 @@
      */
     function replaceMessages(messages) {
       if (!Array.isArray(messages)) {
-        throw new Error('[ChatState] replaceMessages: messages debe ser un Array.');
+        throw new Error('[ChatState] replaceMessages: messages must be an Array.');
       }
       setState({ messages: clone(messages) });
       return getState().messages;
@@ -458,7 +458,7 @@
     }
 
     function setProjectContext(patch) {
-      if (!patch || typeof patch !== 'object') throw new TypeError('[ChatState] setProjectContext: patch debe ser un objeto.');
+      if (!patch || typeof patch !== 'object') throw new TypeError('[ChatState] setProjectContext: patch must be an object.');
       const next = Object.assign({}, state.project);
       if (patch.status !== undefined) {
         if (!PROJECT_STATUSES.includes(patch.status)) throw new Error(`[ChatState] setProjectContext: invalid status "${patch.status}".`);
@@ -521,7 +521,7 @@
     /** Define los archivos adjuntos de la UI en el slice `ui.attachedFiles`. */
     function setAttachments(files) {
       if (!Array.isArray(files)) {
-        throw new Error('[ChatState] setAttachments: files debe ser un Array.');
+        throw new Error('[ChatState] setAttachments: files must be an Array.');
       }
       setState({
         ui: Object.assign({}, state.ui, { attachedFiles: clone(files) })

@@ -9,7 +9,7 @@ import time
 
 from core.environment import DETECTED_OS, minimal_child_env
 from core.process import _kill_process_tree
-from run_mode.state import NODE_REQUIRED_MESSAGE, find_node_executable
+from run_mode.state import NODE_REQUIRED_TOOL_ERROR, find_node_executable
 from tools.sandbox_script import NODE_SANDBOX_ARGS, NODE_SANDBOX_SCRIPT
 
 DEFAULT_SANDBOX_TIMEOUT_MS = 2500
@@ -40,7 +40,7 @@ def execute_js_sandbox(code: str, timeout_ms: int | float | None = None) -> dict
     resolved_timeout = _normalize_timeout_ms(timeout_ms)
     node_path = find_node_executable()
     if not node_path:
-        raise RuntimeError(NODE_REQUIRED_MESSAGE)
+        raise RuntimeError(f"{NODE_REQUIRED_TOOL_ERROR} to run execute_javascript.")
 
     payload = json.dumps({
         "code": code,

@@ -580,7 +580,7 @@ def launch_run_file(request: dict, cwd: Path) -> dict:
     check_no_active_run(conv_id)
     check_run_capacity()
     if not find_node_executable():
-        raise ValueError(f"Se necesita {NODE_REQUIRED_MESSAGE} para lanzar agentes.")
+        raise ValueError(f"{NODE_REQUIRED_TOOL_ERROR} to launch agents.")
     run_id = secrets.token_urlsafe(24)
     env = {key: value for key, value in os.environ.items() if key not in ("ZEROCHAT_RUN_SECURITY", ZEROCHAT_RUN_SUBAGENTS_ENV)}
     env["ZEROCHAT_RUN_ID"] = run_id
@@ -1059,7 +1059,10 @@ def run_outcome(session: RunSession) -> tuple[int, str | None]:
 
 # Versión mínima de Node.js para el runner: el modelo de permisos es estable desde la 22.13 (M65-D1).
 NODE_MINIMUM_VERSION = (22, 13)
-NODE_REQUIRED_MESSAGE = f"Node.js {'.'.join(map(str, NODE_MINIMUM_VERSION))} o superior"
+NODE_REQUIRED_VERSION = f"Node.js {'.'.join(map(str, NODE_MINIMUM_VERSION))}"
+NODE_REQUIRED_MESSAGE = f"{NODE_REQUIRED_VERSION} o superior"
+# Lo que leen los modelos va en inglés (launch_agent, execute_javascript).
+NODE_REQUIRED_TOOL_ERROR = f"{NODE_REQUIRED_VERSION} or later is required on the server"
 
 
 def find_node_executable() -> str | None:

@@ -145,7 +145,7 @@ test('ChatState - setProjectContext valida el estado y el cambio de conversació
   const store = ChatState.createStore();
   assert.equal(store.get('project').status, 'disabled');
   assert.throws(() => store.setProjectContext({ status: 'unknown' }), /invalid status/);
-  assert.throws(() => store.setProjectContext(null), /objeto/);
+  assert.throws(() => store.setProjectContext(null), /must be an object/);
 
   store.setProjectContext({ status: 'ready', cwd: '/repo', rules: { content: 'r', truncated: 'yes' } });
   assert.deepEqual(store.get('project').rules, { content: 'r', truncated: false });
