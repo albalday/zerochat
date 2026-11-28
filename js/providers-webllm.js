@@ -538,6 +538,7 @@
   return {
     COMPLETED_MODELS_STORAGE_KEY,
     verifyModuleIntegrity,
+    webllmModuleUrl,
     compareCatalogModels,
     normalizeProgress,
     parseProgressDetail,

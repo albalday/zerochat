@@ -11,7 +11,7 @@ const path = require('node:path');
 const ROOT = path.resolve(__dirname, '../..');
 const MOUNT = /^(?:mount\w*|initMcpUI|initRagUI)$/;
 // Módulos de interfaz que no siguen el prefijo ui-.
-const UI_MODULES = ['rag-ui.js', 'files-page.js', 'tool-cards.js'];
+const UI_MODULES = ['rag-ui.js', 'files-page.js', 'tool-cards.js', 'command-card.js', 'tab-alert.js', 'pwa-install.js', 'markdown.js', 'debug.js'];
 // Excepciones revisadas: enlazan una sola vez por otra vía.
 const EXCEPTIONS = {
   'ui-conversation.js': {
@@ -20,17 +20,32 @@ const EXCEPTIONS = {
   },
   'tool-cards.js': {
     promptToolAuthorization: 'cada reto pinta su propio panel: sus botones y la señal mueren con él'
+  },
+  'debug.js': {
+    registerGlobalErrorHandlers: 'solo lo llama app.js, una vez al arrancar'
+  },
+  'markdown.js': {
+    bindCopyButtons: 'enlaza cada nodo recién pintado una sola vez, marcado con data-listener-attached, y el listener muere con él',
+    bindPreviewButtons: 'enlaza cada nodo recién pintado una sola vez, marcado con data-listener-attached, y el listener muere con él',
+    bindTableActions: 'enlaza cada nodo recién pintado una sola vez, marcado con data-listener-attached, y el listener muere con él',
+    bindCollapsibleCards: 'enlaza cada cabecera recién pintada una sola vez, marcada con data-collapse-init, y el listener muere con ella'
   }
 };
 
-/** Funciones de primer nivel de la fábrica UMD (dos espacios de sangría) con sus líneas. */
+/**
+ * Funciones de primer nivel de la fábrica UMD (dos espacios de sangría) con sus líneas: las declaradas con function y
+ * las flecha asignadas a una constante (`const pinta = () => {`, o en una sola línea).
+ */
 function topLevelFunctions(lines) {
   const ranges = [];
   let current = null;
   lines.forEach((line, index) => {
-    const match = line.match(/^ {2}(?:async )?function (\w+)\(/);
-    if (match) current = { name: match[1], start: index };
-    else if (current && line === '  }') {
+    const declared = line.match(/^ {2}(?:async )?function (\w+)\(/);
+    const arrow = line.match(/^ {2}(?:const|let) (\w+) = (?:async )?(?:\([^)]*\)|\w+) =>(.*)$/);
+    if (declared) current = { name: declared[1], start: index };
+    else if (arrow && !arrow[2].trim().endsWith('{')) ranges.push({ name: arrow[1], start: index, end: index });
+    else if (arrow) current = { name: arrow[1], start: index };
+    else if (current && (line === '  }' || line === '  };')) {
       ranges.push({ ...current, end: index });
       current = null;
     }
@@ -43,7 +58,8 @@ test('Interfaz - addEventListener solo en código que se ejecuta una vez por mon
   for (const file of fs.readdirSync(path.join(ROOT, 'js')).filter(name => /^ui-.*\.js$/.test(name) || UI_MODULES.includes(name))) {
     const lines = fs.readFileSync(path.join(ROOT, 'js', file), 'utf8').split('\n');
     const ranges = topLevelFunctions(lines);
-    const enclosing = index => ranges.find(range => index > range.start && index < range.end);
+    // Incluye la primera línea: una flecha de una sola línea empieza y acaba en ella.
+    const enclosing = index => ranges.find(range => index >= range.start && index <= range.end);
     const callSites = name => lines.flatMap((line, index) => (
       new RegExp(`(?<![\\w.])${name}\\(`).test(line) && !/^\s*(?:async )?function /.test(line) ? [index] : []));
 

@@ -334,3 +334,24 @@ test('WebLLM - solo se ejecuta la librería descargada si su huella SHA-384 coin
   const tampered = new TextEncoder().encode('export const ok = false;');
   await assert.rejects(WebLLM.verifyModuleIntegrity(tampered, digest), /failed the integrity check/);
 });
+
+test('WebLLM - la librería descargada se rechaza sin ejecutarla si su huella no coincide o la descarga falla, y se puede reintentar', async () => {
+  const originalFetch = global.fetch;
+  const requested = [];
+  try {
+    // webllmModuleUrl es la descarga que usan loadWebLLM y el worker: verifica antes de dar la URL que se importa.
+    global.fetch = async url => {
+      requested.push(url);
+      return requested.length === 1
+        ? new Response('export const CreateMLCEngine = () => "alterada";', { status: 200 })
+        : new Response('', { status: 500 });
+    };
+    await assert.rejects(WebLLM.webllmModuleUrl(), /failed the integrity check/);
+    await assert.rejects(WebLLM.webllmModuleUrl(), /HTTP 500/);
+    // Cada fallo olvida la descarga: el siguiente intento vuelve a pedirla en vez de repetir el error guardado.
+    assert.equal(requested.length, 2);
+    assert.match(requested[0], /^https:\/\/cdn\.jsdelivr\.net\/npm\/@mlc-ai\/web-llm@/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
