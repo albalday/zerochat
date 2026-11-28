@@ -44,6 +44,17 @@ function useDialogs(t, confirmResult, alerts = []) {
   return confirms;
 }
 
+test('ChatUIMcp - detiene un servicio sobrante aunque haya más de 50 instalados por delante', async t => {
+  const servers = [...Array.from({ length: 50 }, (_, i) => ({ id: `idle${i}`, status: 'stopped' })), { id: 'obsolete', status: 'running' }];
+  setup(t, { status: 'connected', externalServers: servers });
+  ChatConfig.updateRuntime({ mcpServers: [], browser: 'none' });
+  useDialogs(t, null, []);
+  const stopped = [];
+  t.mock.method(ChatMCP.manager, 'stopExternalServer', async id => { stopped.push(id); });
+  await ChatUIMcp.reconcileProjectServices(servers);
+  assert.deepEqual(stopped, ['obsolete']);
+});
+
 test('ChatUIMcp - concilia servicios del proyecto en silencio, detiene los sobrantes y avisa solo si alguno falla', async t => {
   const servers = [
     { id: 'memory', status: 'stopped', displayName: { es: 'Memoria', en: 'Memory' } },

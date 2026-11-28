@@ -228,6 +228,19 @@ test('ContextManager - ventana deslizante contigua sin huecos y tope agregado po
   assert.equal(contents.some(c => typeof c === 'string' && c.startsWith('Petición actual')), true, 'Debe preservar siempre el mensaje user del turno en curso');
   assert.equal(contiguous.messages.at(-1).content, 'reciente');
 
+  // La nota de cambio de modelo no abre turno: el user del turno en curso sigue siendo la petición de la persona.
+  const afterSwitch = ChatContextManager.buildOptimizedContext([
+    { role: 'system', content: 'Sys' },
+    { role: 'user', content: 'Petición actual' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'big', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'big', name: 'read_file', content: 'B'.repeat(4000) },
+    { role: 'user', content: 'Nota de cambio de modelo', [ChatContextManager.TURN_CONTINUATION_FLAG]: true },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'small', function: { name: 'read_file', arguments: '{}' } }] },
+    { role: 'tool', tool_call_id: 'small', name: 'read_file', content: 'reciente' }
+  ], SMALLEST_CONTEXT);
+  assert.equal(afterSwitch.messages.some(m => typeof m.content === 'string' && m.content.startsWith('Petición actual')), true);
+  assert.equal(afterSwitch.messages.some(m => ChatContextManager.TURN_CONTINUATION_FLAG in m), false, 'La marca no viaja al proveedor');
+
   // 2. Tope agregado por lote de herramientas paralelas en borde exacto N y N+1 (en 150K: inputBudget=130904 -> batchMax=117813)
   const makeBatch = (len1, len2) => ChatContextManager.buildOptimizedContext([
     { role: 'system', content: 'Sys' },

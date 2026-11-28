@@ -106,6 +106,11 @@ test('ChatToolSecurity - mutaciones envían parches parciales y adoptan la respu
   const revokeSrvCall = mockClient.calls[mockClient.calls.length - 1];
   assert.deepEqual(revokeSrvCall.params, { servers: { srv1: null } });
   assert.equal(manager.getServerPolicy('srv1'), null);
+  // 'ask' revoca como en las herramientas: no deja una entrada guardada con 'ask'
+  await manager.setServerPolicy('srv1', 'allow');
+  await manager.setServerPolicy('srv1', 'ask');
+  assert.deepEqual(mockClient.calls.at(-1).params, { servers: { srv1: null } });
+  assert.equal(manager.getServerPolicy('srv1'), null);
 
   // 5. allowAll del proyecto y directoryRules
   await manager.setAllowAll(true);

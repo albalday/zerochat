@@ -77,7 +77,15 @@
   async function run(config) {
     const current = ++sequence;
     getState().setProfileCheck({ status: 'checking' });
-    const { contextLimit, ...status } = await evaluate(config);
+    let result;
+    try {
+      result = await evaluate(config);
+    } catch (error) {
+      // Un fallo inesperado no deja el perfil en «Comprobando» para siempre.
+      const message = error?.message || String(error);
+      result = { status: 'error', reason: failureReason(message), message, contextLimit: null };
+    }
+    const { contextLimit, ...status } = result;
     if (current !== sequence) return;
     getConfig().updateRuntime({ modelContextLimit: contextLimit });
     getState().setProfileCheck(status);

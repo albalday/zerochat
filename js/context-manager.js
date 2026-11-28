@@ -402,9 +402,12 @@
 
   // Marca del mensaje user con la evidencia visual de una racha de resultados (ChatEngine); no viaja al proveedor.
   const TOOL_EVIDENCE_FLAG = '_toolEvidence';
-  function stripToolEvidenceFlag(message) {
-    if (!message[TOOL_EVIDENCE_FLAG]) return message;
-    const { [TOOL_EVIDENCE_FLAG]: _flag, ...rest } = message;
+  // Marca del mensaje user que no abre turno (la nota de cambio de modelo de AgentRuntime): el turno en curso sigue
+  // siendo el del último mensaje de la persona, que no se poda ni queda fuera de la ventana. No viaja al proveedor.
+  const TURN_CONTINUATION_FLAG = '_turnContinuation';
+  function stripInternalFlags(message) {
+    if (!message[TOOL_EVIDENCE_FLAG] && !message[TURN_CONTINUATION_FLAG]) return message;
+    const { [TOOL_EVIDENCE_FLAG]: _evidence, [TURN_CONTINUATION_FLAG]: _continuation, ...rest } = message;
     return rest;
   }
 
@@ -653,8 +656,9 @@
 
     // 4. Los turnos cerrados (antes del último user) se podan; los pasos del turno en curso llevan el techo activo y
     // solo se podan si el turno no cabe. Sin un user en curso (el último bloque es el user) no hay turno activo.
-    const lastTurnStartsAtLastBlock = lastBlock[0]?.role === 'user';
-    const lastUserBlockIdx = lastTurnStartsAtLastBlock ? -1 : atomicBlocks.findLastIndex(block => block[0]?.role === 'user');
+    const opensTurn = block => block[0]?.role === 'user' && !block[0][TURN_CONTINUATION_FLAG];
+    const lastTurnStartsAtLastBlock = opensTurn(lastBlock);
+    const lastUserBlockIdx = lastTurnStartsAtLastBlock ? -1 : atomicBlocks.findLastIndex(opensTurn);
     const hasActiveTurn = lastUserBlockIdx !== -1;
 
     let prunedToolsCount = 0;
@@ -700,7 +704,7 @@
       ...systemMessages,
       ...window.included.flat(),
       ...processedLastBlock
-    ].map(stripToolEvidenceFlag);
+    ].map(stripInternalFlags);
 
     return {
       messages: finalMessages,
@@ -1018,6 +1022,7 @@
     truncateToolContent,
     buildOptimizedContext,
     TOOL_EVIDENCE_FLAG,
+    TURN_CONTINUATION_FLAG,
     getContextDiagnostics,
     shouldCompress,
     hasCompactableHistory,

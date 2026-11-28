@@ -94,7 +94,9 @@
     const embeddedImage = extractImageFromMcpContent(result?.content);
     let textOutput = '';
     if (Array.isArray(result?.content)) {
+      // Un servidor MCP puede devolver elementos que no son objetos (null): se muestran tal cual, sin romper la tarjeta.
       textOutput = result.content.map(item => {
+        if (!item || typeof item !== 'object') return JSON.stringify(item) ?? '';
         if (item.type === 'text') return item.text || '';
         if (item.type === 'image') {
           return item === embeddedImage?.item

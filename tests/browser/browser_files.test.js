@@ -127,6 +127,36 @@ describe('Browser UI - navegador de ficheros', { concurrency: 2 }, () => {
     }
   });
 
+  test('Browser UI - con clics rápidos entre carpetas se queda la última, aunque la anterior responda después', async () => {
+    const tree = {
+      '': [{ name: 'lenta', type: 'dir', size: null, modified: 0 }, { name: 'rapida', type: 'dir', size: null, modified: 0 }],
+      lenta: [{ name: 'de-lenta.txt', type: 'file', size: 1, modified: 0 }],
+      rapida: [{ name: 'de-rapida.txt', type: 'file', size: 1, modified: 0 }]
+    };
+    let releaseSlow;
+    const slow = new Promise(resolve => { releaseSlow = resolve; });
+    const files = await openFilesPage(async (method, params) => {
+      if (params.path === 'lenta') await slow;
+      return { path: params.path, entries: tree[params.path], total: tree[params.path].length, truncated: false };
+    });
+    const { page } = files;
+    try {
+      await page.waitForFunction(() => document.querySelectorAll('#files-list .files-entry').length === 2);
+      await page.locator('#files-list a.files-entry-name', { hasText: 'lenta' }).click();
+      await page.locator('#files-list a.files-entry-name', { hasText: 'rapida' }).click();
+      await page.waitForFunction(() => document.querySelector('#files-list .files-entry-name')?.textContent === 'de-rapida.txt');
+      // La respuesta de la carpeta anterior llega ahora: una vez procesada, la lista sigue siendo la de la última.
+      const slowAnswered = page.waitForResponse(response => response.request().postData()?.includes('"lenta"'));
+      releaseSlow();
+      await slowAnswered;
+      await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 100)));
+      assert.equal(await page.locator('#files-list .files-entry-name').first().textContent(), 'de-rapida.txt');
+      assert.deepEqual(files.errors, []);
+    } finally {
+      await files.close();
+    }
+  });
+
   test('Browser UI - un fichero de texto se abre con tamaño ajustable y descarga, y cualquier fichero se descarga desde la lista', async () => {
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 3, 250, 251]);
     const readme = Buffer.from('# Hola\n', 'utf-8');

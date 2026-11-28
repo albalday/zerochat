@@ -728,11 +728,13 @@
       // primer rechazo, el resto del turno se envía sin él.
       let stepReasoningEffort = reasoningEffort;
 
-      // Mensajes tras los que se cambió de modelo: a continuación se envía MODEL_SWITCH_NOTE, que no se guarda.
+      // Mensajes tras los que se cambió de modelo: a continuación se envía MODEL_SWITCH_NOTE, que no se guarda. Para
+      // prepareMessages (ContextManager) la nota no abre turno: el turno en curso sigue siendo el del último mensaje
+      // de la persona, que no puede quedar fuera de la ventana.
       const switchBoundaries = new Set();
-      const withSwitchBoundaries = messages => (switchBoundaries.size === 0
+      const withSwitchBoundaries = (messages, note) => (switchBoundaries.size === 0
         ? messages
-        : messages.flatMap(message => (switchBoundaries.has(message) ? [message, { role: 'user', content: MODEL_SWITCH_NOTE }] : [message])));
+        : messages.flatMap(message => (switchBoundaries.has(message) ? [message, note] : [message])));
 
       /** Toma la conexión vigente: otro modelo, u otro nivel de razonamiento, vale desde este paso. */
       const refreshConnection = async () => {
@@ -775,8 +777,10 @@
 
           const stepToolDefinitions = resolveToolDefinitions ? await resolveToolDefinitions() : [];
           const prepareStepMessages = msgs => (prepareMessages
-            ? prepareMessages(withSwitchBoundaries(msgs), { toolDefinitions: stepToolDefinitions, extraInputTokens: calibratedInputOffset, activeTurnCut })
-            : withSwitchBoundaries(msgs));
+            ? prepareMessages(
+              withSwitchBoundaries(msgs, { role: 'user', content: MODEL_SWITCH_NOTE, [ContextManager.TURN_CONTINUATION_FLAG]: true }),
+              { toolDefinitions: stepToolDefinitions, extraInputTokens: calibratedInputOffset, activeTurnCut })
+            : withSwitchBoundaries(msgs, { role: 'user', content: MODEL_SWITCH_NOTE }));
 
           // Evaluar shouldCompress sobre workingMessages (sin evidencia visual desmarcada) sumando el coste real
           // del prompt de sistema efectivo, las definiciones de herramientas y la calibración con promptTokens.

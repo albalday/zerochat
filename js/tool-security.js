@@ -134,7 +134,9 @@
       return entryOf(this.policies.servers, serverId)?.policy || null;
     }
 
+    /** 'ask' revoca la política guardada, como setToolPolicy; 'allow' o 'deny' la concede. */
     async setServerPolicy(serverId, policy, { serverName = serverId } = {}) {
+      if (policy === 'ask') return this.revokeServerPolicy(serverId);
       await this._patchBackend({ servers: { [serverId]: { policy, serverName } } });
     }
 

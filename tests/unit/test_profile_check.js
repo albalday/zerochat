@@ -80,6 +80,12 @@ test('ProfileCheck - WebLLM usa su ventana de contexto, Espejo quedan sin compro
   assert.deepEqual([checkState(), unloadable.length], [{ status: 'error', reason: 'unreachable', message: 'the local server did not answer' }, 0]);
 });
 
+test('ProfileCheck - un fallo inesperado de la comprobación se publica como error en vez de quedar comprobando', async t => {
+  t.mock.method(require('../../js/context-manager.js'), 'findModelInCatalog', () => { throw new Error('catalog broke'); });
+  await checkWith(t, OPENAI, { success: true, models: [{ id: 'gemma' }] });
+  assert.deepEqual(checkState(), { status: 'error', reason: 'unreachable', message: 'catalog broke' });
+});
+
 test('ProfileCheck - recheck vuelve a consultar el perfil activo sin que cambie y publica el nuevo resultado', async t => {
   let serverUp = false;
   const calls = await checkWith(t, OPENAI, () => (serverUp

@@ -242,15 +242,20 @@
       return null;
     }
     const page = { client, project, elements };
+    // Solo pinta la última carpeta pedida: con clics rápidos, una respuesta lenta no tapa la de la carpeta actual.
+    let loadSequence = 0;
     const load = async path => {
+      const current = ++loadSequence;
       showStatus(elements, t('files_loading'));
       try {
         const listing = await client.list(path);
+        if (current !== loadSequence) return null;
         showStatus(elements, '');
         renderListing(page, listing);
         doc.defaultView.scrollTo(0, 0);
         return listing;
       } catch (error) {
+        if (current !== loadSequence) return null;
         const key = errorKey(error);
         elements.list.replaceChildren();
         renderBreadcrumbs(page, path);

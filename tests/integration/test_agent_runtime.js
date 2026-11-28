@@ -33,6 +33,12 @@ test('AgentRuntime - cancelar mientras se autoriza no guarda un permiso permanen
   } finally { security.manager.setToolPolicy = previous; }
 });
 
+test('AgentRuntime - un resultado MCP con elementos que no son objetos se muestra sin romper la tarjeta', () => {
+  const McpResults = require('../../js/mcp-results.js');
+  const result = McpResults.formatToolCallResult({ content: [null, { type: 'text', text: 'hola' }, 7], isError: false });
+  assert.equal(result.content, 'null\n\nhola\n\n7');
+});
+
 test('AgentRuntime - los bloques MCP type:image válidos llegan como evidencia visual y respetan MIME y tope N/N+1', () => {
   const McpResults = require('../../js/mcp-results.js');
   const b64 = Buffer.from('png-bytes').toString('base64');

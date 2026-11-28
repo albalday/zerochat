@@ -229,7 +229,7 @@
       if (State.get('mcp').status !== 'connected') return { started, stopped, failed };
 
       const desired = new Set(desiredExternalServers(appConfig));
-      const initialServers = (servers || State.get('mcp').externalServers || []).slice(0, 50);
+      const initialServers = servers || State.get('mcp').externalServers || [];
 
       for (const server of initialServers) {
         if (!server?.id || desired.has(server.id)) continue;
