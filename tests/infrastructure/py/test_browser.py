@@ -131,8 +131,7 @@ class PersistentBrowserSessionTest(unittest.TestCase):
             def wait(self, timeout=None):
                 return super().wait(timeout=min(timeout, 0.05) if timeout is not None else None)
 
-        patches = (patch.object(zerochat.shutil, "which", return_value="node"), patch.object(zerochat.subprocess, "Popen", FakeNode),
-                   patch.object(zerochat, "BROWSER_ACTION_TIMEOUT_SECONDS", 0.05))
+        patches = (patch.object(zerochat.shutil, "which", return_value="node"), patch.object(zerochat.subprocess, "Popen", FakeNode))
         for patcher in patches:
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -142,7 +141,9 @@ class PersistentBrowserSessionTest(unittest.TestCase):
 
     def test_un_navegador_que_no_contesta_se_termina_y_uno_que_se_cierra_no_bloquea_la_sesion(self):
         hung = self.session_with('import sys, time; print(\'{"ready": true}\', flush=True); sys.stdin.readline(); time.sleep(60)')
-        result = hung.execute({"action": "navigate", "url": "https://example.com"})
+        hung._ensure_running()
+        with patch.object(zerochat, "BROWSER_ACTION_TIMEOUT_SECONDS", 0.05):
+            result = hung.execute({"action": "navigate", "url": "https://example.com"})
         self.assertIs(result["success"], False)
         self.assertIn("did not answer", result["error"])
         self.assertIsNone(hung._process)
